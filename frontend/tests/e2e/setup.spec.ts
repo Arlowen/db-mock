@@ -9,6 +9,12 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('总览', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
 
+  await page.goto('/catalog')
+  await expect(page.locator('.database-icon')).toHaveCount(19)
+  await expect(page.getByRole('img', { name: 'MySQL' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'PostgreSQL' })).toBeVisible()
+  await page.goto('/')
+
   await page.getByRole('button', { name: 'English' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
   await expect(page.getByText('Dashboard', { exact: true }).first()).toBeVisible()

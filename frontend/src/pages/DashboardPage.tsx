@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader, StatusTag } from '../components/Common'
+import { DatabaseIcon } from '../components/DatabaseIcon'
 import { api, errorMessage } from '../lib/api'
 import { translateCode } from '../lib/localization'
 import type { Alert, Instance, Task } from '../lib/types'
@@ -23,7 +24,7 @@ export function DashboardPage() {
   ]
   return <><PageHeader title={t('dashboard')} description={t('dashboardDescription')} actions={<Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/instances?create=1')}>{t('createInstance')}</Button>} />
     <Row gutter={[16, 16]}>{cards.map((card) => <Col xs={24} sm={12} xl={6} key={card.title}><Card className="stat-card"><Space align="start"><span className="stat-icon" style={{ color: card.color, background: `${card.color}14` }}>{card.icon}</span><Statistic title={card.title} value={card.value} suffix={<Typography.Text type="secondary" className="stat-suffix">{card.suffix}</Typography.Text>} /></Space></Card></Col>)}</Row>
-    <Row gutter={[16, 16]} className="dashboard-grid"><Col xs={24} xl={12}><Card title={t('instances')} extra={<Button type="link" onClick={() => navigate('/instances')}>{t('viewAll')}</Button>}><List dataSource={instances} locale={{ emptyText: t('noData') }} renderItem={(item) => <List.Item onClick={() => navigate(`/instances/${item.id}`)} className="clickable-list"><List.Item.Meta avatar={<span className="template-avatar">{item.templateSlug.slice(0, 2).toUpperCase()}</span>} title={item.name} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} /><StatusTag value={item.status} /></List.Item>} /></Card></Col>
+    <Row gutter={[16, 16]} className="dashboard-grid"><Col xs={24} xl={12}><Card title={t('instances')} extra={<Button type="link" onClick={() => navigate('/instances')}>{t('viewAll')}</Button>}><List dataSource={instances} locale={{ emptyText: t('noData') }} renderItem={(item) => <List.Item onClick={() => navigate(`/instances/${item.id}`)} className="clickable-list"><List.Item.Meta avatar={<DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />} title={item.name} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} /><StatusTag value={item.status} /></List.Item>} /></Card></Col>
     <Col xs={24} xl={12}><Card title={t('tasks')}><List dataSource={tasks} locale={{ emptyText: t('noData') }} renderItem={(item) => <List.Item onClick={() => navigate('/tasks')} className="clickable-list"><List.Item.Meta title={translateCode(t, item.kind, 'taskKind')} description={item.message ? translateCode(t, item.message, 'taskMessage') : translateCode(t, item.stage)} /><StatusTag value={item.status} /></List.Item>} /></Card></Col>
     <Col xs={24}><Card title={t('alerts')}><List grid={{ gutter: 16, xs: 1, md: 2 }} dataSource={alerts} locale={{ emptyText: t('noData') }} renderItem={(item) => <List.Item><Card size="small"><Space direction="vertical"><Space><AlertOutlined /><Typography.Text strong>{t(`alertTitle_${item.type}`, { defaultValue: item.title })}</Typography.Text><StatusTag value={item.severity} /></Space><Typography.Text type="secondary">{item.message}</Typography.Text></Space></Card></List.Item>} /></Card></Col></Row>
   </>

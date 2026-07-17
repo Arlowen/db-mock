@@ -32,9 +32,10 @@ button { font: inherit; }
 .clickable-list:hover { background: #f7f9fc; }
 .template-avatar, .user-avatar { width: 34px; height: 34px; border-radius: 9px; display: inline-grid; place-items: center; background: #eef4ff; color: #2563eb; font-weight: 700; flex: none; }
 .user-avatar { border-radius: 50%; background: #ecfdf5; color: #087f5b; }
-.template-logo { width: 56px; height: 56px; border-radius: 16px; background: #edf4ff; display: inline-grid; place-items: center; font-size: 15px; font-weight: 800; color: #2563eb; flex: none; }
-.template-logo.tier-experimental { background: #fff7e6; color: #d46b08; }
-.template-logo.tier-custom { background: #e6fffb; color: #08979c; }
+.database-icon { display: inline-grid; place-items: center; flex: none; box-shadow: inset 0 0 0 1px rgb(16 24 40 / 5%); }
+.database-icon svg { width: 64%; height: 64%; }
+.database-icon-large { width: 56px; height: 56px; border-radius: 16px; font-size: 34px; }
+.database-icon-small { width: 34px; height: 34px; border-radius: 9px; font-size: 21px; }
 .wizard-form { margin-top: 28px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .form-section, .fingerprint-card { margin-bottom: 20px; background: #fafcff; }
