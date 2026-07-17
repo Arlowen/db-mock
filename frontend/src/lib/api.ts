@@ -1,3 +1,5 @@
+import i18n from '../i18n'
+
 export class ApiError extends Error {
   status: number
   code: string
@@ -37,6 +39,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 }
 
 export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return i18n.t(`error_${error.code}`, { defaultValue: error.message })
   return error instanceof Error ? error.message : String(error)
 }
 

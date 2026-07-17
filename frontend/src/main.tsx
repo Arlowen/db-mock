@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { App as AntApp, ConfigProvider } from 'antd'
 import enUS from 'antd/locale/en_US'
@@ -12,6 +12,7 @@ import './styles/global.css'
 
 function Root() {
   const { i18n: active } = useTranslation()
+  useEffect(() => { document.documentElement.lang = active.language }, [active.language])
   return <ConfigProvider locale={active.language === 'en-US' ? enUS : zhCN} theme={{ token: { colorPrimary: '#2563eb', borderRadius: 10, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }, components: { Layout: { headerBg: '#fff', siderBg: '#fff' }, Menu: { itemBorderRadius: 8 } } }}><AntApp><BrowserRouter><AuthProvider><App /></AuthProvider></BrowserRouter></AntApp></ConfigProvider>
 }
 
