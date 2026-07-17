@@ -1,0 +1,53 @@
+import { CloudServerOutlined, DeleteOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, ToolOutlined } from '@ant-design/icons'
+import { App, Button, Card, Descriptions, Dropdown, Form, Input, InputNumber, Modal, Popconfirm, Progress, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { PageHeader, StatusTag } from '../components/Common'
+import { api, errorMessage } from '../lib/api'
+import type { Host, Project, Task } from '../lib/types'
+import { bytes } from '../lib/types'
+
+interface HostForm {
+  name: string; projectId?: string; sshAddress: string; sshPort: number; sshUser: string; authType: string;
+  credential?: string; passphrase?: string; hostKey?: string; connectionAddress?: string; dataRoot: string;
+  portStart: number; portEnd: number; manageDocker: boolean; maintenance: boolean; autoRestartDefault: boolean;
+  proxyHttp?: string; proxyHttps?: string; proxyNoProxy?: string;
+}
+
+export function HostsPage() {
+  const { t } = useTranslation(); const { message } = App.useApp(); const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [testing, setTesting] = useState(false); const [fingerprint, setFingerprint] = useState(''); const [form] = Form.useForm<HostForm>()
+  const load = useCallback(() => Promise.all([api<{ items: Host[] }>('/hosts'), api<{ items: Project[] }>('/projects')]).then(([h, p]) => { setItems(h.items); setProjects(p.items) }).catch((e) => message.error(errorMessage(e))), [message])
+  useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 15000); return () => clearInterval(timer) }, [load])
+  const show = (item?: Host) => { setEditing(item ?? null); setFingerprint(item?.hostKey ?? ''); form.setFieldsValue(item ? { ...item, credential: '', passphrase: '' } : { sshPort: 22, authType: 'private_key', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, maintenance: false, autoRestartDefault: true }); setOpen(true) }
+  const test = async () => { try { const values = await form.validateFields(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'dataRoot']); setTesting(true); const result = await api<{ hostKey: string; os: string; architecture: string; dockerVersion: string; composeVersion: string }>('/hosts/test', { method: 'POST', body: { ...values, hostKey: '' } }); setFingerprint(result.hostKey); form.setFieldValue('hostKey', result.hostKey); message.success(`${result.os}/${result.architecture} · Docker ${result.dockerVersion || 'not installed'}`) } catch (e) { message.error(errorMessage(e)) } finally { setTesting(false) } }
+  const submit = async () => { try { const values = await form.validateFields(); if (!fingerprint && !editing) { message.warning(t('confirmFingerprint')); return } await api(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...values, hostKey: fingerprint } }); setOpen(false); await load() } catch (e) { if (e instanceof Error) message.error(errorMessage(e)) } }
+  const action = async (item: Host, actionName: string) => { try { const task = await api<Task>(`/hosts/${item.id}/actions/${actionName}`, { method: 'POST', body: {} }); message.success(`${t('tasks')}: ${task.id.slice(0, 8)}`); await load() } catch (e) { message.error(errorMessage(e)) } }
+  const remove = async (item: Host) => { try { await api(`/hosts/${item.id}`, { method: 'DELETE', body: { confirmName: item.name } }); setDetail(null); await load() } catch (e) { message.error(errorMessage(e)) } }
+  const columns = useMemo(() => [
+    { title: t('name'), dataIndex: 'name', render: (value: string, item: Host) => <Button type="link" onClick={() => setDetail(item)}><CloudServerOutlined /> {value}</Button> },
+    { title: t('status'), dataIndex: 'status', render: (value: string) => <StatusTag value={value} /> },
+    { title: 'SSH', render: (_: unknown, item: Host) => <><Typography.Text>{item.sshUser}@{item.sshAddress}:{item.sshPort}</Typography.Text><br /><Typography.Text type="secondary">{item.os || '—'} / {item.architecture || '—'}</Typography.Text></> },
+    { title: 'Docker', render: (_: unknown, item: Host) => <><Typography.Text>{item.dockerVersion || '—'}</Typography.Text><br /><Typography.Text type="secondary">Compose {item.composeVersion || '—'}</Typography.Text></> },
+    { title: t('resources'), render: (_: unknown, item: Host) => <Space direction="vertical" size={0}><Typography.Text>{item.cpuCount} CPU · {bytes(item.memoryBytes)}</Typography.Text>{item.diskTotalBytes > 0 && <Progress percent={Math.round((1 - item.diskFreeBytes / item.diskTotalBytes) * 100)} size="small" status={(item.diskFreeBytes / item.diskTotalBytes) < .1 ? 'exception' : 'normal'} />}</Space> },
+    { title: t('actions'), align: 'right' as const, render: (_: unknown, item: Host) => <Dropdown menu={{ items: [
+      { key: 'probe', icon: <ReloadOutlined />, label: t('refresh'), onClick: () => void action(item, 'probe') },
+      { key: 'edit', label: t('edit'), onClick: () => show(item) },
+      { key: 'install', icon: <ToolOutlined />, label: t('installDocker'), disabled: !item.manageDocker, onClick: () => void action(item, 'install_docker') },
+      { key: 'upgrade', label: t('upgradeDocker'), disabled: !item.manageDocker, onClick: () => void action(item, 'upgrade_docker') },
+      { key: 'proxy', label: 'Apply Docker proxy', disabled: !item.manageDocker || item.os === 'darwin', onClick: () => void action(item, 'configure_proxy') },
+    ] }}><Button type="text" icon={<MoreOutlined />} /></Dropdown> },
+  ], [t])
+  return <><PageHeader title={t('hosts')} description="Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop." actions={<><Button icon={<ReloadOutlined />} onClick={() => void load()}>{t('refresh')}</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('addHost')}</Button></>} />
+    <Card><Table rowKey="id" dataSource={items} columns={columns} pagination={false} scroll={{ x: 980 }} /></Card>
+    <Modal title={editing ? t('edit') : t('addHost')} open={open} onCancel={() => setOpen(false)} onOk={() => void submit()} width={760} okText={t('save')} destroyOnHidden>
+      <Form form={form} layout="vertical" requiredMark={false}><div className="form-grid"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="sshAddress" label="SSH address" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="sshPort" label="SSH port" rules={[{ required: true }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="sshUser" label="SSH user" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="authType" label="Authentication"><Select options={[{ value: 'private_key', label: 'Private key' }, { value: 'password', label: 'Password' }]} /></Form.Item></div>
+        <Form.Item noStyle shouldUpdate={(a, b) => a.authType !== b.authType}>{({ getFieldValue }) => <><Form.Item name="credential" label={getFieldValue('authType') === 'password' ? t('password') : 'Private key'} rules={editing ? [] : [{ required: true }]}>{getFieldValue('authType') === 'password' ? <Input.Password /> : <Input.TextArea rows={5} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />}</Form.Item>{getFieldValue('authType') === 'private_key' && <Form.Item name="passphrase" label="Private key passphrase"><Input.Password /></Form.Item>}</>}</Form.Item>
+        <div className="form-grid"><Form.Item name="connectionAddress" label="Database connection address"><Input placeholder="Defaults to SSH address" /></Form.Item><Form.Item name="dataRoot" label="Managed data root" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="portStart" label="Port pool start"><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="portEnd" label="Port pool end"><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item></div>
+        <Card size="small" title="Proxy" className="form-section"><div className="form-grid"><Form.Item name="proxyHttp" label="HTTP_PROXY"><Input /></Form.Item><Form.Item name="proxyHttps" label="HTTPS_PROXY"><Input /></Form.Item></div><Form.Item name="proxyNoProxy" label="NO_PROXY"><Input /></Form.Item></Card>
+        <Space size="large"><Form.Item name="manageDocker" valuePropName="checked"><Switch /> <span>Allow Docker install/upgrade</span></Form.Item><Form.Item name="autoRestartDefault" valuePropName="checked"><Switch /> <span>{t('autoRestart')}</span></Form.Item><Form.Item name="maintenance" valuePropName="checked"><Switch /> <span>{t('maintenance')}</span></Form.Item></Space>
+        {!editing && <Card size="small" className="fingerprint-card"><Space direction="vertical"><Button loading={testing} icon={<SafetyCertificateOutlined />} onClick={() => void test()}>{t('testConnection')}</Button>{fingerprint && <><Typography.Text strong>{t('confirmFingerprint')}</Typography.Text><Typography.Text code copyable>{fingerprint.split(' ')[0]}</Typography.Text><Tag color="green">Confirmed</Tag></>}</Space></Card>}
+      </Form>
+    </Modal>
+    <Modal title={detail?.name} open={!!detail} onCancel={() => setDetail(null)} footer={<Space><Popconfirm title={t('delete')} description="The host must have no managed instances." onConfirm={() => detail && void remove(detail)}><Button danger icon={<DeleteOutlined />}>{t('delete')}</Button></Popconfirm><Button onClick={() => detail && show(detail)}>{t('edit')}</Button></Space>} width={720}><Descriptions column={2} items={detail ? [{ key: 'status', label: t('status'), children: <StatusTag value={detail.status} /> },{ key: 'ssh', label: 'SSH', children: `${detail.sshUser}@${detail.sshAddress}:${detail.sshPort}` },{ key: 'connect', label: 'Database address', children: detail.connectionAddress },{ key: 'root', label: 'Data root', children: detail.dataRoot },{ key: 'ports', label: 'Port pool', children: `${detail.portStart}–${detail.portEnd}` },{ key: 'system', label: 'System', children: `${detail.os}/${detail.architecture}` },{ key: 'docker', label: 'Docker', children: detail.dockerVersion || '—' },{ key: 'compose', label: 'Compose', children: detail.composeVersion || '—' }] : []} /></Modal>
+  </>
+}

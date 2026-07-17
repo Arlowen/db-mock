@@ -1,0 +1,103 @@
+package store
+
+import (
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pika/db-mock/internal/domain"
+)
+
+func (s *Store) CreateUpload(ctx context.Context, upload domain.Upload) (domain.Upload, error) {
+	if upload.ID == uuid.Nil {
+		upload.ID = uuid.New()
+	}
+	err := s.pool.QueryRow(ctx, `INSERT INTO uploads(id,filename,temporary_path,total_bytes,received_bytes,
+        expected_sha256,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING created_at,updated_at`, upload.ID, upload.Filename, upload.TemporaryPath, upload.TotalBytes,
+		upload.ReceivedBytes, upload.ExpectedSHA256, upload.Status, upload.CreatedBy).Scan(&upload.CreatedAt, &upload.UpdatedAt)
+	return upload, err
+}
+
+func (s *Store) GetUpload(ctx context.Context, id uuid.UUID) (domain.Upload, error) {
+	var item domain.Upload
+	err := s.pool.QueryRow(ctx, `SELECT id,filename,temporary_path,total_bytes,received_bytes,expected_sha256,
+        status,created_by,created_at,updated_at FROM uploads WHERE id=$1`, id).Scan(&item.ID, &item.Filename,
+		&item.TemporaryPath, &item.TotalBytes, &item.ReceivedBytes, &item.ExpectedSHA256, &item.Status,
+		&item.CreatedBy, &item.CreatedAt, &item.UpdatedAt)
+	return item, translate(err)
+}
+
+func (s *Store) UpdateUploadProgress(ctx context.Context, id uuid.UUID, received int64, status string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE uploads SET received_bytes=$2,status=$3,updated_at=now() WHERE id=$1`,
+		id, received, status)
+	return err
+}
+
+func (s *Store) CreateImageArtifact(ctx context.Context, item domain.ImageArtifact) (domain.ImageArtifact, error) {
+	if item.ID == uuid.Nil {
+		item.ID = uuid.New()
+	}
+	err := s.pool.QueryRow(ctx, `INSERT INTO image_artifacts(id,name,filename,path,size_bytes,sha256,format,
+        image_refs,architectures,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT(sha256) DO UPDATE SET last_used_at=now() RETURNING id,name,filename,path,size_bytes,
+        sha256,format,image_refs,architectures,status,created_by,created_at,last_used_at`, item.ID, item.Name,
+		item.Filename, item.Path, item.SizeBytes, item.SHA256, item.Format, item.ImageRefs, item.Architectures,
+		item.Status, item.CreatedBy).Scan(&item.ID, &item.Name, &item.Filename, &item.Path, &item.SizeBytes,
+		&item.SHA256, &item.Format, &item.ImageRefs, &item.Architectures, &item.Status, &item.CreatedBy,
+		&item.CreatedAt, &item.LastUsedAt)
+	return item, err
+}
+
+func (s *Store) GetImageArtifact(ctx context.Context, id uuid.UUID) (domain.ImageArtifact, error) {
+	var item domain.ImageArtifact
+	err := s.pool.QueryRow(ctx, `SELECT id,name,filename,path,size_bytes,sha256,format,image_refs,architectures,
+        status,created_by,created_at,last_used_at FROM image_artifacts WHERE id=$1`, id).Scan(&item.ID,
+		&item.Name, &item.Filename, &item.Path, &item.SizeBytes, &item.SHA256, &item.Format,
+		&item.ImageRefs, &item.Architectures, &item.Status, &item.CreatedBy, &item.CreatedAt, &item.LastUsedAt)
+	return item, translate(err)
+}
+
+func (s *Store) ListImageArtifacts(ctx context.Context) ([]domain.ImageArtifact, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id,name,filename,path,size_bytes,sha256,format,image_refs,architectures,
+        status,created_by,created_at,last_used_at FROM image_artifacts ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.ImageArtifact, 0)
+	for rows.Next() {
+		var item domain.ImageArtifact
+		if err := rows.Scan(&item.ID, &item.Name, &item.Filename, &item.Path, &item.SizeBytes,
+			&item.SHA256, &item.Format, &item.ImageRefs, &item.Architectures, &item.Status,
+			&item.CreatedBy, &item.CreatedAt, &item.LastUsedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) DeleteImageArtifact(ctx context.Context, id uuid.UUID) (string, error) {
+	var path string
+	err := s.pool.QueryRow(ctx, `DELETE FROM image_artifacts WHERE id=$1 AND NOT EXISTS(
+        SELECT 1 FROM instances WHERE configuration->>'imageArtifactId'=$1::text AND status<>'deleted') RETURNING path`, id).Scan(&path)
+	return path, translate(err)
+}
+
+func (s *Store) DeleteExpiredUploads(ctx context.Context, before time.Time) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `DELETE FROM uploads WHERE updated_at<$1 AND status<>'complete' RETURNING temporary_path`, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}

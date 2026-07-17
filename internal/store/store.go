@@ -1,0 +1,162 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pika/db-mock/internal/domain"
+)
+
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
+func translate(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) IsInitialized(ctx context.Context) (bool, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, "SELECT count(*) FROM users WHERE disabled_at IS NULL").Scan(&count)
+	return count > 0, err
+}
+
+func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
+	result := domain.Dashboard{Hosts: map[string]int{}, Instances: map[string]int{}}
+	rows, err := s.pool.Query(ctx, "SELECT status, count(*) FROM hosts GROUP BY status")
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			rows.Close()
+			return result, err
+		}
+		result.Hosts[status] = count
+	}
+	rows.Close()
+	rows, err = s.pool.Query(ctx, "SELECT status, count(*) FROM instances WHERE status <> 'deleted' GROUP BY status")
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			rows.Close()
+			return result, err
+		}
+		result.Instances[status] = count
+	}
+	rows.Close()
+	err = s.pool.QueryRow(ctx, `SELECT
+        (SELECT count(*) FROM tasks WHERE status IN ('queued','running')),
+        (SELECT count(*) FROM alerts WHERE status <> 'resolved'),
+        (SELECT count(*) FROM users WHERE disabled_at IS NULL),
+        (SELECT count(*) FROM projects)`).Scan(&result.ActiveTasks, &result.OpenAlerts, &result.Users, &result.Projects)
+	return result, err
+}
+
+type AuditInput struct {
+	UserID       *uuid.UUID
+	Username     string
+	Action       string
+	ResourceType string
+	ResourceID   *uuid.UUID
+	ResourceName string
+	IP           string
+	RequestID    string
+	TaskID       *uuid.UUID
+	Result       string
+	Changes      any
+	Message      string
+}
+
+func (s *Store) AddAudit(ctx context.Context, input AuditInput) error {
+	changes, err := json.Marshal(input.Changes)
+	if err != nil || string(changes) == "null" {
+		changes = []byte("{}")
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO audit_logs
+        (user_id,username,action,resource_type,resource_id,resource_name,ip,request_id,task_id,result,changes,message)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, input.UserID, input.Username,
+		input.Action, input.ResourceType, input.ResourceID, input.ResourceName, input.IP, input.RequestID,
+		input.TaskID, input.Result, changes, input.Message)
+	return err
+}
+
+func (s *Store) ListAudit(ctx context.Context, search, resourceType string, before time.Time, limit int) ([]domain.AuditLog, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	if before.IsZero() {
+		before = time.Now().Add(time.Hour)
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id,user_id,username,action,resource_type,resource_id,resource_name,
+        ip,request_id,task_id,result,changes,message,created_at FROM audit_logs
+        WHERE created_at < $1 AND ($2='' OR resource_type=$2) AND
+        ($3='' OR username ILIKE '%'||$3||'%' OR action ILIKE '%'||$3||'%' OR resource_name ILIKE '%'||$3||'%')
+        ORDER BY created_at DESC LIMIT $4`, before, resourceType, search, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.AuditLog, 0)
+	for rows.Next() {
+		var item domain.AuditLog
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.Action, &item.ResourceType,
+			&item.ResourceID, &item.ResourceName, &item.IP, &item.RequestID, &item.TaskID, &item.Result,
+			&item.Changes, &item.Message, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) ClearAudit(ctx context.Context, before time.Time) (int64, error) {
+	result, err := s.pool.Exec(ctx, "DELETE FROM audit_logs WHERE created_at < $1", before)
+	return result.RowsAffected(), err
+}
+
+func (s *Store) GetSettings(ctx context.Context) (map[string]json.RawMessage, error) {
+	rows, err := s.pool.Query(ctx, "SELECT key,value FROM settings ORDER BY key")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]json.RawMessage)
+	for rows.Next() {
+		var key string
+		var value json.RawMessage
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		result[key] = value
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) PutSetting(ctx context.Context, key string, value json.RawMessage) error {
+	if !json.Valid(value) {
+		return fmt.Errorf("%w: setting value is not valid JSON", domain.ErrInvalid)
+	}
+	_, err := s.pool.Exec(ctx, `INSERT INTO settings(key,value,updated_at) VALUES($1,$2,now())
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`, key, value)
+	return err
+}

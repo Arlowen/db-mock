@@ -1,0 +1,188 @@
+# DB Mock 技术架构
+
+## 1. 总览
+
+```mermaid
+flowchart LR
+    U["Browser"] -->|HTTP or HTTPS| A["DB Mock single service"]
+    A --> P[(PostgreSQL metadata)]
+    A --> F["Artifact storage"]
+    A -->|SSH and SFTP| H1["Linux Docker host"]
+    A -->|SSH and SFTP| H2["macOS Docker Desktop host"]
+    H1 --> C1["Compose database instances"]
+    H2 --> C2["Compose database instances"]
+    A -->|Signed events| W["Generic Webhooks"]
+    R["OCI registries"] --> H1
+    R --> H2
+```
+
+应用采用模块化单体。一个 Go 进程提供页面、JSON API、会话、任务调度、监控采集、
+Webhook 和 SSH 编排。React 构建产物通过 `go:embed` 编入同一个二进制。
+
+## 2. 技术选型
+
+- Go：HTTP、任务、加密、SSH/SFTP、Compose 编排。
+- React + TypeScript + Vite + Ant Design：管理页面。
+- PostgreSQL：事务元数据、任务、审计和短期指标历史。
+- Docker Compose v2：控制平台部署及远程数据库实例运行。
+- SSH/SFTP：无代理远程执行和文件传输。
+
+不引入 Redis、消息队列、Nginx、Prometheus 或常驻远程 Agent，以符合 10 主机、50 实例
+的规模并降低离线部署复杂度。
+
+## 3. 后端模块
+
+| 模块 | 职责 |
+|---|---|
+| `api` | 路由、JSON、会话中间件、错误契约、静态资源 |
+| `auth` | 初始化、登录、30 天会话、用户管理 |
+| `crypto` | AES-256-GCM 密钥封装、Argon2id 密码哈希、HMAC |
+| `store` | PostgreSQL 查询与事务边界 |
+| `hostops` | SSH、SFTP、OS/资源探测、Docker 安装/升级、Registry CA |
+| `templates` | 内置目录、自定义包校验、Compose 渲染和风险分析 |
+| `instances` | 资源预留、端口分配和 Compose 生命周期状态机 |
+| `tasks` | 持久化任务、阶段、日志、取消、重试和启动恢复 |
+| `monitor` | 30 秒采集、状态协调、重启策略、告警生成和历史清理 |
+| `webhooks` | HMAC 事件、筛选、重试和投递记录 |
+
+## 4. 数据模型
+
+主要关系：
+
+```mermaid
+erDiagram
+    USERS ||--o{ SESSIONS : owns
+    USERS ||--o{ AUDIT_LOGS : creates
+    PROJECTS ||--o{ HOSTS : groups
+    PROJECTS ||--o{ INSTANCES : groups
+    HOSTS ||--o{ INSTANCES : runs
+    TEMPLATES ||--o{ TEMPLATE_VERSIONS : contains
+    TEMPLATE_VERSIONS ||--o{ INSTANCES : pins
+    INSTANCES ||--o{ METRIC_SAMPLES : emits
+    INSTANCES ||--o{ ALERTS : raises
+    TASKS }o--|| USERS : requested_by
+    WEBHOOKS ||--o{ WEBHOOK_DELIVERIES : receives
+    IMAGE_ARTIFACTS ||--o{ UPLOAD_PARTS : consists_of
+```
+
+所有资源使用 UUID。数据库时间统一存 UTC，页面按 `Asia/Shanghai` 或系统设置展示。
+软状态（容器状态、资源）由监控协调；用户意图（手动停止、自动重启开关）单独持久化，
+避免监控错误拉起手动停止的实例。
+
+## 5. 实例状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> provisioning
+    provisioning --> running
+    provisioning --> failed
+    running --> stopping
+    stopping --> stopped
+    stopped --> starting
+    starting --> running
+    running --> upgrading
+    stopped --> upgrading
+    upgrading --> running
+    upgrading --> failed
+    running --> degraded
+    degraded --> running
+    degraded --> failed
+    running --> deleting
+    stopped --> deleting
+    failed --> deleting
+    deleting --> deleted
+```
+
+任务阶段包含前置检查、资源/端口预留、镜像准备、宿主机调优、文件分发、Compose 执行、
+健康检查和提交状态。删除采用显式 UUID 目录并验证目录属于主机配置的数据根，绝不使用
+未解析变量或宽泛路径执行递归删除。
+
+## 6. SSH 与命令安全
+
+- 只允许直连 SSH；保存并校验主机指纹，指纹变化将阻止自动操作。
+- 密码、私钥、仓库凭据和数据库密码在入库前使用 AES-256-GCM 加密。
+- 主密钥来自环境变量或 Docker Secret，不进入数据库。
+- 命令参数使用严格校验及 POSIX/PowerShell 不相关的 Linux/macOS shell 转义。
+- Docker 安装/升级、CA 安装和宿主机调优必须是显式任务并完整审计。
+- 日志层统一脱敏密码、Token、私钥和带凭据 URI。
+
+## 7. Compose 项目布局
+
+远程主机默认目录：
+
+```text
+<data-root>/
+  instances/<instance-uuid>/
+    compose.yaml
+    .env                 # 0600
+    config/
+    data/
+    runtime/
+    upgrade-snapshot/    # 仅升级期间存在
+```
+
+Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.instance`、
+`dbmock.template`、`dbmock.project` 标签。平台删除时只清理这一受管目录；自定义模板中
+指向目录外的绑定挂载仅停止使用，不删除源文件。
+
+## 8. 任务一致性
+
+- API 在数据库事务中创建资源意图和任务，HTTP 立即返回 `202 Accepted`。
+- 工作器使用 `FOR UPDATE SKIP LOCKED` 领取任务，保证单控制节点下仍具备清晰语义。
+- 同一主机的破坏性 Compose 任务串行执行；不同主机可以并行。
+- 每个阶段设计为可重试或可检测已完成。进程重启后排队任务继续，运行中任务标记为
+  `interrupted` 并允许用户重试。
+- 审计记录与任务 ID 关联。
+
+## 9. 监控与重启
+
+监控器每 30 秒按主机并发执行一次轻量 SSH 批处理，采集 Docker info、磁盘与所有受管
+Compose 容器状态，避免为每个容器单独建立连接。指标批量入库，7 天后清理。
+
+自动重启同时使用 Compose `restart: unless-stopped` 和控制面失败计数。用户手动停止会
+设置 `desired_state=stopped`；监控器只在 `desired_state=running` 且实例开关启用时补偿。
+
+## 10. 镜像上传与分发
+
+浏览器按固定块上传，服务端按上传 ID 保存块位图和临时文件。完成后校验 SHA-256、解析
+Docker/OCI manifest、记录镜像引用和平台架构。相同摘要只保留一份。
+
+分发使用 SFTP 从已传字节继续，完成后在远端执行 `docker load` 并删除临时文件。任务
+日志只记录摘要、大小和进度，不记录凭据。
+
+## 11. API 与前端
+
+JSON API 使用 `/api/v1`，统一错误格式：
+
+```json
+{
+  "error": {
+    "code": "resource_conflict",
+    "message": "port 23306 is already reserved",
+    "details": {}
+  },
+  "requestId": "..."
+}
+```
+
+API 是同源页面的内部接口，不承诺第三方兼容性。状态改变请求进行 Origin/CSRF 检查，
+登录 Cookie 不对 JavaScript 开放。任务详情使用短轮询或 SSE 展示增量日志。
+
+## 12. 部署与升级
+
+Compose 服务：
+
+- `dbmock`：应用、静态页面、任务与监控。
+- `postgres`：平台元数据。
+
+升级通过替换应用镜像并执行向前数据库迁移。由于首版明确不提供平台元数据备份，升级
+脚本必须在迁移前检查兼容性；破坏性迁移不允许进入首版。
+
+## 13. 测试策略
+
+- 单元：加密、密码、转义、模板渲染、资源调度、端口、状态机、Webhook 签名。
+- 存储：临时 PostgreSQL 下的迁移、事务与并发任务领取。
+- SSH/Docker：协议级 fake server 与命令快照；Linux x86 实机作为发布验收。
+- 前端：组件测试、API mock、关键创建/启停/删除流程的 Playwright。
+- 构建：前端产物嵌入 Go、Compose 启动、健康检查、多架构镜像。
+

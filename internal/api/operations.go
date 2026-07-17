@@ -1,0 +1,264 @@
+package api
+
+import (
+	"encoding/csv"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/pika/db-mock/internal/auth"
+	"github.com/pika/db-mock/internal/domain"
+	"github.com/pika/db-mock/internal/httpx"
+	"github.com/pika/db-mock/internal/store"
+)
+
+func (s *Server) alertRoutes(r chi.Router) {
+	r.Get("/", s.listAlerts)
+	r.Post("/{id}/{status}", s.updateAlert)
+}
+func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListAlerts(r.Context(), r.URL.Query().Get("status"), 200)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+func (s *Server) updateAlert(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	status := chi.URLParam(r, "status")
+	if status != "acknowledged" && status != "resolved" {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
+	if err = s.store.SetAlertStatus(r.Context(), id, status); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "alert."+status, "alert", &id, "", nil, "success", "")
+	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) webhookRoutes(r chi.Router) {
+	r.Get("/", s.listWebhooks)
+	r.Post("/", s.createWebhook)
+	r.Put("/{id}", s.updateWebhook)
+	r.Delete("/{id}", s.deleteWebhook)
+	r.Post("/{id}/test", s.testWebhook)
+}
+
+type webhookRequest struct {
+	Name    string   `json:"name"`
+	URL     string   `json:"url"`
+	Secret  string   `json:"secret"`
+	Events  []string `json:"events"`
+	Enabled bool     `json:"enabled"`
+}
+
+func validateWebhook(input webhookRequest) error {
+	parsed, err := url.Parse(input.URL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return domain.ErrInvalid
+	}
+	if input.Name == "" {
+		return domain.ErrInvalid
+	}
+	return nil
+}
+func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListWebhooks(r.Context())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
+	var input webhookRequest
+	if err := httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := validateWebhook(input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	id := uuid.New()
+	secret, err := s.sealOptional(input.Secret, "webhook:"+id.String())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	events, _ := json.Marshal(input.Events)
+	item, err := s.store.CreateWebhook(r.Context(), store.WebhookInput{ID: id, Name: input.Name, URL: input.URL, EncryptedSecret: secret, Events: events, Enabled: input.Enabled})
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "webhook.create", "webhook", &id, item.Name, nil, "success", "")
+	httpx.JSON(w, http.StatusCreated, item)
+}
+func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var input webhookRequest
+	if err = httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err = validateWebhook(input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	secret, err := s.sealOptional(input.Secret, "webhook:"+id.String())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	events, _ := json.Marshal(input.Events)
+	item, err := s.store.UpdateWebhook(r.Context(), id, store.WebhookInput{Name: input.Name, URL: input.URL, EncryptedSecret: secret, Events: events, Enabled: input.Enabled})
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "webhook.update", "webhook", &id, item.Name, nil, "success", "")
+	httpx.JSON(w, http.StatusOK, item)
+}
+func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err = s.store.DeleteWebhook(r.Context(), id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "webhook.delete", "webhook", &id, "", nil, "success", "")
+	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if _, err = s.store.GetWebhook(r.Context(), id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	payload := map[string]any{"event": "webhook.test", "sentAt": time.Now(), "user": actor.User.Username}
+	if err = s.store.EnqueueWebhookFor(r.Context(), id, "webhook.test", payload); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.audit(r, actor, "webhook.test", "webhook", &id, "", nil, "success", "")
+	httpx.JSON(w, http.StatusAccepted, map[string]bool{"queued": true})
+}
+
+func (s *Server) auditRoutes(r chi.Router) {
+	r.Get("/", s.listAudit)
+	r.Get("/export", s.exportAudit)
+	r.Post("/clear", s.clearAudit)
+}
+func auditBefore(r *http.Request) time.Time {
+	value := r.URL.Query().Get("before")
+	parsed, _ := time.Parse(time.RFC3339, value)
+	return parsed
+}
+func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListAudit(r.Context(), r.URL.Query().Get("search"), r.URL.Query().Get("resourceType"), auditBefore(r), 200)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+func (s *Server) exportAudit(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListAudit(r.Context(), r.URL.Query().Get("search"), r.URL.Query().Get("resourceType"), auditBefore(r), 500)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="dbmock-audit.csv"`)
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+	writer := csv.NewWriter(w)
+	_ = writer.Write([]string{"ID", "Time", "User", "Action", "Resource type", "Resource name", "Result", "IP", "Message"})
+	for _, item := range items {
+		_ = writer.Write([]string{strconv.FormatInt(item.ID, 10), item.CreatedAt.Format(time.RFC3339), item.Username, item.Action, item.ResourceType, item.ResourceName, item.Result, item.IP, item.Message})
+	}
+	writer.Flush()
+}
+func (s *Server) clearAudit(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Before  time.Time `json:"before"`
+		Confirm string    `json:"confirm"`
+	}
+	if err := httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if input.Confirm != "CLEAR" || input.Before.IsZero() {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
+	count, err := s.store.ClearAudit(r.Context(), input.Before)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "audit.clear", "audit", nil, "", nil, "success", "Deleted "+strconv.FormatInt(count, 10)+" audit records")
+	httpx.JSON(w, http.StatusOK, map[string]int64{"deleted": count})
+}
+
+func (s *Server) settingRoutes(r chi.Router) {
+	r.Get("/", s.getSettings)
+	r.Put("/{key}", s.putSetting)
+}
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.GetSettings(r.Context())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, items)
+}
+func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "key")
+	if key == "" {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
+	body := http.MaxBytesReader(w, r.Body, 1024*1024)
+	data, err := io.ReadAll(body)
+	if err != nil || !json.Valid(data) {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
+	if err = s.store.PutSetting(r.Context(), key, data); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "setting.update", "setting", nil, key, nil, "success", "")
+	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}

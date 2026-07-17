@@ -1,0 +1,13 @@
+.DS_Store
+.env
+data/
+/dist/
+frontend/node_modules/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+db-mock
+*.tar.gz

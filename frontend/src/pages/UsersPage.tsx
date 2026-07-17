@@ -1,0 +1,20 @@
+import { EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { App, Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { PageHeader } from '../components/Common'
+import { api, errorMessage } from '../lib/api'
+import type { User } from '../lib/types'
+
+interface UserForm { username?: string; displayName: string; password?: string; locale: string; disabled?: boolean }
+
+export function UsersPage() {
+  const { t } = useTranslation(); const { message } = App.useApp(); const [items, setItems] = useState<User[]>([]); const [open, setOpen] = useState(false); const [editing, setEditing] = useState<User | null>(null); const [form] = Form.useForm<UserForm>()
+  const load = useCallback(() => api<{ items: User[] }>('/users').then((value) => setItems(value.items)).catch((error) => message.error(errorMessage(error))), [message])
+  useEffect(() => { void load() }, [load])
+  const show = (item?: User) => { setEditing(item || null); form.resetFields(); form.setFieldsValue(item ? { displayName: item.displayName, locale: item.locale, disabled: !!item.disabledAt } : { locale: 'zh-CN', disabled: false }); setOpen(true) }
+  const save = async () => { try { const values = await form.validateFields(); const body = editing ? { displayName: values.displayName, locale: values.locale, password: values.password || '', disabled: !!values.disabled } : { username: values.username, displayName: values.displayName, locale: values.locale, password: values.password }; await api(editing ? `/users/${editing.id}` : '/users', { method: editing ? 'PATCH' : 'POST', body }); message.success(t('save')); setOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } }
+  return <><PageHeader title={t('users')} description="All users share the same platform permissions." actions={<Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('create')}</Button>} /><Card><Table rowKey="id" dataSource={items} pagination={false} columns={[{ title: t('username'), dataIndex: 'username', render: (value: string, item: User) => <Space><span className="user-avatar">{item.displayName.slice(0, 1).toUpperCase()}</span><div><Typography.Text strong>{item.displayName}</Typography.Text><br /><Typography.Text type="secondary">{value}</Typography.Text></div></Space> },{ title: t('language'), dataIndex: 'locale', render: (value: string) => <Tag>{value}</Tag> },{ title: t('status'), render: (_: unknown, item: User) => <Tag color={item.disabledAt ? 'default' : 'green'}>{item.disabledAt ? 'Disabled' : 'Active'}</Tag> },{ title: 'Last login', dataIndex: 'lastLoginAt', render: (value?: string) => value ? new Date(value).toLocaleString() : '—' },{ title: t('createdAt'), dataIndex: 'createdAt', render: (value: string) => new Date(value).toLocaleString() },{ title: '', render: (_: unknown, item: User) => <Button type="text" icon={<EditOutlined />} onClick={() => show(item)} /> }]} /></Card>
+    <Modal title={editing ? t('edit') : t('create')} open={open} onCancel={() => setOpen(false)} onOk={() => void save()} destroyOnHidden><Form form={form} layout="vertical">{!editing && <Form.Item name="username" label={t('username')} rules={[{ required: true }]}><Input autoComplete="off" /></Form.Item>}<Form.Item name="displayName" label={t('displayName')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="password" label={editing ? `${t('password')} (leave empty to keep)` : t('password')} rules={editing ? [] : [{ required: true }]}><Input.Password autoComplete="new-password" /></Form.Item><Form.Item name="locale" label={t('language')} rules={[{ required: true }]}><Select options={[{ value: 'zh-CN', label: '中文' }, { value: 'en-US', label: 'English' }]} /></Form.Item>{editing && <Form.Item name="disabled" label="Disabled" valuePropName="checked"><Switch /></Form.Item>}</Form></Modal>
+  </>
+}
