@@ -50,9 +50,18 @@ button { font: inherit; }
 .alert-icon.severity-critical { color: #cf1322; background: #fff1f0; }
 .alert-icon.severity-warning { color: #d46b08; background: #fff7e6; }
 .catalog-toolbar { margin-bottom: 16px; }
-.template-card { height: 100%; }
-.template-card .ant-card-body { min-height: 180px; }
-.template-meta { margin-top: 18px; padding-top: 14px; border-top: 1px solid #eef1f5; display: flex; gap: 12px; flex-wrap: wrap; color: #667085; font-size: 12px; }
+.template-card { height: 100%; display: flex; flex-direction: column; }
+.template-card .ant-card-body { min-height: 222px; display: flex; flex: 1; flex-direction: column; }
+.template-card .ant-card-actions { flex: none; }
+.template-card-main { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 14px; flex: 1; }
+.template-card-content { min-width: 0; display: grid; grid-template-rows: 56px 44px minmax(24px, auto); align-content: start; }
+.template-card-title-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.template-card-title-row .ant-tag { flex: none; margin-inline-end: 0; }
+.template-card-title.ant-typography { min-width: 0; margin: 0; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.template-card-description.ant-typography { min-height: 44px; margin: 0; line-height: 22px; }
+.template-card-tags { min-height: 24px; align-content: start; }
+.template-card-tags .ant-tag { margin-inline-end: 0; }
+.template-meta { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eef1f5; display: flex; gap: 12px; flex-wrap: wrap; color: #667085; font-size: 12px; }
 .project-card { height: 100%; }
 .project-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 4px rgb(37 99 235 / 9%); }
 .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 42px; background: radial-gradient(circle at 15% 10%, #e7f0ff 0, transparent 28%), radial-gradient(circle at 85% 85%, #dff8f4 0, transparent 30%), #f5f7fb; }

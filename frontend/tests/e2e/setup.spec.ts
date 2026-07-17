@@ -13,6 +13,11 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.locator('.database-icon')).toHaveCount(19)
   await expect(page.getByRole('img', { name: 'MySQL' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'PostgreSQL' })).toBeVisible()
+  const cardBaselines = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).slice(0, 2).map((card) => {
+    const top = (selector: string) => Math.round(card.querySelector(selector)?.getBoundingClientRect().top ?? 0)
+    return ['.template-card-title-row', '.template-card-description', '.template-card-tags', '.template-meta', '.ant-card-actions'].map(top)
+  }))
+  expect(cardBaselines[0]).toEqual(cardBaselines[1])
   await page.goto('/')
 
   await page.getByRole('button', { name: 'English' }).click()
