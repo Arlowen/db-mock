@@ -73,7 +73,39 @@ button { font: inherit; }
 .verification-section .ant-descriptions-item-label { color: #667085; font-size: 12px; }
 .fingerprint-value { display: inline-block; max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
 .workflow-modal-footer, .workflow-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.secret-details { margin-top: 22px; }
+.instance-page-alert { margin-bottom: 16px; }
+.health-summary-card { height: 100%; }
+.health-summary-card .ant-card-body { min-height: 220px; display: grid; grid-template-columns: 50px minmax(0, 1fr); align-content: start; gap: 12px; }
+.health-summary-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; font-size: 23px; }
+.health-summary-icon.is-success { color: #12805c; background: #e9f8f1; }
+.health-summary-icon.is-warning { color: #b35c00; background: #fff4df; }
+.health-summary-icon.is-error { color: #c02c3a; background: #fff0f1; }
+.health-summary-icon.is-neutral { color: #667085; background: #f0f2f5; }
+.health-summary-copy { min-width: 0; padding-top: 1px; }
+.health-summary-copy .ant-tag { margin-inline-end: 0; }
+.health-summary-copy .ant-typography { margin: 8px 0 0; line-height: 1.55; }
+.health-facts { grid-column: 1 / -1; margin-top: 8px; padding-top: 14px; border-top: 1px solid #edf0f4; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.health-facts > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.health-facts .ant-typography-secondary { font-size: 12px; }
+.connection-card .ant-card-body { min-height: 300px; }
+.connection-gate { width: min(520px, 100%); margin: 22px auto 10px; text-align: center; }
+.connection-gate-icon { width: 52px; height: 52px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 15px; color: #2563eb; background: #edf4ff; font-size: 23px; }
+.connection-gate h4.ant-typography { margin-bottom: 8px; }
+.connection-gate .ant-typography-secondary { margin-bottom: 20px; line-height: 1.6; }
+.connection-toolbar { margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.connection-toolbar .ant-typography-secondary { max-width: 660px; margin: 4px 0 0; line-height: 1.5; }
+.connection-strings { margin-top: 18px; display: grid; gap: 10px; }
+.connection-string { min-width: 0; padding: 12px 14px; border: 1px solid #e4e9f0; border-radius: 10px; background: #f8fafc; display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: start; gap: 14px; }
+.connection-string code { white-space: normal; overflow-wrap: anywhere; }
+.ops-alert { margin-bottom: 18px; }
+.metric-summary { margin-bottom: 22px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #e7ebf1; border-radius: 12px; overflow: hidden; background: #fbfcfe; }
+.metric-stat { min-width: 0; min-height: 96px; padding: 15px 18px; display: flex; flex-direction: column; gap: 4px; }
+.metric-stat + .metric-stat { border-left: 1px solid #e7ebf1; }
+.metric-stat .ant-typography-secondary { font-size: 12px; }
+.metric-stat strong { color: #172033; font-size: 23px; line-height: 1.3; letter-spacing: -.25px; }
+.metric-stat span { color: #667085; font-size: 12px; }
+.metric-stat .metric-time { padding-top: 3px; font-size: 14px; line-height: 1.45; }
+.metric-chart { height: 360px; }
 .log-viewer, .settings-json { margin: 0; padding: 16px; border-radius: 10px; background: #101828; color: #d6e0f0; overflow: auto; max-height: 560px; min-height: 130px; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-json { min-height: 180px; max-height: 300px; }
 .json-editor textarea, textarea.json-editor { font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -107,6 +139,11 @@ button { font: inherit; }
   .app-content { padding: 22px; }
   .auth-shell { padding: 28px; }
   .onboarding-steps { grid-template-columns: 1fr; }
+  .metric-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-stat:nth-child(3) { border-left: 0; border-top: 1px solid #e7ebf1; }
+  .metric-stat:nth-child(4) { border-top: 1px solid #e7ebf1; }
+  .connection-toolbar { align-items: stretch; flex-direction: column; }
+  .connection-string { grid-template-columns: 1fr; gap: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test('initializes the platform and switches the embedded interface language', async ({ page }) => {
+  test.setTimeout(90_000)
   await page.goto('/')
   await page.locator('#username').fill('e2e-admin')
   await page.locator('#displayName').fill('E2E Admin')
@@ -70,6 +71,57 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(createInstanceDrawer.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
   await createInstanceDrawer.getByRole('button', { name: /取\s*消/ }).click()
   await page.unroute('**/api/v1/hosts')
+
+  const instanceID = '44444444-4444-4444-8444-444444444444'
+  let failLogs = true
+  await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: {
+    id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555',
+    environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0,
+    cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0',
+    databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17',
+    hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
+  } }))
+  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
+  await page.route(`**/api/v1/instances/${instanceID}/logs?**`, async (route) => failLogs
+    ? route.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'SSH temporarily unavailable' } } })
+    : route.fulfill({ status: 200, contentType: 'text/plain', body: '' }))
+  await page.route(`**/api/v1/instances/${instanceID}/metrics?**`, async (route) => route.fulfill({ json: { items: [
+    { collectedAt: new Date(Date.now() - 60000).toISOString(), cpuPercent: 12.5, memoryBytes: 2147483648, memoryPercent: 50, diskUsedBytes: 5368709120, diskTotalBytes: 21474836480 },
+    { collectedAt: new Date().toISOString(), cpuPercent: 17.5, memoryBytes: 2362232012, memoryPercent: 55, diskUsedBytes: 6442450944, diskTotalBytes: 21474836480 },
+  ] } }))
+  await page.goto(`/instances/${instanceID}`)
+  await expect(page.getByRole('heading', { name: /Orders DB/ })).toBeVisible()
+  await expect(page.getByText('实例正在运行，暂未发现健康问题。')).toBeVisible()
+  await expect(page.getByText('100%', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '更多操作' }).click()
+  await expect(page.getByRole('menuitem', { name: '升级' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '删除' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('tab', { name: '连接信息' }).click()
+  await expect(page.getByText('连接信息受保护')).toBeVisible()
+  await page.getByRole('button', { name: '显示连接信息' }).click()
+  await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '隐藏连接信息' }).click()
+  await expect(page.getByText('e2e-secret', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '显示连接信息' }).click()
+
+  await page.getByRole('tab', { name: '日志' }).click()
+  await expect(page.getByText('无法加载实例日志')).toBeVisible()
+  await expect(page.getByText('SSH temporarily unavailable')).toBeVisible()
+  failLogs = false
+  await page.getByRole('button', { name: /重\s*试/ }).click()
+  await expect(page.getByText('当前没有可显示的容器日志。实例刚启动时可能需要稍等片刻。')).toBeVisible()
+  await page.getByRole('tab', { name: '连接信息' }).click()
+  await expect(page.getByText('连接信息受保护')).toBeVisible()
+
+  await page.getByRole('tab', { name: '监控' }).click()
+  await expect(page.locator('.metric-stat').filter({ hasText: 'CPU' })).toContainText('17.5%')
+  await expect(page.getByText('最近 24 小时', { exact: true })).toBeVisible()
+  await page.unroute(`**/api/v1/instances/${instanceID}/metrics?**`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/logs?**`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/connection`)
+  await page.unroute(`**/api/v1/instances/${instanceID}`)
 
   await page.goto('/images')
   await expect(page.getByText('尚未上传离线镜像。上传 docker save 导出的镜像包，即可在无法访问镜像仓库时部署数据库。')).toBeVisible()
