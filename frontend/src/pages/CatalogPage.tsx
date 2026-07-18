@@ -1,5 +1,5 @@
 import { ExperimentOutlined, PlusOutlined, SafetyOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
-import { App, Button, Card, Input, Modal, Segmented, Space, Tag, Typography, Upload } from 'antd'
+import { Alert, App, Button, Card, Descriptions, Input, Modal, Segmented, Space, Tag, Typography, Upload } from 'antd'
 import type { UploadFile } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +11,7 @@ import type { DatabaseTemplate } from '../lib/types'
 import { bytes } from '../lib/types'
 
 export function CatalogPage() {
-  const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [risk, setRisk] = useState<DatabaseTemplate | null>(null)
+  const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [details, setDetails] = useState<DatabaseTemplate | null>(null)
   const load = useCallback(() => api<{ items: DatabaseTemplate[] }>('/templates').then((r) => setItems(r.items)).catch((e) => message.error(errorMessage(e))).finally(() => setLoading(false)), [message]); useEffect(() => { void load() }, [load])
   const filtered = useMemo(() => items.filter((item) => (tier === 'all' || item.tier === tier) && `${item.name} ${item.nameZh} ${item.category}`.toLowerCase().includes(search.toLowerCase())), [items, search, tier])
   const showUpload = () => { setFile(null); setUploadOpen(true) }
@@ -24,7 +24,7 @@ export function CatalogPage() {
     {!loading && filtered.length > 0 && <div className="catalog-grid">{filtered.map((item) => {
       const version = item.versions[0]
       const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name
-      return <Card key={item.id} className="template-card" actions={[<Button key="create" type="link" icon={<PlusOutlined />} onClick={() => navigate(`/instances?create=1&template=${version?.id}`)}>{t('create')}</Button>, <Button key="risk" type="link" onClick={() => setRisk(item)}>{t('details')}</Button>]}>
+      return <Card key={item.id} className="template-card" actions={[<Button key="create" type="link" icon={<PlusOutlined />} onClick={() => navigate(`/instances?create=1&template=${version?.id}`)}>{t('create')}</Button>, <Button key="details" type="link" onClick={() => setDetails(item)}>{t('details')}</Button>]}>
         <div className="template-card-main">
           <div className="template-card-header">
             <DatabaseIcon slug={item.slug} name={displayName} />
@@ -38,6 +38,43 @@ export function CatalogPage() {
       </Card>
     })}</div>}
     <Modal title={t('uploadTemplate')} open={uploadOpen} onCancel={() => { if (!uploading) setUploadOpen(false) }} onOk={() => void upload()} confirmLoading={uploading} okText={t('uploadTemplate')} okButtonProps={{ disabled: !file }}><Typography.Paragraph type="secondary">{t('uploadTemplateHint')}</Typography.Paragraph><Upload.Dragger accept=".zip" maxCount={1} beforeUpload={() => false} fileList={file ? [file] : []} disabled={uploading} onChange={({ fileList }) => setFile(fileList.at(-1) ?? null)}><p className="ant-upload-drag-icon"><UploadOutlined /></p><p>{t('dropTemplatePackage')}</p></Upload.Dragger></Modal>
-    <Modal title={risk?.name} open={!!risk} onCancel={() => setRisk(null)} footer={<Button onClick={() => setRisk(null)}>{t('confirm')}</Button>}><Space direction="vertical" style={{ width: '100%' }}><Space>{risk?.tier === 'experimental' ? <ExperimentOutlined /> : <SafetyOutlined />}<StatusTag value={risk?.tier ?? ''} /></Space>{risk?.riskReport?.length ? risk.riskReport.map((item) => <Card size="small" key={item.code}><Space align="start"><WarningOutlined style={{ color: item.severity === 'critical' ? '#cf1322' : '#d48806' }} /><div><Typography.Text strong>{item.code}</Typography.Text><br /><Typography.Text type="secondary">{t(`risk_${item.code}`, { defaultValue: item.message })}</Typography.Text></div></Space></Card>) : <Typography.Text type="secondary">{t('noComposeRisks')}</Typography.Text>}</Space></Modal>
+    <TemplateDetailsModal template={details} onClose={() => setDetails(null)} onCreate={(versionID) => { setDetails(null); navigate(`/instances?create=1&template=${versionID}`) }} />
   </>
+}
+
+function TemplateDetailsModal({ template, onClose, onCreate }: { template: DatabaseTemplate | null; onClose: () => void; onCreate: (versionID: string) => void }) {
+  const { t, i18n } = useTranslation()
+  const version = template?.versions[0]
+  const displayName = template ? i18n.language === 'zh-CN' ? template.nameZh || template.name : template.name : ''
+
+  return <Modal
+    className="template-detail-modal"
+    title={t('templateDetails')}
+    open={!!template}
+    width={720}
+    destroyOnHidden
+    onCancel={onClose}
+    footer={<><Button onClick={onClose}>{t('close')}</Button><Button type="primary" icon={<PlusOutlined />} disabled={!version} onClick={() => version && onCreate(version.id)}>{t('createInstance')}</Button></>}
+  >
+    {template && <div className="template-detail">
+      <div className="template-detail-summary">
+        <DatabaseIcon slug={template.slug} name={displayName} />
+        <div>
+          <Space wrap size={[8, 6]}><Typography.Title level={4}>{displayName}</Typography.Title><StatusTag value={template.tier} /><Tag>{t(`category_${template.category.replaceAll('-', '_')}`, { defaultValue: template.category })}</Tag></Space>
+          <Typography.Paragraph type="secondary">{t(`templateDescription_${template.slug}`, { defaultValue: template.description })}</Typography.Paragraph>
+        </div>
+      </div>
+      {version && <Descriptions className="template-detail-facts" bordered size="small" column={1} items={[
+        { key: 'version', label: t('version'), children: <Typography.Text strong>v{version.version}</Typography.Text> },
+        { key: 'port', label: t('containerPort'), children: <Typography.Text code>{version.defaultPort}</Typography.Text> },
+        { key: 'image', label: t('imageReference'), children: <Typography.Text code copyable={{ text: version.imageReference }}>{version.imageReference}</Typography.Text> },
+        { key: 'architectures', label: t('architecture'), children: <Space wrap size={[4, 4]}>{version.architectures.map((arch) => <Tag key={arch}>{arch}</Tag>)}</Space> },
+        { key: 'resources', label: t('minimumResources'), children: `${version.minCpu} CPU · ${bytes(version.minMemoryBytes)} ${t('memory')} · ${bytes(version.minDiskBytes)} ${t('disk')}` },
+      ]} />}
+      <div className="template-risk-section">
+        <Typography.Text className="form-section-label">{t('composeSafety')}</Typography.Text>
+        {template.riskReport?.length ? <Space direction="vertical" size={10} style={{ width: '100%' }}>{template.riskReport.map((item) => <Card size="small" key={item.code}><Space align="start"><WarningOutlined style={{ color: item.severity === 'critical' ? '#cf1322' : '#d48806' }} /><div><Typography.Text strong>{t(item.severity)}</Typography.Text><br /><Typography.Text type="secondary">{t(`risk_${item.code}`, { defaultValue: item.message })}</Typography.Text></div></Space></Card>)}</Space> : <Alert type="success" showIcon icon={template.tier === 'experimental' ? <ExperimentOutlined /> : <SafetyOutlined />} message={t('composeSafetyClear')} description={t('noComposeRisks')} />}
+      </div>
+    </div>}
+  </Modal>
 }

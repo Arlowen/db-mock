@@ -17,7 +17,7 @@ export const zh: Record<string, string> = {
   all: '全部', allProjects: '全部项目', allEnvironments: '全部环境', allStatuses: '全部状态', allResources: '全部资源',
   optional: '可选', options: '选项', color: '颜色', time: '时间', user: '用户', action: '操作', result: '结果',
   ip: 'IP 地址', message: '消息', operation: '操作类型', progress: '进度', stage: '阶段', size: '大小', severity: '级别', yes: '是', no: '否', redacted: '已隐藏',
-  architecture: '架构', imageReferences: '镜像引用', url: 'URL', events: '事件', address: '地址', database: '数据库',
+  architecture: '架构', imageReferences: '镜像引用', imageReference: '镜像引用', url: 'URL', events: '事件', address: '地址', database: '数据库',
   enabled: '已启用', disabled: '已禁用', active: '正常', unknown: '未知', unavailable: '不可用', open: '待处理', success: '成功', failure: '失败',
   online: '在线', offline: '离线', pending: '等待中', queued: '排队中', running: '运行中', stopped: '已停止', sending: '发送中', retrying: '等待重试', delivered: '已送达',
   succeeded: '已成功', failed: '失败', canceled: '已取消', interrupted: '已中断', provisioning: '创建中', degraded: '异常',
@@ -93,6 +93,7 @@ export const zh: Record<string, string> = {
   hostConfiguration: '连接与策略', usedPorts: '已用端口', dockerManagement: 'Docker 管理',
 
   uploadTemplate: '上传 Compose 模板', uploadTemplateHint: '上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。',
+  templateDetails: '模板详情', containerPort: '容器端口', minimumResources: '最低资源', composeSafety: 'Compose 安全检查', composeSafetyClear: '未发现高风险配置',
   dropTemplatePackage: '点击或拖放模板包到此处', noComposeRisks: '未检测到额外的 Compose 风险。',
   category_relational: '关系型数据库', category_key_value: '键值数据库', category_document: '文档数据库',
   category_analytics: '分析型数据库', category_search: '搜索引擎', category_time_series: '时序数据库',
@@ -258,7 +259,7 @@ export const en: Record<string, string> = {
   all: 'All', allProjects: 'All projects', allEnvironments: 'All environments', allStatuses: 'All statuses', allResources: 'All resources',
   optional: 'optional', options: 'Options', color: 'Color', time: 'Time', user: 'User', action: 'Action', result: 'Result',
   ip: 'IP address', message: 'Message', operation: 'Operation', progress: 'Progress', stage: 'Stage', size: 'Size', severity: 'Severity', yes: 'Yes', no: 'No', redacted: 'Redacted',
-  architecture: 'Architecture', imageReferences: 'Image references', url: 'URL', events: 'Events', address: 'Address', database: 'Database',
+  architecture: 'Architecture', imageReferences: 'Image references', imageReference: 'Image reference', url: 'URL', events: 'Events', address: 'Address', database: 'Database',
   enabled: 'Enabled', disabled: 'Disabled', active: 'Active', unknown: 'Unknown', unavailable: 'Unavailable', open: 'Open', success: 'Success', failure: 'Failure',
   online: 'Online', offline: 'Offline', pending: 'Pending', queued: 'Queued', running: 'Running', stopped: 'Stopped', sending: 'Sending', retrying: 'Retry scheduled', delivered: 'Delivered',
   succeeded: 'Succeeded', failed: 'Failed', canceled: 'Canceled', interrupted: 'Interrupted', provisioning: 'Provisioning', degraded: 'Degraded',
@@ -334,6 +335,7 @@ export const en: Record<string, string> = {
   hostConfiguration: 'Connection and policies', usedPorts: 'Allocated ports', dockerManagement: 'Docker management',
 
   uploadTemplate: 'Upload Compose template', uploadTemplateHint: 'Upload a trusted .zip containing dbmock-template.yaml and docker-compose.yml. Host-level capabilities are allowed and audited.',
+  templateDetails: 'Template details', containerPort: 'Container port', minimumResources: 'Minimum resources', composeSafety: 'Compose safety check', composeSafetyClear: 'No high-risk configuration detected',
   dropTemplatePackage: 'Choose or drop a template package', noComposeRisks: 'No additional Compose risks detected.',
   category_relational: 'Relational', category_key_value: 'Key-value', category_document: 'Document',
   category_analytics: 'Analytics', category_search: 'Search', category_time_series: 'Time-series',

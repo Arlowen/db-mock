@@ -119,6 +119,9 @@ func RequestMiddleware(logger *slog.Logger, publicURL string) func(http.Handler)
 			if requestID == "" {
 				requestID = uuid.NewString()
 			}
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Cache-Control", "no-store")
+			}
 			w.Header().Set("X-Request-ID", requestID)
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "DENY")
