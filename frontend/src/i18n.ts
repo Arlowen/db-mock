@@ -72,6 +72,7 @@ export const zh: Record<string, string> = {
   webhooksEmptyDescription: '尚未配置 Webhook。添加后可将告警和任务结果推送到团队工具。',
   auditEmptyDescription: '没有符合当前筛选条件的审计记录。',
   catalogEmptyDescription: '没有匹配的数据库模板。请调整搜索词或筛选条件。',
+  customCatalogEmptyDescription: '尚未上传自定义模板。上传可信的 Compose 模板包后，它会出现在这里。',
   noDescription: '未填写描述',
 
   projectDeleteBlocked: '包含主机或实例的项目无法删除。',
@@ -98,7 +99,8 @@ export const zh: Record<string, string> = {
   lastChecked: '最近检测', lastSeen: '最近在线', consecutiveFailures: '连续检测失败', hostContextLoadFailed: '无法加载主机运行上下文',
   hostConfiguration: '连接与策略', usedPorts: '已用端口', dockerManagement: 'Docker 管理',
 
-  uploadTemplate: '上传 Compose 模板', uploadTemplateHint: '上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。',
+  uploadTemplate: '上传 Compose 模板', templateUploaded: 'Compose 模板已上传', uploadTemplateHint: '上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。',
+  catalogSearchLabel: '搜索数据库目录', catalogSearchPlaceholder: '搜索名称、分类、版本或镜像',
   templateDetails: '模板详情', containerPort: '容器端口', minimumResources: '最低资源', composeSafety: 'Compose 安全检查', composeSafetyClear: '未发现高风险配置',
   dropTemplatePackage: '点击或拖放模板包到此处', noComposeRisks: '未检测到额外的 Compose 风险。',
   category_relational: '关系型数据库', category_key_value: '键值数据库', category_document: '文档数据库',
@@ -322,6 +324,7 @@ export const en: Record<string, string> = {
   webhooksEmptyDescription: 'No webhooks configured. Add one to send alerts and task results to your team tools.',
   auditEmptyDescription: 'No audit records match the current filters.',
   catalogEmptyDescription: 'No database templates match your search and filters.',
+  customCatalogEmptyDescription: 'No custom templates uploaded yet. Upload a trusted Compose template package and it will appear here.',
   noDescription: 'No description',
 
   projectDeleteBlocked: 'Projects containing hosts or instances cannot be deleted.',
@@ -348,7 +351,8 @@ export const en: Record<string, string> = {
   lastChecked: 'Last checked', lastSeen: 'Last online', consecutiveFailures: 'Consecutive probe failures', hostContextLoadFailed: 'Unable to load host runtime context',
   hostConfiguration: 'Connection and policies', usedPorts: 'Allocated ports', dockerManagement: 'Docker management',
 
-  uploadTemplate: 'Upload Compose template', uploadTemplateHint: 'Upload a trusted .zip containing dbmock-template.yaml and docker-compose.yml. Host-level capabilities are allowed and audited.',
+  uploadTemplate: 'Upload Compose template', templateUploaded: 'Compose template uploaded', uploadTemplateHint: 'Upload a trusted .zip containing dbmock-template.yaml and docker-compose.yml. Host-level capabilities are allowed and audited.',
+  catalogSearchLabel: 'Search database catalog', catalogSearchPlaceholder: 'Search name, category, version, or image',
   templateDetails: 'Template details', containerPort: 'Container port', minimumResources: 'Minimum resources', composeSafety: 'Compose safety check', composeSafetyClear: 'No high-risk configuration detected',
   dropTemplatePackage: 'Choose or drop a template package', noComposeRisks: 'No additional Compose risks detected.',
   category_relational: 'Relational', category_key_value: 'Key-value', category_document: 'Document',

@@ -13,14 +13,25 @@ import { bytes } from '../lib/types'
 export function CatalogPage() {
   const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [details, setDetails] = useState<DatabaseTemplate | null>(null)
   const load = useCallback(() => api<{ items: DatabaseTemplate[] }>('/templates').then((r) => setItems(r.items)).catch((e) => message.error(errorMessage(e))).finally(() => setLoading(false)), [message]); useEffect(() => { void load() }, [load])
-  const filtered = useMemo(() => items.filter((item) => (tier === 'all' || item.tier === tier) && `${item.name} ${item.nameZh} ${item.category}`.toLowerCase().includes(search.toLowerCase())), [items, search, tier])
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return items.filter((item) => {
+      if (tier !== 'all' && item.tier !== tier) return false
+      if (!query) return true
+      const categoryKey = `category_${item.category.replaceAll('-', '_')}`
+      const descriptionKey = `templateDescription_${item.slug}`
+      const versionTerms = item.versions.flatMap((version) => [version.version, `v${version.version}`, version.imageReference, String(version.defaultPort), ...version.architectures])
+      return [item.name, item.nameZh, item.slug, item.category, item.description, t(categoryKey, { defaultValue: item.category }), t(descriptionKey, { defaultValue: item.description }), ...versionTerms].filter(Boolean).join(' ').toLowerCase().includes(query)
+    })
+  }, [i18n.language, items, search, t, tier])
+  const customEmpty = tier === 'custom' && search.trim() === '' && filtered.length === 0
   const showUpload = () => { setFile(null); setUploadOpen(true) }
-  const upload = async () => { const raw = file?.originFileObj; if (!raw) return; const form = new FormData(); form.append('package', raw); try { setUploading(true); await api('/templates/custom', { method: 'POST', body: form }); message.success(t('uploadTemplate')); setUploadOpen(false); setFile(null); await load() } catch (e) { message.error(errorMessage(e)) } finally { setUploading(false) } }
+  const upload = async () => { const raw = file?.originFileObj; if (!raw) return; const form = new FormData(); form.append('package', raw); try { setUploading(true); await api('/templates/custom', { method: 'POST', body: form }); message.success(t('templateUploaded')); setUploadOpen(false); setFile(null); setSearch(''); setTier('custom'); await load() } catch (e) { message.error(errorMessage(e)) } finally { setUploading(false) } }
   const resetFilters = () => { setSearch(''); setTier('all') }
   return <><PageHeader title={t('catalog')} description={t('catalogDescription')} actions={<Button icon={<UploadOutlined />} onClick={showUpload}>{t('uploadTemplate')}</Button>} />
-    <Card className="catalog-toolbar"><Space wrap><Input.Search allowClear value={search} placeholder={t('search')} style={{ width: 320 }} onChange={(e) => setSearch(e.target.value)} /><Segmented value={tier} onChange={(v) => setTier(String(v))} options={[{ value: 'all', label: t('all') }, { value: 'standard', label: t('standard') }, { value: 'experimental', label: t('experimental') }, { value: 'custom', label: t('custom') }]} /></Space></Card>
+    <Card className="catalog-toolbar"><Space wrap><Input.Search aria-label={t('catalogSearchLabel')} allowClear value={search} placeholder={t('catalogSearchPlaceholder')} style={{ width: 320 }} onChange={(e) => setSearch(e.target.value)} /><Segmented value={tier} onChange={(v) => setTier(String(v))} options={[{ value: 'all', label: t('all') }, { value: 'standard', label: t('standard') }, { value: 'experimental', label: t('experimental') }, { value: 'custom', label: t('custom') }]} /></Space></Card>
     {loading && <Card loading />}
-    {!loading && filtered.length === 0 && <Card><EmptyState action={resetFilters} actionLabel={t('clearFilters')} description={t('catalogEmptyDescription')} /></Card>}
+    {!loading && filtered.length === 0 && <Card><EmptyState action={customEmpty ? showUpload : resetFilters} actionLabel={t(customEmpty ? 'uploadTemplate' : 'clearFilters')} description={t(customEmpty ? 'customCatalogEmptyDescription' : 'catalogEmptyDescription')} /></Card>}
     {!loading && filtered.length > 0 && <div className="catalog-grid">{filtered.map((item) => {
       const version = item.versions[0]
       const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name
