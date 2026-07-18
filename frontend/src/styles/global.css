@@ -62,6 +62,22 @@ button { font: inherit; }
 .wizard-form .ant-radio-group { display: flex; width: 100%; }
 .wizard-form .ant-radio-button-wrapper { flex: 1; text-align: center; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.create-review { display: grid; gap: 14px; }
+.create-review-header { min-width: 0; padding: 16px 18px; border: 1px solid #d6e5fb; border-radius: 12px; background: linear-gradient(135deg, #f6f9ff 0%, #fbfdff 100%); display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+.create-review-header .ant-typography { margin: 0; }
+.create-review-header .ant-tag { margin-inline-end: 0; }
+.create-review-ready-icon { color: #17936d; font-size: 22px; }
+.create-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.create-review-card { height: 100%; border-color: #e3e8ef; box-shadow: none; }
+.create-review-card .ant-card-head { min-height: 44px; background: #fafbfd; }
+.create-review-card .ant-card-head-title { padding-block: 11px; color: #344054; font-size: 13px; font-weight: 700; }
+.create-review-card .ant-card-body { padding: 14px 16px 8px; }
+.create-review-card .ant-descriptions-item { padding-bottom: 10px; }
+.create-review-card .ant-descriptions-item-label { width: 116px; color: #667085; font-size: 12px; }
+.create-review-card .ant-descriptions-item-content { min-width: 0; color: #172033; font-size: 12px; overflow-wrap: anywhere; }
+.create-review-options .ant-descriptions-item-label { width: auto; }
+.create-review-options code { white-space: normal; overflow-wrap: anywhere; }
+.create-review-alert { border-color: #cfe0ff; background: #f7faff; }
 .host-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; }
 .form-section, .fingerprint-card { margin-bottom: 20px; background: #fafcff; }
 .form-section-label { display: block; margin-bottom: 14px; color: #344054; font-size: 12px; font-weight: 750; letter-spacing: .04em; }
@@ -378,6 +394,7 @@ button { font: inherit; }
   .alert-toolbar .ant-segmented { order: 3; width: 100%; }
   .host-capacity-grid { grid-template-columns: 1fr; }
   .host-health-facts { grid-template-columns: 1fr; }
+  .create-review-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

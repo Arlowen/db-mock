@@ -60,6 +60,12 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从目录选择模板部署。')).toBeVisible()
   await expect(page.locator('.page-header').getByRole('button', { name: '接入主机' })).toBeVisible()
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 }] } }))
+  let submittedInstanceBody: Record<string, unknown> | undefined
+  await page.route('**/api/v1/instances', async (route) => {
+    if (route.request().method() !== 'POST') { await route.continue(); return }
+    submittedInstanceBody = route.request().postDataJSON() as Record<string, unknown>
+    await route.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'invalid input: e2e submission stopped' } } })
+  })
   await page.goto('/instances?create=1')
   const createInstanceDrawer = page.getByRole('dialog', { name: '创建数据库' })
   await expect(createInstanceDrawer).toBeVisible()
@@ -96,7 +102,16 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(createInstanceDrawer.getByRole('button', { name: '上一步' })).toBeEnabled()
   await createInstanceDrawer.getByRole('button', { name: '上一步' }).click()
   await expect(createInstanceDrawer.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
+  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
+  await createInstanceDrawer.getByRole('button', { name: /创\s*建/ }).click()
+  await expect.poll(() => submittedInstanceBody).toBeTruthy()
+  expect(submittedInstanceBody).toMatchObject({ name: 'E2E Database', environment: 'development', cpu: 2, bindAddress: '0.0.0.0', autoRestart: true })
+  expect(submittedInstanceBody?.templateVersionId).toEqual(expect.any(String))
+  expect(Number(submittedInstanceBody?.memoryBytes)).toBeGreaterThan(0)
+  expect(Number(submittedInstanceBody?.diskBytes)).toBeGreaterThan(0)
+  await expect(createInstanceDrawer.getByText('数据库创建请求未提交')).toBeVisible()
   await createInstanceDrawer.getByRole('button', { name: /取\s*消/ }).click()
+  await page.unroute('**/api/v1/instances')
   await page.unroute('**/api/v1/hosts')
 
   const instanceID = '44444444-4444-4444-8444-444444444444'
@@ -288,7 +303,7 @@ test('initializes the platform and switches the embedded interface language', as
   const preservedReturn = new URL(page.url()).searchParams.get('returnTo')
   expect(preservedReturn).toMatch(/^\/instances\?create=1&template=/)
   await redirectedHostDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(page.getByText('数据库创建尚未完成')).toBeVisible()
+  await expect(page.locator('#main-content').getByText('数据库创建尚未完成')).toBeVisible()
   await page.getByRole('button', { name: '继续接入主机' }).click()
   await expect(page.getByRole('dialog', { name: '接入主机' })).toBeVisible()
   await page.getByRole('dialog', { name: '接入主机' }).getByRole('button', { name: '关闭', exact: true }).click()
