@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -82,6 +83,32 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFrom(r.Context())
 	httpx.JSON(w, http.StatusOK, map[string]any{"user": actor.User})
+}
+
+func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.ActorFrom(r.Context())
+	var input struct {
+		Locale string `json:"locale"`
+	}
+	if err := httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if !supportedLocale(input.Locale) {
+		httpx.Error(w, r, fmt.Errorf("%w: unsupported language preference", domain.ErrInvalid))
+		return
+	}
+	user, err := s.store.UpdateUser(r.Context(), actor.User.ID, "", input.Locale, nil, "")
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.audit(r, actor, "user.locale_update", "user", &user.ID, user.Username, nil, "success", "")
+	httpx.JSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func supportedLocale(value string) bool {
+	return value == "zh-CN" || value == "en-US"
 }
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	value, err := s.store.Dashboard(r.Context())

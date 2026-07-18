@@ -3,13 +3,14 @@ import {
   DatabaseOutlined, DownOutlined, GlobalOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
   SettingOutlined, TeamOutlined, UnorderedListOutlined,
 } from '@ant-design/icons'
-import { Avatar, Badge, Button, Dropdown, Layout, Menu, Space, Typography } from 'antd'
+import { App, Avatar, Badge, Button, Dropdown, Layout, Menu, Space, Typography } from 'antd'
 import type { MenuProps } from 'antd'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { api } from '../lib/api'
+import { api, errorMessage } from '../lib/api'
+import { oppositeLocale } from '../lib/locale'
 import type { Alert } from '../lib/types'
 
 const { Header, Sider, Content } = Layout
@@ -17,10 +18,12 @@ const { Header, Sider, Content } = Layout
 export function AppLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const { t, i18n } = useTranslation()
-  const { user, logout } = useAuth()
+  const { message } = App.useApp()
+  const { user, logout, updateLocale } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [activeAlerts, setActiveAlerts] = useState(0)
+  const [languageSaving, setLanguageSaving] = useState(false)
   useEffect(() => {
     let active = true
     const loadAlerts = () => void api<{ items: Alert[] }>('/alerts').then((response) => {
@@ -51,10 +54,16 @@ export function AppLayout() {
     { type: 'group', label: t('navSystem'), children: [routeItems[8], routeItems[10]] },
   ]
   const selected = routeItems.find((item) => item.key !== '/' && location.pathname.startsWith(item.key))?.key ?? '/'
-  const switchLanguage = () => {
-    const locale = i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN'
-    void i18n.changeLanguage(locale)
-    localStorage.setItem('dbmock-locale', locale)
+  const targetLocale = oppositeLocale(i18n.language)
+  const switchLanguage = async () => {
+    try {
+      setLanguageSaving(true)
+      await updateLocale(targetLocale)
+    } catch (error) {
+      message.error(errorMessage(error))
+    } finally {
+      setLanguageSaving(false)
+    }
   }
   return <><a className="skip-link" href="#main-content">{t('skipToContent')}</a><Layout className="app-layout">
     <Sider width={244} collapsedWidth={72} collapsed={collapsed} className="app-sider" theme="light">
@@ -66,7 +75,7 @@ export function AppLayout() {
       <Header className="app-header">
         <Typography.Text type="secondary">{routeItems.find((item) => item.key === selected)?.label}</Typography.Text>
         <Space size={16}>
-          <Button type="text" icon={<GlobalOutlined />} onClick={switchLanguage}>{i18n.language === 'zh-CN' ? t('languageEnglish') : t('languageChinese')}</Button>
+          <Button type="text" icon={<GlobalOutlined />} loading={languageSaving} aria-label={t(targetLocale === 'en-US' ? 'switchToEnglish' : 'switchToChinese')} onClick={() => void switchLanguage()}>{targetLocale === 'en-US' ? t('languageEnglish') : t('languageChinese')}</Button>
           <Badge count={activeAlerts} size="small" overflowCount={99}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
           <Dropdown menu={{ items: [{ key: 'logout', icon: <LogoutOutlined />, label: t('logout'), onClick: () => void logout() }] }}>
             <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><DownOutlined className="user-menu-caret" /></Button>

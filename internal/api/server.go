@@ -53,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.auth.Middleware)
 			r.Get("/auth/me", s.me)
+			r.Patch("/auth/me", s.updateMe)
 			r.Post("/auth/logout", s.logout)
 			r.Get("/dashboard", s.dashboard)
 			r.Route("/users", s.userRoutes)

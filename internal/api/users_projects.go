@@ -1,11 +1,14 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/auth"
 	appcrypto "github.com/pika/db-mock/internal/crypto"
+	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/httpx"
 )
 
@@ -60,6 +63,11 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	actor, _ := auth.ActorFrom(r.Context())
+	if err = validateUserUpdate(actor.User.ID, id, input.Disabled); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	hash := ""
 	if input.Password != "" {
 		hash, err = appcrypto.HashPassword(input.Password)
@@ -76,9 +84,15 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	if input.Disabled != nil && *input.Disabled {
 		_ = s.store.DeleteUserSessions(r.Context(), id)
 	}
-	actor, _ := auth.ActorFrom(r.Context())
 	_ = s.audit(r, actor, "user.update", "user", &id, user.Username, nil, "success", "")
 	httpx.JSON(w, http.StatusOK, user)
+}
+
+func validateUserUpdate(actorID, targetID uuid.UUID, disabled *bool) error {
+	if actorID == targetID && disabled != nil && *disabled {
+		return fmt.Errorf("%w: current user cannot be disabled", domain.ErrConflict)
+	}
+	return nil
 }
 
 func (s *Server) projectRoutes(r chi.Router) {

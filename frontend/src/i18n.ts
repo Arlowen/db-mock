@@ -8,7 +8,7 @@ export const zh: Record<string, string> = {
   navResources: '资源管理', navDatabases: '数据库管理', navOperations: '运维中心', navSystem: '系统管理',
   login: '登录', logout: '退出登录', username: '用户名', password: '密码', displayName: '显示名称', language: '语言',
   languageChinese: '简体中文', languageEnglish: 'English', collapse: '收起菜单', expandMenu: '展开菜单',
-  skipToContent: '跳到主要内容', accountMenu: '账号菜单', moreActions: '更多操作',
+  skipToContent: '跳到主要内容', accountMenu: '账号菜单', moreActions: '更多操作', switchToEnglish: '切换为 English', switchToChinese: '切换为简体中文',
   initialize: '初始化 DB Mock', initializeHint: '创建第一个账号以开始使用。所有账号拥有相同权限。',
 
   create: '创建', edit: '编辑', delete: '删除', save: '保存', saved: '已保存', cancel: '取消', confirm: '确认', close: '关闭', refresh: '刷新', clearFilters: '清除筛选',
@@ -28,6 +28,7 @@ export const zh: Record<string, string> = {
   error_internal_error: '服务器内部错误', error_not_found: '资源不存在', error_resource_conflict: '资源状态冲突',
   error_unauthorized: '登录状态已失效，请重新登录', error_forbidden: '没有权限执行此操作',
   error_invalid_input: '输入内容无效', error_not_initialized: '平台尚未初始化', error_resource_unavailable: '暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置', error_http_error: '请求失败',
+  errorDetail_unsupported_language_preference: '不支持该语言偏好。', errorDetail_current_user_cannot_be_disabled: '不能禁用当前登录账号。',
 
   dashboardDescription: '面向 Linux 与 macOS 的 Docker Compose 数据库管理平台。',
   projectsDescription: '项目仅用于逻辑分组，所有用户仍拥有相同的平台权限。',
@@ -38,6 +39,7 @@ export const zh: Record<string, string> = {
   tasksDescription: '持久化任务不会因切换页面或服务重启而丢失。',
   alertsDescription: '资源告警通过带签名的通用 Webhook 投递；业务事件失败时最多重试五次，测试请求只发送一次。',
   usersDescription: '所有用户拥有相同的平台操作权限。',
+  cannotDisableCurrentUser: '当前登录账号不能禁用；如需停用，请先使用其他账号登录。',
   auditDescription: '永久保留的操作记录，可按需导出或明确清理。',
   settingsDescription: '运行策略保存在 PostgreSQL 中；网络和 TLS 等进程级配置仍由环境变量控制。',
 
@@ -209,7 +211,7 @@ export const zh: Record<string, string> = {
   resourceType_image_upload: '镜像上传', resourceType_template: '模板', resourceType_webhook: 'Webhook', resourceType_setting: '设置',
   resourceType_alert: '告警', resourceType_registry: '镜像仓库', resourceType_audit: '审计日志',
   auditAction_platform_setup: '初始化平台', auditAction_auth_login: '登录', auditAction_auth_logout: '退出登录',
-  auditAction_user_create: '创建用户', auditAction_user_update: '更新用户', auditAction_project_create: '创建项目',
+  auditAction_user_create: '创建用户', auditAction_user_update: '更新用户', auditAction_user_locale_update: '更新语言偏好', auditAction_project_create: '创建项目',
   auditAction_project_update: '更新项目', auditAction_project_delete: '删除项目', auditAction_host_create: '接入主机',
   auditAction_host_update: '更新主机', auditAction_host_delete: '删除主机', auditAction_host_probe: '检测主机',
   auditAction_host_install_docker: '安装 Docker', auditAction_host_upgrade_docker: '升级 Docker', auditAction_host_configure_proxy: '配置 Docker 代理',
@@ -233,7 +235,7 @@ export const en: Record<string, string> = {
   navResources: 'RESOURCES', navDatabases: 'DATABASES', navOperations: 'OPERATIONS', navSystem: 'SYSTEM',
   login: 'Sign in', logout: 'Sign out', username: 'Username', password: 'Password', displayName: 'Display name', language: 'Language',
   languageChinese: 'Chinese (Simplified)', languageEnglish: 'English', collapse: 'Collapse menu', expandMenu: 'Expand menu',
-  skipToContent: 'Skip to main content', accountMenu: 'Account menu', moreActions: 'More actions',
+  skipToContent: 'Skip to main content', accountMenu: 'Account menu', moreActions: 'More actions', switchToEnglish: 'Switch to English', switchToChinese: 'Switch to Chinese (Simplified)',
   initialize: 'Initialize DB Mock', initializeHint: 'Create the first account. Every account has the same permissions.',
 
   create: 'Create', edit: 'Edit', delete: 'Delete', save: 'Save', saved: 'Saved', cancel: 'Cancel', confirm: 'Confirm', close: 'Close', refresh: 'Refresh', clearFilters: 'Clear filters',
@@ -253,6 +255,7 @@ export const en: Record<string, string> = {
   error_internal_error: 'Internal server error', error_not_found: 'Resource not found', error_resource_conflict: 'Resource conflict',
   error_unauthorized: 'Your session expired. Please sign in again.', error_forbidden: 'Operation forbidden',
   error_invalid_input: 'Invalid input', error_not_initialized: 'Platform is not initialized', error_resource_unavailable: 'The instance host is temporarily unreachable over SSH. Check its network and SSH settings.', error_http_error: 'Request failed',
+  errorDetail_unsupported_language_preference: 'This language preference is not supported.', errorDetail_current_user_cannot_be_disabled: 'The current signed-in account cannot be disabled.',
 
   dashboardDescription: 'Docker Compose database control plane for Linux and macOS.',
   projectsDescription: 'Logical grouping only — all users keep equal platform access.',
@@ -263,6 +266,7 @@ export const en: Record<string, string> = {
   tasksDescription: 'Persistent operations survive page navigation and service restarts.',
   alertsDescription: 'Resource alerts use signed generic webhooks. Event deliveries retry up to five times; test requests send once.',
   usersDescription: 'All users share the same platform permissions.',
+  cannotDisableCurrentUser: 'The signed-in account cannot be disabled. Sign in with another account first.',
   auditDescription: 'Permanent operation history. Export or explicitly clear records when required.',
   settingsDescription: 'Runtime policies are stored in PostgreSQL. Process-level networking and TLS remain environment variables.',
 
@@ -434,7 +438,7 @@ export const en: Record<string, string> = {
   resourceType_image_upload: 'Image upload', resourceType_template: 'Template', resourceType_webhook: 'Webhook', resourceType_setting: 'Setting',
   resourceType_alert: 'Alert', resourceType_registry: 'Registry', resourceType_audit: 'Audit log',
   auditAction_platform_setup: 'Initialize platform', auditAction_auth_login: 'Sign in', auditAction_auth_logout: 'Sign out',
-  auditAction_user_create: 'Create user', auditAction_user_update: 'Update user', auditAction_project_create: 'Create project',
+  auditAction_user_create: 'Create user', auditAction_user_update: 'Update user', auditAction_user_locale_update: 'Update language preference', auditAction_project_create: 'Create project',
   auditAction_project_update: 'Update project', auditAction_project_delete: 'Delete project', auditAction_host_create: 'Add host',
   auditAction_host_update: 'Update host', auditAction_host_delete: 'Delete host', auditAction_host_probe: 'Probe host',
   auditAction_host_install_docker: 'Install Docker', auditAction_host_upgrade_docker: 'Upgrade Docker', auditAction_host_configure_proxy: 'Configure Docker proxy',

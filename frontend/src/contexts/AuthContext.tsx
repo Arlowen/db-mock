@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import i18n from '../i18n'
 import { api } from '../lib/api'
+import { applyLocale, normalizeLocale, type AppLocale } from '../lib/locale'
 import type { User } from '../lib/types'
 
 interface AuthState {
@@ -10,6 +12,7 @@ interface AuthState {
   setup: (values: { username: string; password: string; displayName: string; locale: string }) => Promise<void>
   logout: () => Promise<void>
   reload: () => Promise<void>
+  updateLocale: (locale: AppLocale) => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -25,6 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setInitialized(setupStatus.initialized)
       if (setupStatus.initialized) {
         const me = await api<{ user: User }>('/auth/me')
+        await applyLocale(me.user.locale)
         setUser(me.user)
       } else {
         setUser(null)
@@ -40,10 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (username: string, password: string) => {
     const response = await api<{ user: User }>('/auth/login', { method: 'POST', body: { username, password } })
+    await applyLocale(response.user.locale)
     setUser(response.user)
   }
   const setup = async (values: { username: string; password: string; displayName: string; locale: string }) => {
     const response = await api<{ user: User }>('/setup', { method: 'POST', body: values })
+    await applyLocale(response.user.locale)
     setInitialized(true)
     setUser(response.user)
   }
@@ -51,7 +57,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api('/auth/logout', { method: 'POST', body: {} })
     setUser(null)
   }
-  const value = useMemo(() => ({ loading, initialized, user, login, setup, logout, reload }), [loading, initialized, user, reload])
+  const updateLocale = useCallback(async (requested: AppLocale) => {
+    if (!user) return
+    const previous = normalizeLocale(i18n.language)
+    await applyLocale(requested)
+    try {
+      const response = await api<{ user: User }>('/auth/me', { method: 'PATCH', body: { locale: requested } })
+      setUser(response.user)
+    } catch (error) {
+      await applyLocale(previous)
+      throw error
+    }
+  }, [user])
+  const value = useMemo(() => ({ loading, initialized, user, login, setup, logout, reload, updateLocale }), [loading, initialized, user, reload, updateLocale])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
