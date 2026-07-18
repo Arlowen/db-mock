@@ -114,7 +114,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]domain.User, error) {
 	return items, rows.Err()
 }
 
-func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, displayName, locale string, disabled *bool, passwordHash string) (domain.User, error) {
+func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, displayName, locale string, disabled *bool, passwordHash string, keepSessionID *uuid.UUID) (domain.User, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return domain.User{}, err
@@ -129,7 +129,7 @@ func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, displayName, local
 			return domain.User{}, domain.ErrConflict
 		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE users SET
+	result, err := tx.Exec(ctx, `UPDATE users SET
         display_name=CASE WHEN $2='' THEN display_name ELSE $2 END,
         locale=CASE WHEN $3 IN ('zh-CN','en-US') THEN $3 ELSE locale END,
         disabled_at=CASE WHEN $4::boolean IS NULL THEN disabled_at WHEN $4 THEN now() ELSE NULL END,
@@ -138,10 +138,34 @@ func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, displayName, local
 	if err != nil {
 		return domain.User{}, err
 	}
+	if result.RowsAffected() == 0 {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if disabled != nil && *disabled {
+		if _, err = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", id); err != nil {
+			return domain.User{}, err
+		}
+	} else if passwordHash != "" {
+		if keepSessionID == nil {
+			_, err = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", id)
+		} else {
+			_, err = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1 AND id<>$2", id, *keepSessionID)
+		}
+		if err != nil {
+			return domain.User{}, err
+		}
+	}
+	var user domain.User
+	err = tx.QueryRow(ctx, `SELECT id,username,display_name,locale,password_hash,disabled_at,last_login_at,
+        created_at,updated_at FROM users WHERE id=$1`, id).Scan(&user.ID, &user.Username, &user.DisplayName,
+		&user.Locale, &user.PasswordHash, &user.DisabledAt, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		return domain.User{}, translate(err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.User{}, err
 	}
-	return s.GetUser(ctx, id)
+	return user, nil
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID uuid.UUID, duration time.Duration, ip, userAgent string) (string, domain.Session, error) {
@@ -192,11 +216,6 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 	}
 	hash := sha256.Sum256(raw)
 	_, err = s.pool.Exec(ctx, "DELETE FROM sessions WHERE token_hash=$1", hash[:])
-	return err
-}
-
-func (s *Store) DeleteUserSessions(ctx context.Context, userID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", userID)
 	return err
 }
 
