@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
@@ -15,6 +16,8 @@ type RegistryInput struct {
 	Username               string
 	EncryptedPassword      string
 	EncryptedCACertificate string
+	ClearPassword          bool
+	ClearCACertificate     bool
 }
 
 const registryColumns = `id,name,url,username,encrypted_password,encrypted_ca_certificate,
@@ -70,11 +73,20 @@ func (s *Store) ListRegistries(ctx context.Context) ([]domain.Registry, error) {
 func (s *Store) UpdateRegistry(ctx context.Context, id uuid.UUID, input RegistryInput) (domain.Registry, error) {
 	var item domain.Registry
 	err := s.pool.QueryRow(ctx, `UPDATE registries SET name=$2,url=$3,username=$4,
-        encrypted_password=CASE WHEN $5='' THEN encrypted_password ELSE $5 END,
-        encrypted_ca_certificate=CASE WHEN $6='' THEN encrypted_ca_certificate ELSE $6 END,updated_at=now()
-        WHERE id=$1 RETURNING `+registryColumns, id, input.Name, input.URL, input.Username,
-		input.EncryptedPassword, input.EncryptedCACertificate).Scan(registryScan(&item)...)
+		encrypted_password=CASE WHEN $7 THEN '' WHEN $5='' THEN encrypted_password ELSE $5 END,
+		encrypted_ca_certificate=CASE WHEN $8 THEN '' WHEN $6='' THEN encrypted_ca_certificate ELSE $6 END,
+		status='unknown',last_tested_at=NULL,updated_at=now()
+		WHERE id=$1 RETURNING `+registryColumns, id, input.Name, input.URL, input.Username,
+		input.EncryptedPassword, input.EncryptedCACertificate, input.ClearPassword, input.ClearCACertificate).Scan(registryScan(&item)...)
 	return item, translate(err)
+}
+
+func (s *Store) SetRegistryTestResult(ctx context.Context, id uuid.UUID, status string, checkedAt time.Time) error {
+	result, err := s.pool.Exec(ctx, "UPDATE registries SET status=$2,last_tested_at=$3,updated_at=now() WHERE id=$1", id, status, checkedAt)
+	if err == nil && result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) DeleteRegistry(ctx context.Context, id uuid.UUID) error {

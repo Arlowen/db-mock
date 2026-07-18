@@ -47,6 +47,7 @@ export async function uploadInChunks(
   file: File,
   onProgress: (percent: number) => void,
   expectedSha256 = '',
+  displayName = file.name,
 ): Promise<unknown> {
   const resumeKey = `dbmock-upload:${file.name}:${file.size}:${file.lastModified}`
   let upload: { id: string; receivedBytes: number; totalBytes?: number; status?: string } | undefined
@@ -72,7 +73,7 @@ export async function uploadInChunks(
     offset += chunk.size
     onProgress(Math.round((offset / file.size) * 100))
   }
-  const result = await api(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: file.name } })
+  const result = await api(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName } })
   localStorage.removeItem(resumeKey)
   return result
 }
