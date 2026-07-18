@@ -363,10 +363,20 @@ test('initializes the platform and switches the embedded interface language', as
   const cardLayout = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).slice(0, 3).map((card) => {
     const rect = card.getBoundingClientRect()
     const offsetTop = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().top ?? 0) - rect.top)
-    return { width: Math.round(rect.width), baselines: ['.template-card-header', '.template-card-description', '.template-card-tags', '.template-meta', '.ant-card-actions'].map(offsetTop) }
+    const offsetLeft = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().left ?? 0) - rect.left)
+    return {
+      width: Math.round(rect.width),
+      right: Math.round(rect.right),
+      baselines: ['.template-card-header', '.template-card-description', '.template-card-tags', '.template-meta', '.ant-card-actions'].map(offsetTop),
+      rails: ['.database-icon', '.template-card-title', '.template-card-description', '.template-card-tags', '.template-meta'].map(offsetLeft),
+    }
   }))
   expect(cardLayout[0].baselines).toEqual(cardLayout[1].baselines)
   expect(cardLayout[1].baselines).toEqual(cardLayout[2].baselines)
+  expect(cardLayout[0].rails).toEqual(cardLayout[1].rails)
+  expect(cardLayout[1].rails).toEqual(cardLayout[2].rails)
+  expect(cardLayout.every(({ rails }) => rails[0] === rails[4] && rails[1] === rails[2] && rails[2] === rails[3])).toBe(true)
+  expect(Math.max(...cardLayout.map(({ right }) => right))).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth))
   expect(Math.min(...cardLayout.map(({ width }) => width))).toBeGreaterThanOrEqual(360)
   const catalogSearch = page.getByRole('searchbox', { name: '搜索数据库目录' })
   await expect(catalogSearch).toHaveAttribute('placeholder', '搜索名称、分类、版本或镜像')
