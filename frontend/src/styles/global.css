@@ -70,6 +70,14 @@ button { font: inherit; }
 .host-advanced .ant-collapse-header-text > div { display: flex; flex-direction: column; gap: 2px; }
 .host-advanced .ant-collapse-header-text .ant-typography-secondary { font-size: 12px; }
 .host-advanced .host-policy-grid .ant-form-item { margin-bottom: 0; }
+.host-continuation-banner { margin-bottom: 16px; border-color: #c9dcf8; background: #f6f9ff; }
+.host-continuation-banner .ant-alert-content { min-width: 0; }
+.host-continuation-banner .ant-alert-action { align-self: center; }
+.host-continuation-modal-alert { margin-bottom: 20px; border-color: #d7e4f8; background: #f8faff; }
+.host-continuation-copy { min-width: 0; }
+.host-continuation-copy .ant-typography { margin: 4px 0 14px; line-height: 1.55; }
+.host-continuation-steps { max-width: 520px; }
+.host-continuation-steps .ant-steps-item-title { font-size: 12px !important; white-space: nowrap; }
 .verification-section { display: grid; gap: 8px; }
 .verification-section .form-section-label { margin-bottom: 0; }
 .verification-section .ant-alert-description { margin-top: 10px; }
