@@ -46,7 +46,10 @@ export function errorMessage(error: unknown): string {
     if (!detail || detail.toLowerCase() === error.code.replaceAll('_', ' ')) return summary
     const detailKey = detail.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
     const translationKey = `errorDetail_${detailKey}`
-    if (error.code === 'resource_unavailable' && !i18n.exists(translationKey)) return summary
+    if (!i18n.exists(translationKey)) {
+      if (error.code === 'resource_unavailable' || i18n.language.startsWith('zh')) return summary
+      return `${summary}: ${detail}`
+    }
     const localized = i18n.t(translationKey, { defaultValue: detail })
     return `${summary}: ${localized}`
   }

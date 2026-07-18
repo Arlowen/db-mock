@@ -16,6 +16,13 @@ describe('internationalization coverage', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
+  it('keeps the English interface free of Chinese fallback text', () => {
+    const findings = Object.entries(en)
+      .filter(([, value]) => /\p{Script=Han}/u.test(value))
+      .map(([key]) => key)
+    expect(findings).toEqual([])
+  })
+
   it('does not leave obvious user-facing literals in TSX files', () => {
     const root = join(process.cwd(), 'src')
     const allowed = new Set(['DB Mock', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY'])

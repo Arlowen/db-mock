@@ -330,7 +330,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto(`/tasks?task=${failedTaskID}`)
   taskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*33333333/ })
   await expect(taskDrawer.getByText('在「Compose」阶段失败')).toBeVisible()
-  await expect(taskDrawer.getByText('SSH 连接超时')).toBeVisible()
+  await expect(taskDrawer.getByText('SSH 连接超时').first()).toBeVisible()
+  await expect(taskDrawer.getByText(/Connection timed out/)).toBeVisible()
   await expect(taskDrawer.getByRole('button', { name: '查看对应资源' })).toBeVisible()
   await taskDrawer.getByRole('button', { name: '重试任务' }).click()
   await expect(page).toHaveURL(new RegExp(`task=${retriedTaskID}`))
@@ -458,7 +459,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto('/hosts')
   await expect(page.getByText('Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop.')).toBeVisible()
 
-  await page.getByRole('button', { name: '简体中文' }).click()
+  await page.getByRole('button', { name: 'Chinese (Simplified)' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await expect(page.getByText('主机', { exact: true }).first()).toBeVisible()
   const health = await page.request.get('/api/v1/health')

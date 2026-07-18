@@ -19,6 +19,17 @@ describe('API error messages', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the instance host over SSH')))
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')
   })
+
+  it('does not mix untranslated backend validation details into the Chinese interface', () => {
+    expect(errorMessage(new ApiError(400, 'invalid_input', 'invalid input: unexpected backend validation detail')))
+      .toBe('输入内容无效')
+  })
+
+  it('keeps useful backend validation details in the English interface', async () => {
+    await i18n.changeLanguage('en-US')
+    expect(errorMessage(new ApiError(400, 'invalid_input', 'invalid input: unexpected backend validation detail')))
+      .toBe('Invalid input: unexpected backend validation detail')
+  })
 })
 
 describe('chunked image uploads', () => {
