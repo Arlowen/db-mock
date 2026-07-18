@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,7 +39,7 @@ func (s *Store) CreateTask(ctx context.Context, input TaskInput) (domain.Task, e
 	err = s.pool.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, item.ID, input.Kind, input.ResourceType,
 		input.ResourceID, input.RequestedBy, input.HostID, payload).Scan(taskScan(&item)...)
-	return item, err
+	return item, translate(err)
 }
 
 func (s *Store) GetTask(ctx context.Context, id uuid.UUID) (domain.Task, error) {
@@ -67,6 +68,13 @@ func (s *Store) ListTasks(ctx context.Context, status, resourceType string, reso
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) HasActiveResourceTask(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks
+        WHERE resource_type=$1 AND resource_id=$2 AND status IN ('queued','running'))`, resourceType, resourceID).Scan(&active)
+	return active, err
 }
 
 func (s *Store) ClaimTask(ctx context.Context) (domain.Task, error) {
@@ -167,6 +175,15 @@ func (s *Store) RetryTask(ctx context.Context, id uuid.UUID, userID uuid.UUID) (
 	}
 	if old.Status != "failed" && old.Status != "interrupted" && old.Status != "canceled" {
 		return domain.Task{}, domain.ErrConflict
+	}
+	if old.ResourceID != nil {
+		active, activeErr := s.HasActiveResourceTask(ctx, old.ResourceType, *old.ResourceID)
+		if activeErr != nil {
+			return domain.Task{}, activeErr
+		}
+		if active {
+			return domain.Task{}, fmt.Errorf("%w: another operation is already queued or running for this resource", domain.ErrConflict)
+		}
 	}
 	return s.CreateTask(ctx, TaskInput{Kind: old.Kind, ResourceType: old.ResourceType, ResourceID: old.ResourceID,
 		RequestedBy: userID, HostID: old.HostID, Payload: old.Payload})

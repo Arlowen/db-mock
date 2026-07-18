@@ -39,6 +39,13 @@ func (s *Service) Enqueue(ctx context.Context, userID, hostID uuid.UUID, kind st
 	if err != nil {
 		return domain.Task{}, err
 	}
+	active, err := s.store.HasActiveResourceTask(ctx, "host", hostID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if active {
+		return domain.Task{}, fmt.Errorf("%w: another host operation is already queued or running", domain.ErrConflict)
+	}
 	if (kind == "install_docker" || kind == "upgrade_docker" || kind == "configure_proxy") && !host.ManageDocker {
 		return domain.Task{}, fmt.Errorf("%w: Docker management is disabled for this host", domain.ErrForbidden)
 	}

@@ -11,6 +11,7 @@ import { api, errorMessage } from '../lib/api'
 import { hostCanAccept, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageRegistryHost, registryMatchesImage } from '../lib/image-source'
 import { translateCode } from '../lib/localization'
+import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Registry, Task } from '../lib/types'
 import { bytes } from '../lib/types'
@@ -244,10 +245,7 @@ export function InstanceDetailPage() {
   if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
   const currentTemplate = templates.find((tpl) => tpl.slug === item.templateSlug); const upgradeOptions = currentTemplate?.versions.filter((v) => v.id !== item.templateVersionId).map((v) => ({ value: v.id, label: v.version })) ?? []
   const project = projects.find((candidate) => candidate.id === item.projectId)
-  const activeTask = tasks.find((task) => task.status === 'queued' || task.status === 'running')
-  const latestTask = tasks[0]
-  const failedTask = ['failed', 'degraded'].includes(item.status) && latestTask && ['failed', 'interrupted', 'canceled'].includes(latestTask.status) ? latestTask : undefined
-  const operationTask = activeTask || failedTask
+  const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, ['failed', 'degraded'].includes(item.status))
   const retryTask = async () => {
     if (!failedTask) return
     try {
@@ -265,7 +263,7 @@ export function InstanceDetailPage() {
     </div>
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space className="instance-operation-actions">
-      {failedTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
+      {failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>
   </div>

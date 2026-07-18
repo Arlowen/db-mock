@@ -108,11 +108,18 @@ func (s *Store) ListHosts(ctx context.Context) ([]domain.Host, error) {
 }
 
 func (s *Store) UpdateHost(ctx context.Context, id uuid.UUID, input HostInput) (domain.Host, error) {
+	active, err := s.HasActiveResourceTask(ctx, "host", id)
+	if err != nil {
+		return domain.Host{}, err
+	}
+	if active {
+		return domain.Host{}, domain.ErrConflict
+	}
 	if len(input.Labels) == 0 {
 		input.Labels = json.RawMessage(`{}`)
 	}
 	var item domain.Host
-	err := s.pool.QueryRow(ctx, `UPDATE hosts SET project_id=$2,name=$3,ssh_address=$4,ssh_port=$5,
+	err = s.pool.QueryRow(ctx, `UPDATE hosts SET project_id=$2,name=$3,ssh_address=$4,ssh_port=$5,
         ssh_user=$6,auth_type=$7,encrypted_credential=CASE WHEN $8='' THEN encrypted_credential ELSE $8 END,
         host_key=CASE WHEN $9='' THEN host_key ELSE $9 END,connection_address=$10,data_root=$11,
         port_start=$12,port_end=$13,manage_docker=$14,proxy_http=$15,proxy_https=$16,proxy_no_proxy=$17,
@@ -160,6 +167,13 @@ func (s *Store) SetHostStatus(ctx context.Context, id uuid.UUID, status, message
 }
 
 func (s *Store) DeleteHost(ctx context.Context, id uuid.UUID) error {
+	active, err := s.HasActiveResourceTask(ctx, "host", id)
+	if err != nil {
+		return err
+	}
+	if active {
+		return domain.ErrConflict
+	}
 	var count int
 	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM instances WHERE host_id=$1 AND status<>'deleted'", id).Scan(&count); err != nil {
 		return err
