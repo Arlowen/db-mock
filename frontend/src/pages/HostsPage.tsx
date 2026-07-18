@@ -38,7 +38,7 @@ export function HostsPage() {
   const dockerPolicyReady = !manageDocker || !verificationRequired || probe?.passwordlessSudo === true
   useEffect(() => {
     if (!probe) return
-    const frame = window.requestAnimationFrame(() => verificationSection.current?.scrollIntoView({ block: 'nearest' }))
+    const frame = window.requestAnimationFrame(() => verificationSection.current?.scrollIntoView({ block: 'start' }))
     return () => window.cancelAnimationFrame(frame)
   }, [probe])
   const load = useCallback(async () => {

@@ -348,6 +348,7 @@ button { font: inherit; }
 .project-card-heading .ant-typography { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-card-description.ant-typography { margin: 16px 0 0; line-height: 1.6; }
 .project-dot { display: block; flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 4px rgb(37 99 235 / 9%); }
+.user-permission-note { margin-bottom: 18px; }
 .host-table-card .ant-card-body { padding: 0; }
 .host-table-card .ant-table-cell { vertical-align: middle; }
 .host-name-cell, .host-list-capacity { min-width: 0; display: grid; gap: 3px; }
