@@ -73,7 +73,7 @@ function archiveName(filename: string): string {
 
 export function ImagesPage() {
   const { t, i18n } = useTranslation()
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const [params, setParams] = useSearchParams()
   const [images, setImages] = useState<ImageArtifact[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
@@ -90,6 +90,8 @@ export function ImagesPage() {
   const [testingRegistry, setTestingRegistry] = useState('')
   const [imageOpen, setImageOpen] = useState(false)
   const [registryOpen, setRegistryOpen] = useState(false)
+  const [uploadDraftDirty, setUploadDraftDirty] = useState(false)
+  const [registryDraftDirty, setRegistryDraftDirty] = useState(false)
   const [selectedImage, setSelectedImage] = useState<ImageArtifact | null>(null)
   const [editingRegistry, setEditingRegistry] = useState<Registry | null>(null)
   const [file, setFile] = useState<UploadFile | null>(null)
@@ -148,6 +150,7 @@ export function ImagesPage() {
     setUploadError('')
     setUploadPhase('idle')
     uploadForm.resetFields()
+    setUploadDraftDirty(false)
     setImageOpen(true)
   }
 
@@ -162,10 +165,12 @@ export function ImagesPage() {
       clearPassword: false,
       clearCaCertificate: false,
     } : { name: '', url: '', username: '', password: '', caCertificate: '', clearPassword: false, clearCaCertificate: false })
+    setRegistryDraftDirty(false)
     setRegistryOpen(true)
   }
 
   const changeFile = (nextFile: UploadFile | null) => {
+    setUploadDraftDirty(true)
     setFile(nextFile)
     setUploadError('')
     setProgress(0)
@@ -183,6 +188,7 @@ export function ImagesPage() {
       setUploadError('')
       await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal)
       message.success(t('imageUploadComplete'))
+      setUploadDraftDirty(false)
       setImageOpen(false)
       setFile(null)
       setProgress(0)
@@ -204,6 +210,27 @@ export function ImagesPage() {
   }
 
   const pauseUpload = () => uploadAbort.current?.abort()
+  const finishCloseImageUpload = () => {
+    setImageOpen(false)
+    setFile(null)
+    setProgress(0)
+    setUploadError('')
+    setUploadPhase('idle')
+    setUploadDraftDirty(false)
+    uploadForm.resetFields()
+  }
+  const closeImageUpload = () => {
+    if (uploading) { pauseUpload(); return }
+    if (!uploadDraftDirty) { finishCloseImageUpload(); return }
+    modal.confirm({
+      title: t('discardImageUploadDraftTitle'),
+      content: t('discardImageUploadDraftHint'),
+      okText: t('discardChanges'),
+      cancelText: t('continueEditing'),
+      okButtonProps: { danger: true },
+      onOk: finishCloseImageUpload,
+    })
+  }
   const discardUpload = async () => {
     if (!file?.originFileObj) return
     try {
@@ -215,6 +242,25 @@ export function ImagesPage() {
     } catch (error) { message.error(errorMessage(error)) }
   }
 
+  const finishCloseRegistry = () => {
+    setRegistryOpen(false)
+    setEditingRegistry(null)
+    setRegistryDraftDirty(false)
+    registryForm.resetFields()
+  }
+  const closeRegistry = () => {
+    if (savingRegistry) return
+    if (!registryDraftDirty) { finishCloseRegistry(); return }
+    modal.confirm({
+      title: t('discardRegistryChangesTitle'),
+      content: t('discardRegistryChangesHint'),
+      okText: t('discardChanges'),
+      cancelText: t('continueEditing'),
+      okButtonProps: { danger: true },
+      onOk: finishCloseRegistry,
+    })
+  }
+
   const saveRegistry = async () => {
     try {
       setSavingRegistry(true)
@@ -224,6 +270,7 @@ export function ImagesPage() {
         body: values,
       })
       message.success(t('saved'))
+      setRegistryDraftDirty(false)
       setRegistryOpen(false)
       setEditingRegistry(null)
       registryForm.resetFields()
@@ -402,9 +449,11 @@ export function ImagesPage() {
     <Modal
       title={t('uploadImage')}
       open={imageOpen}
-      onCancel={() => { if (uploading) pauseUpload(); else setImageOpen(false) }}
+      onCancel={closeImageUpload}
       width={680}
-      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={() => { if (uploading) pauseUpload(); else setImageOpen(false) }}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || uploading} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
+      style={{ top: 32 }}
+      styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }}
+      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={closeImageUpload}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || uploading} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
     >
       <Typography.Paragraph type="secondary" className="image-upload-intro">{t('imageUploadHint')}</Typography.Paragraph>
       <Upload.Dragger
@@ -419,7 +468,7 @@ export function ImagesPage() {
         <p>{t('dropImageArchive')}</p>
         <p className="ant-upload-hint">{t('imageArchiveFormats')}</p>
       </Upload.Dragger>
-      <Form form={uploadForm} layout="vertical" requiredMark={false} className="image-upload-form">
+      <Form form={uploadForm} layout="vertical" requiredMark={false} className="image-upload-form" onValuesChange={() => setUploadDraftDirty(true)}>
         <Form.Item name="name" label={t('displayName')} rules={[{ required: true, whitespace: true }]}><Input placeholder={t('imageDisplayNamePlaceholder')} disabled={uploading} /></Form.Item>
         <Form.Item name="expectedSha256" label={`${t('expectedChecksum')} (${t('optional')})`} extra={t('checksumHint')} rules={[{ pattern: /^[a-fA-F0-9]{64}$/, message: t('invalidChecksum') }]}><Input className="checksum-input" placeholder={t('checksumPlaceholder')} disabled={uploading} /></Form.Item>
       </Form>
@@ -431,17 +480,19 @@ export function ImagesPage() {
     <Modal
       title={editingRegistry ? t('editRegistry') : t('addRegistry')}
       open={registryOpen}
-      onCancel={() => { if (!savingRegistry) setRegistryOpen(false) }}
+      onCancel={closeRegistry}
       onOk={() => void saveRegistry()}
       confirmLoading={savingRegistry}
       okText={t('save')}
       cancelButtonProps={{ disabled: savingRegistry }}
       width={620}
+      style={{ top: 32 }}
+      styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       <Typography.Paragraph type="secondary" className="registry-form-intro">{t('registryFormDescription')}</Typography.Paragraph>
-      <Form form={registryForm} layout="vertical" requiredMark={false} autoComplete="off">
+      <Form form={registryForm} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={() => setRegistryDraftDirty(true)}>
         <div className="form-grid">
-          <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input aria-label={t('name')} /></Form.Item>
+          <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input autoFocus aria-label={t('name')} /></Form.Item>
           <Form.Item name="url" label={t('registryURL')} rules={[{ required: true }, { validator: (_, value?: string) => !value || isRegistryURL(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidRegistryURL'))) }]}><Input aria-label={t('registryURL')} type="url" placeholder={t('registryURLPlaceholder')} /></Form.Item>
         </div>
         <div className="form-grid">

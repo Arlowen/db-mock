@@ -240,9 +240,18 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(uploadImageDialog.getByLabel('显示名称')).toHaveValue('')
   await uploadImageDialog.getByLabel(/预期 SHA-256/).fill('invalid')
   await expect(uploadImageDialog.getByText('请输入 64 位十六进制 SHA-256')).toBeVisible()
+  await page.keyboard.press('Escape')
+  let discardImageDraftDialog = page.getByRole('dialog', { name: '放弃未保存的上传信息？' })
+  await expect(discardImageDraftDialog).toBeVisible()
+  await discardImageDraftDialog.getByRole('button', { name: '继续编辑' }).click()
+  await expect(uploadImageDialog.getByLabel(/预期 SHA-256/)).toHaveValue('invalid')
   await uploadImageDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  discardImageDraftDialog = page.getByRole('dialog', { name: '放弃未保存的上传信息？' })
+  await discardImageDraftDialog.getByRole('button', { name: '放弃更改' }).click()
+  await expect(uploadImageDialog).not.toBeVisible()
   await page.getByRole('button', { name: '添加仓库' }).first().click()
   const addRegistryDialog = page.getByRole('dialog', { name: '添加仓库' })
+  await expect(addRegistryDialog.getByLabel('名称')).toBeFocused()
   await addRegistryDialog.getByLabel('名称').fill('Internal Registry')
   const registryURL = addRegistryDialog.getByLabel('镜像仓库 URL')
   await registryURL.fill('https://harbor.example.test/team')
@@ -252,6 +261,9 @@ test('initializes the platform and switches the embedded interface language', as
   await registryURL.press('Tab')
   await expect(addRegistryDialog.getByText('请输入仅包含 http(s) 协议、主机名和可选端口的仓库地址。')).not.toBeVisible()
   await addRegistryDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  const discardRegistryDialog = page.getByRole('dialog', { name: '放弃未保存的仓库配置？' })
+  await discardRegistryDialog.getByRole('button', { name: '放弃更改' }).click()
+  await expect(addRegistryDialog).not.toBeVisible()
 
   const imageID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const registryID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
