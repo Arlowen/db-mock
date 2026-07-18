@@ -2,22 +2,26 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 768px; background: #f5f7fb; }
 button { font: inherit; }
+:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.skip-link { position: fixed; top: 10px; left: 12px; z-index: 1000; padding: 8px 12px; border-radius: 8px; color: #fff; background: #172033; transform: translateY(-160%); transition: transform .18s ease; }
+.skip-link:focus { color: #fff; transform: translateY(0); }
 .full-spin { min-height: 100vh; display: grid; place-items: center; }
 .app-layout { min-height: 100vh; }
 .app-sider { position: sticky !important; top: 0; height: 100vh; border-right: 1px solid #e9edf3; box-shadow: 3px 0 18px rgb(20 45 90 / 3%); z-index: 10; }
 .app-sider .ant-layout-sider-children { display: flex; flex-direction: column; }
-.sidebar-brand { height: 72px; width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 18px; font-size: 19px; font-weight: 750; color: #15213a; cursor: pointer; white-space: nowrap; }
+.sidebar-brand { height: 64px; width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 18px; font-size: 19px; font-weight: 750; color: #15213a; cursor: pointer; white-space: nowrap; }
 .brand-mark { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #2563eb, #17a2b8); box-shadow: 0 8px 20px rgb(37 99 235 / 24%); font-size: 22px; flex: none; }
 .brand-mark.small { width: 36px; height: 36px; border-radius: 11px; font-size: 18px; }
-.app-sider .ant-menu { border: 0 !important; padding: 4px 10px; flex: 1; overflow-y: auto; }
-.app-sider .ant-menu-item { margin-block: 4px; }
-.app-sider .ant-menu-item-group-title { padding: 16px 14px 5px; color: #98a2b3; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.app-sider .ant-menu { border: 0 !important; padding: 2px 10px; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d8dee9 transparent; }
+.app-sider .ant-menu-item { height: 36px; line-height: 36px; margin-block: 2px; }
+.app-sider .ant-menu-item-group-title { padding: 9px 14px 3px; line-height: 18px; color: #98a2b3; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .app-sider.ant-layout-sider-collapsed .ant-menu-item-group-title { height: 10px; padding: 0; font-size: 0; }
-.sider-footer { flex: none; margin: 8px 10px 16px; }
+.sider-footer { flex: none; margin: 6px 10px 10px; }
 .app-header { position: sticky; top: 0; z-index: 9; height: 64px; padding: 0 28px !important; border-bottom: 1px solid #e9edf3; display: flex; justify-content: space-between; align-items: center; }
 .app-content { padding: 28px; min-width: 0; }
-.user-menu { cursor: pointer; padding: 4px 7px; border-radius: 10px; }
+.user-menu.ant-btn { height: 40px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 8px; color: #344054; border-radius: 10px; }
 .user-menu:hover { background: #f4f6f9; }
+.user-menu-caret { color: #98a2b3; font-size: 10px; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 22px; }
 .page-header .ant-typography { margin-top: 0; }
 .page-header h2.ant-typography { margin-bottom: 4px; letter-spacing: -.3px; }
@@ -28,6 +32,22 @@ button { font: inherit; }
 .stat-suffix { font-size: 12px; margin-left: 4px; }
 .dashboard-grid { margin-top: 16px; }
 .dashboard-grid .ant-card { height: 100%; }
+.onboarding-card { margin-bottom: 16px; overflow: hidden; background: linear-gradient(135deg, #fbfdff 0%, #f7fbff 58%, #f4fbfa 100%); border-color: #dce7f5; }
+.onboarding-card .ant-card-body { padding: 20px; }
+.onboarding-header .ant-typography { margin: 0; }
+.onboarding-kicker { display: block; margin-bottom: 5px; color: #2563eb; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.onboarding-header h4.ant-typography { margin-bottom: 3px; }
+.onboarding-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.onboarding-step { min-width: 0; min-height: 72px; padding: 12px; display: grid; grid-template-columns: 28px 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid #e2e8f0; border-radius: 12px; background: rgb(255 255 255 / 86%); }
+.onboarding-step.is-active { border-color: #b9d2f7; box-shadow: 0 4px 14px rgb(37 99 235 / 7%); }
+.onboarding-step.is-disabled { opacity: .62; }
+.onboarding-marker { width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 50%; color: #2563eb; background: #eaf2ff; font-size: 12px; font-weight: 750; }
+.onboarding-step.is-complete .onboarding-marker { color: #16a34a; background: #eaf8ef; font-size: 18px; }
+.onboarding-icon { width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 10px; color: #2563eb; background: #edf4ff; font-size: 17px; }
+.onboarding-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.onboarding-copy .ant-typography-secondary { font-size: 12px; line-height: 18px; }
+.compact-empty { margin-block: 24px; }
+.compact-empty .ant-empty-description { color: #667085; }
 .clickable-list { cursor: pointer; border-radius: 8px; padding-inline: 6px !important; }
 .clickable-list:hover { background: #f7f9fc; }
 .template-avatar, .user-avatar { width: 34px; height: 34px; border-radius: 9px; display: inline-grid; place-items: center; background: #eef4ff; color: #2563eb; font-weight: 700; flex: none; }
@@ -38,6 +58,7 @@ button { font: inherit; }
 .database-icon-small { width: 34px; height: 34px; border-radius: 9px; font-size: 21px; }
 .wizard-form { margin-top: 28px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.host-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; }
 .form-section, .fingerprint-card { margin-bottom: 20px; background: #fafcff; }
 .secret-details { margin-top: 22px; }
 .log-viewer, .settings-json { margin: 0; padding: 16px; border-radius: 10px; background: #101828; color: #d6e0f0; overflow: auto; max-height: 560px; min-height: 130px; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -72,4 +93,5 @@ button { font: inherit; }
 @media (max-width: 1000px) {
   .app-content { padding: 22px; }
   .auth-shell { padding: 28px; }
+  .onboarding-steps { grid-template-columns: 1fr; }
 }

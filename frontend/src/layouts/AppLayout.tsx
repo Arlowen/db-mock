@@ -1,6 +1,6 @@
 import {
   AlertOutlined, AppstoreOutlined, AuditOutlined, BellOutlined, CloudServerOutlined, ContainerOutlined,
-  DatabaseOutlined, GlobalOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
+  DatabaseOutlined, DownOutlined, GlobalOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
   SettingOutlined, TeamOutlined, UnorderedListOutlined,
 } from '@ant-design/icons'
 import { Avatar, Badge, Button, Dropdown, Layout, Menu, Space, Typography } from 'antd'
@@ -44,24 +44,24 @@ export function AppLayout() {
     void i18n.changeLanguage(locale)
     localStorage.setItem('dbmock-locale', locale)
   }
-  return <Layout className="app-layout">
+  return <><a className="skip-link" href="#main-content">{t('skipToContent')}</a><Layout className="app-layout">
     <Sider width={244} collapsedWidth={72} collapsed={collapsed} className="app-sider" theme="light">
-      <button className="sidebar-brand" onClick={() => navigate('/')}><span className="brand-mark small"><DatabaseOutlined /></span>{!collapsed && <span>DB Mock</span>}</button>
+      <button className="sidebar-brand" aria-label={t('dashboard')} onClick={() => navigate('/')}><span className="brand-mark small"><DatabaseOutlined /></span>{!collapsed && <span>DB Mock</span>}</button>
       <Menu mode="inline" selectedKeys={[selected]} items={items} onClick={({ key }) => navigate(key)} />
-      <div className="sider-footer"><Button type="text" block icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)}>{collapsed ? '' : t('collapse')}</Button></div>
+      <div className="sider-footer"><Button type="text" block aria-label={collapsed ? t('expandMenu') : t('collapse')} title={collapsed ? t('expandMenu') : t('collapse')} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)}>{collapsed ? '' : t('collapse')}</Button></div>
     </Sider>
     <Layout>
       <Header className="app-header">
         <Typography.Text type="secondary">{routeItems.find((item) => item.key === selected)?.label}</Typography.Text>
         <Space size={16}>
           <Button type="text" icon={<GlobalOutlined />} onClick={switchLanguage}>{i18n.language === 'zh-CN' ? t('languageEnglish') : t('languageChinese')}</Button>
-          <Badge dot={false}><Button type="text" icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
+          <Badge dot={false}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
           <Dropdown menu={{ items: [{ key: 'logout', icon: <LogoutOutlined />, label: t('logout'), onClick: () => void logout() }] }}>
-            <Space className="user-menu"><Avatar>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span></Space>
+            <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><DownOutlined className="user-menu-caret" /></Button>
           </Dropdown>
         </Space>
       </Header>
-      <Content className="app-content"><Outlet /></Content>
+      <Content id="main-content" tabIndex={-1} className="app-content"><Outlet /></Content>
     </Layout>
-  </Layout>
+  </Layout></>
 }

@@ -18,7 +18,7 @@ export function PageHeader({ title, description, actions }: { title: ReactNode; 
   return <div className="page-header"><div><Typography.Title level={2}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>{actions && <Space wrap>{actions}</Space>}</div>
 }
 
-export function EmptyState({ action }: { action?: () => void }) {
+export function EmptyState({ action, actionLabel, description, compact = false }: { action?: () => void; actionLabel?: ReactNode; description?: ReactNode; compact?: boolean }) {
   const { t } = useTranslation()
-  return <Empty description={t('noData')}>{action && <Button type="primary" onClick={action}>{t('create')}</Button>}</Empty>
+  return <Empty className={compact ? 'compact-empty' : undefined} image={compact ? Empty.PRESENTED_IMAGE_SIMPLE : undefined} description={description ?? t('noData')}>{action && <Button type="primary" onClick={action}>{actionLabel ?? t('create')}</Button>}</Empty>
 }
