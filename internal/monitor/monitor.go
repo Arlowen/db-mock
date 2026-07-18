@@ -182,7 +182,7 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active policy
 }
 
 func (m *Monitor) reconcileInstance(ctx context.Context, host domain.Host, instance domain.Instance, state string) {
-	if instance.Status == "provisioning" || instance.Status == "upgrading" || instance.Status == "deleting" {
+	if taskOwnsInstanceState(instance.Status) {
 		return
 	}
 	if instance.DesiredState == "stopped" {
@@ -209,6 +209,15 @@ func (m *Monitor) reconcileInstance(ctx context.Context, host domain.Host, insta
 	cancel()
 	if err != nil && count >= 3 {
 		m.raise(ctx, store.AlertInput{Severity: "critical", Type: "restart_failed", ResourceType: "instance", ResourceID: instance.ID, Title: "Automatic restart failed", Message: err.Error()})
+	}
+}
+
+func taskOwnsInstanceState(status string) bool {
+	switch status {
+	case "provisioning", "upgrading", "deleting", "failed":
+		return true
+	default:
+		return false
 	}
 }
 

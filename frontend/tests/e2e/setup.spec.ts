@@ -170,6 +170,16 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('SSH 连接超时')).toBeVisible()
   await page.getByRole('button', { name: '重试任务' }).click()
   await expect(page.getByText('排队中', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
+  await expect(page.getByRole('button', { name: '重启' })).not.toBeVisible()
+
+  instanceStatus = 'degraded'
+  relatedTasks = [{ id: '77777777-7777-4777-8777-777777777778', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 30, stage: 'failed', message: 'preparing_database_image', errorCode: 'task_failed', errorMessage: 'docker pull postgres:17 failed: unexpected EOF', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
+  await page.reload()
+  await expect(page.getByText('docker pull postgres:17 failed: unexpected EOF')).toBeVisible()
+  await expect(page.getByRole('button', { name: '重试任务' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
+  await expect(page.getByRole('button', { name: '重启' })).not.toBeVisible()
 
   instanceStatus = 'running'
   relatedTasks = []
