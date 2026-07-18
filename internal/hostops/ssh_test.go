@@ -21,6 +21,27 @@ func TestParseKeyValues(t *testing.T) {
 	}
 }
 
+func TestParseByteCountAcceptsIntegerAndScientificNotation(t *testing.T) {
+	for _, item := range []struct {
+		value string
+		want  int64
+	}{
+		{value: "8589934592", want: 8589934592},
+		{value: "8.58993e+09", want: 8589930000},
+		{value: " 0 ", want: 0},
+	} {
+		got, ok := parseByteCount(item.value)
+		if !ok || got != item.want {
+			t.Fatalf("parseByteCount(%q) = %d, %v; want %d, true", item.value, got, ok, item.want)
+		}
+	}
+	for _, value := range []string{"", "unknown", "-1", "NaN", "Inf"} {
+		if got, ok := parseByteCount(value); ok {
+			t.Fatalf("parseByteCount(%q) = %d, true; want invalid", value, got)
+		}
+	}
+}
+
 func TestProbeResultUsesFrontendJSONContract(t *testing.T) {
 	data, err := json.Marshal(ProbeResult{
 		HostKey:          "SHA256:example",

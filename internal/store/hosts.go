@@ -150,8 +150,7 @@ func (s *Store) UpdateHostProbe(ctx context.Context, id uuid.UUID, probe HostPro
 	_, err := s.pool.Exec(ctx, `UPDATE hosts SET host_key=CASE WHEN $2='' THEN host_key ELSE $2 END,os=$3,
         distro=$4,architecture=$5,docker_version=$6,compose_version=$7,cpu_count=$8,memory_bytes=$9,
         disk_total_bytes=$10,disk_free_bytes=$11,status=$12,status_message=$13,last_checked_at=now(),
-        last_seen_at=CASE WHEN $12='online' THEN now() ELSE last_seen_at END,
-        consecutive_failures=CASE WHEN $12='online' THEN 0 ELSE consecutive_failures+1 END,updated_at=now()
+        last_seen_at=now(),consecutive_failures=0,updated_at=now()
         WHERE id=$1`, id, probe.HostKey, probe.OS, probe.Distro, probe.Architecture, probe.DockerVersion,
 		probe.ComposeVersion, probe.CPUCount, probe.MemoryBytes, probe.DiskTotalBytes, probe.DiskFreeBytes,
 		probe.Status, probe.StatusMessage)

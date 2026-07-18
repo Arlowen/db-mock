@@ -123,7 +123,7 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active policy
 	message := ""
 	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
 		status = "needs_docker"
-		message = "Docker Engine or Compose v2 is unavailable"
+		message = hostops.DockerUnavailableMessage
 	}
 	_ = m.store.UpdateHostProbe(ctx, host.ID, store.HostProbe{HostKey: probe.HostKey, OS: probe.OS, Distro: probe.Distro, Architecture: probe.Architecture,
 		DockerVersion: probe.DockerVersion, ComposeVersion: probe.ComposeVersion, CPUCount: probe.CPUCount, MemoryBytes: probe.MemoryBytes,

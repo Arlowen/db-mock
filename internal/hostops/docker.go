@@ -12,6 +12,8 @@ import (
 	"github.com/pika/db-mock/internal/domain"
 )
 
+const DockerUnavailableMessage = "Docker Engine or Compose v2 is not available"
+
 type Docker struct {
 	runner Runner
 }

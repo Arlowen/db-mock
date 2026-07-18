@@ -51,6 +51,7 @@ export function errorMessage(error: unknown): string {
       return `${summary}: ${detail}`
     }
     const localized = i18n.t(translationKey, { defaultValue: detail })
+    if (error.code === 'resource_unavailable') return localized
     return `${summary}: ${localized}`
   }
   return error instanceof Error ? error.message : String(error)

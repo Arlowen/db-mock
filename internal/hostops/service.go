@@ -82,7 +82,7 @@ func (s *Service) handleProbe(ctx context.Context, runtime *tasks.Runtime, task 
 	message := ""
 	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
 		status = "needs_docker"
-		message = "Docker Engine or Compose v2 is not available"
+		message = DockerUnavailableMessage
 	}
 	if probe.OS != "linux" && probe.OS != "darwin" {
 		status = "unsupported"

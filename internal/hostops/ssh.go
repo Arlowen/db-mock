@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -185,11 +186,11 @@ docker_resources="$(docker info --format '{{.NCPU}}|{{.MemTotal}}' 2>/dev/null |
 cpu="${docker_resources%%|*}"; memory="${docker_resources#*|}"
 if [ -z "$docker_resources" ] || [ "$docker_resources" = "$memory" ]; then
   if [ "$os" = Darwin ]; then cpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 0)"; memory="$(sysctl -n hw.memsize 2>/dev/null || echo 0)";
-  else cpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0)"; memory="$(awk '/MemTotal/{print $2*1024}' /proc/meminfo 2>/dev/null || echo 0)"; fi
+  else cpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0)"; memory="$(awk '/MemTotal/{printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null || echo 0)"; fi
 fi
 root=` + root + `
 probe="$root"; while [ ! -e "$probe" ] && [ "$probe" != / ] && [ "$probe" != . ]; do probe="$(dirname "$probe")"; done
-disk="$(df -Pk "$probe" 2>/dev/null | awk 'NR==2{print $2*1024 "|" $4*1024}' || true)"
+disk="$(df -Pk "$probe" 2>/dev/null | awk 'NR==2{printf "%.0f|%.0f", $2*1024, $4*1024}' || true)"
 printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\ncpu=%s\nmemory=%s\ndisk=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$passwordless_sudo" "$cpu" "$memory" "$disk"`
 	session, err := client.NewSession()
 	if err != nil {
@@ -210,14 +211,31 @@ printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\n
 		ComposeVersion:   values["compose"],
 		PasswordlessSudo: values["passwordless_sudo"] == "true",
 	}
-	result.CPUCount, _ = strconv.ParseFloat(values["cpu"], 64)
-	result.MemoryBytes, _ = strconv.ParseInt(values["memory"], 10, 64)
-	disk := strings.Split(values["disk"], "|")
+	var cpuErr error
+	var memoryOK, diskTotalOK, diskFreeOK bool
+	result.CPUCount, cpuErr = strconv.ParseFloat(values["cpu"], 64)
+	result.MemoryBytes, memoryOK = parseByteCount(values["memory"])
+	disk := strings.SplitN(values["disk"], "|", 2)
 	if len(disk) == 2 {
-		result.DiskTotalBytes, _ = strconv.ParseInt(disk[0], 10, 64)
-		result.DiskFreeBytes, _ = strconv.ParseInt(disk[1], 10, 64)
+		result.DiskTotalBytes, diskTotalOK = parseByteCount(disk[0])
+		result.DiskFreeBytes, diskFreeOK = parseByteCount(disk[1])
+	}
+	if cpuErr != nil || result.CPUCount <= 0 || math.IsNaN(result.CPUCount) || math.IsInf(result.CPUCount, 0) || !memoryOK || result.MemoryBytes <= 0 || !diskTotalOK || result.DiskTotalBytes <= 0 || !diskFreeOK || result.DiskFreeBytes < 0 {
+		return ProbeResult{}, fmt.Errorf("%w: unable to determine host CPU, memory, or disk capacity", domain.ErrUnavailable)
 	}
 	return result, nil
+}
+
+func parseByteCount(value string) (int64, bool) {
+	value = strings.TrimSpace(value)
+	if parsed, err := strconv.ParseInt(value, 10, 64); err == nil && parsed >= 0 {
+		return parsed, true
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || parsed < 0 || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed > math.MaxInt64 {
+		return 0, false
+	}
+	return int64(math.Round(parsed)), true
 }
 
 func (m *Manager) WriteFile(ctx context.Context, host domain.Host, path string, data []byte, mode os.FileMode) error {

@@ -25,6 +25,11 @@ describe('API error messages', () => {
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')
   })
 
+  it('explains when host capacity cannot be detected', () => {
+    expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to determine host CPU, memory, or disk capacity')))
+      .toBe('无法读取主机的 CPU、内存或磁盘容量，请确认 SSH 用户可以读取系统资源信息。')
+  })
+
   it('does not mix untranslated backend validation details into the Chinese interface', () => {
     expect(errorMessage(new ApiError(400, 'invalid_input', 'invalid input: unexpected backend validation detail')))
       .toBe('输入内容无效')

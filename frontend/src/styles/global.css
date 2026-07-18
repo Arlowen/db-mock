@@ -83,6 +83,7 @@ button { font: inherit; }
 .host-policy-item { min-width: 0; padding: 12px 14px; border: 1px solid #e4e9f0; border-radius: 10px; background: #fff; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .host-policy-item > div { min-width: 0; display: grid; gap: 3px; }
 .host-policy-item .ant-typography-secondary { font-size: 12px; line-height: 1.5; }
+.host-policy-warning { max-width: 560px; margin-top: 3px; font-size: 12px; line-height: 1.5; }
 .host-policy-item .ant-switch { flex: none; }
 .form-section, .fingerprint-card { margin-bottom: 20px; background: #fafcff; }
 .form-section-label { display: block; margin-bottom: 14px; color: #344054; font-size: 12px; font-weight: 750; letter-spacing: .04em; }
@@ -382,6 +383,9 @@ button { font: inherit; }
 .host-health-banner > div:first-child { display: flex; align-items: center; gap: 9px; }
 .host-health-banner > div:first-child .ant-tag { margin: 0; }
 .host-health-banner > p.ant-typography { margin: 8px 0 14px; color: #475467; line-height: 1.55; }
+.host-health-guidance { margin: -3px 0 14px; padding: 10px 12px; border: 1px solid rgb(208 154 65 / 24%); border-radius: 9px; background: rgb(255 255 255 / 58%); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.host-health-guidance > .ant-typography { color: #694b19; font-size: 12px; line-height: 1.5; }
+.host-health-guidance .ant-btn { flex: none; }
 .host-health-facts { padding-top: 13px; border-top: 1px solid rgb(102 112 133 / 15%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .host-health-facts > span { min-width: 0; display: grid; gap: 3px; }
 .host-health-facts .ant-typography-secondary { font-size: 11px; }
@@ -419,6 +423,7 @@ button { font: inherit; }
   .alert-toolbar .ant-segmented { order: 3; width: 100%; }
   .host-capacity-grid { grid-template-columns: 1fr; }
   .host-health-facts { grid-template-columns: 1fr; }
+  .host-health-guidance { align-items: flex-start; flex-direction: column; gap: 9px; }
   .create-review-grid { grid-template-columns: 1fr; }
 }
 
