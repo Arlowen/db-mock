@@ -55,6 +55,8 @@ func (s *Server) webhookRoutes(r chi.Router) {
 	r.Put("/{id}", s.updateWebhook)
 	r.Delete("/{id}", s.deleteWebhook)
 	r.Post("/{id}/test", s.testWebhook)
+	r.Get("/{id}/deliveries", s.listWebhookDeliveries)
+	r.Post("/{id}/deliveries/{deliveryID}/retry", s.retryWebhookDelivery)
 }
 
 type webhookRequest struct {
@@ -165,11 +167,50 @@ func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, _ := auth.ActorFrom(r.Context())
 	payload := map[string]any{"event": "webhook.test", "sentAt": time.Now(), "user": actor.User.Username}
-	if err = s.store.EnqueueWebhookFor(r.Context(), id, "webhook.test", payload); err != nil {
+	deliveryID, err := s.store.EnqueueWebhookFor(r.Context(), id, "webhook.test", payload)
+	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	_ = s.audit(r, actor, "webhook.test", "webhook", &id, "", nil, "success", "")
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"queued": true, "deliveryId": deliveryID})
+}
+
+func (s *Server) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if _, err = s.store.GetWebhook(r.Context(), id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	items, err := s.store.ListWebhookDeliveries(r.Context(), id, 50)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+	webhookID, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	deliveryID, err := httpx.UUIDParam(chi.URLParam(r, "deliveryID"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err = s.store.RetryWebhookDelivery(r.Context(), webhookID, deliveryID); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.audit(r, actor, "webhook.delivery_retry", "webhook", &webhookID, "", nil, "success", "")
 	httpx.JSON(w, http.StatusAccepted, map[string]bool{"queued": true})
 }
 

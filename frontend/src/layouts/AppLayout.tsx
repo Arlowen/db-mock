@@ -5,10 +5,12 @@ import {
 } from '@ant-design/icons'
 import { Avatar, Badge, Button, Dropdown, Layout, Menu, Space, Typography } from 'antd'
 import type { MenuProps } from 'antd'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../lib/api'
+import type { Alert } from '../lib/types'
 
 const { Header, Sider, Content } = Layout
 
@@ -18,6 +20,16 @@ export function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [activeAlerts, setActiveAlerts] = useState(0)
+  useEffect(() => {
+    let active = true
+    const loadAlerts = () => void api<{ items: Alert[] }>('/alerts').then((response) => {
+      if (active) setActiveAlerts(response.items.filter((item) => item.status !== 'resolved').length)
+    }).catch(() => undefined)
+    loadAlerts()
+    const timer = window.setInterval(loadAlerts, 30000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [location.pathname])
   const routeItems = [
     { key: '/', icon: <AppstoreOutlined />, label: t('dashboard') },
     { key: '/projects', icon: <ProjectOutlined />, label: t('projects') },
@@ -55,7 +67,7 @@ export function AppLayout() {
         <Typography.Text type="secondary">{routeItems.find((item) => item.key === selected)?.label}</Typography.Text>
         <Space size={16}>
           <Button type="text" icon={<GlobalOutlined />} onClick={switchLanguage}>{i18n.language === 'zh-CN' ? t('languageEnglish') : t('languageChinese')}</Button>
-          <Badge dot={false}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
+          <Badge count={activeAlerts} size="small" overflowCount={99}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
           <Dropdown menu={{ items: [{ key: 'logout', icon: <LogoutOutlined />, label: t('logout'), onClick: () => void logout() }] }}>
             <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><DownOutlined className="user-menu-caret" /></Button>
           </Dropdown>

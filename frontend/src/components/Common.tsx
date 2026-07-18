@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 
 const colors: Record<string, string> = {
   online: 'green', running: 'green', succeeded: 'green', standard: 'blue',
-  pending: 'gold', queued: 'gold', provisioning: 'processing', experimental: 'orange',
+  pending: 'gold', queued: 'gold', retrying: 'gold', sending: 'processing', provisioning: 'processing', experimental: 'orange',
   failed: 'red', offline: 'red', critical: 'red', degraded: 'orange', needs_docker: 'purple',
-  stopped: 'default', canceled: 'default', custom: 'cyan', warning: 'orange', acknowledged: 'blue', resolved: 'green',
+  stopped: 'default', canceled: 'default', custom: 'cyan', info: 'blue', delivered: 'green', warning: 'orange', acknowledged: 'blue', resolved: 'green',
 }
 
 export function StatusTag({ value }: { value: string }) {

@@ -255,6 +255,21 @@ type Webhook struct {
 	UpdatedAt       time.Time       `json:"updatedAt"`
 }
 
+type WebhookDelivery struct {
+	ID             uuid.UUID `json:"id"`
+	WebhookID      uuid.UUID `json:"webhookId"`
+	EventID        uuid.UUID `json:"eventId"`
+	EventType      string    `json:"eventType"`
+	Status         string    `json:"status"`
+	Attempts       int       `json:"attempts"`
+	NextAttemptAt  time.Time `json:"nextAttemptAt"`
+	ResponseStatus *int      `json:"responseStatus,omitempty"`
+	ResponseBody   string    `json:"responseBody,omitempty"`
+	ErrorMessage   string    `json:"errorMessage,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
 type AuditLog struct {
 	ID           int64           `json:"id"`
 	UserID       *uuid.UUID      `json:"userId,omitempty"`

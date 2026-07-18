@@ -124,13 +124,48 @@ func (s *Store) EnqueueWebhookEvent(ctx context.Context, eventType string, paylo
 	return rows.Err()
 }
 
-func (s *Store) EnqueueWebhookFor(ctx context.Context, webhookID uuid.UUID, eventType string, payload any) error {
+func (s *Store) EnqueueWebhookFor(ctx context.Context, webhookID uuid.UUID, eventType string, payload any) (uuid.UUID, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
+	id := uuid.New()
 	_, err = s.pool.Exec(ctx, `INSERT INTO webhook_deliveries(id,webhook_id,event_id,event_type,payload)
-        VALUES($1,$2,$3,$4,$5)`, uuid.New(), webhookID, uuid.New(), eventType, encoded)
+		VALUES($1,$2,$3,$4,$5)`, id, webhookID, uuid.New(), eventType, encoded)
+	return id, err
+}
+
+func (s *Store) ListWebhookDeliveries(ctx context.Context, webhookID uuid.UUID, limit int) ([]domain.WebhookDelivery, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id,webhook_id,event_id,event_type,status,attempts,next_attempt_at,
+		response_status,response_body,error_message,created_at,updated_at FROM webhook_deliveries
+		WHERE webhook_id=$1 ORDER BY created_at DESC LIMIT $2`, webhookID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.WebhookDelivery, 0)
+	for rows.Next() {
+		var item domain.WebhookDelivery
+		if err := rows.Scan(&item.ID, &item.WebhookID, &item.EventID, &item.EventType, &item.Status,
+			&item.Attempts, &item.NextAttemptAt, &item.ResponseStatus, &item.ResponseBody,
+			&item.ErrorMessage, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) RetryWebhookDelivery(ctx context.Context, webhookID, deliveryID uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `UPDATE webhook_deliveries SET status='pending',attempts=0,
+		next_attempt_at=now(),response_status=NULL,response_body='',error_message='',updated_at=now()
+		WHERE id=$1 AND webhook_id=$2 AND status='failed'`, deliveryID, webhookID)
+	if err == nil && result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	return err
 }
 

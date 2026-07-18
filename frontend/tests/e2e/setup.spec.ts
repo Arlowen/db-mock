@@ -192,6 +192,79 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/tasks/${failedTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}`)
 
+  const alertID = '66666666-6666-4666-8666-666666666666'
+  const webhookID = '77777777-7777-4777-8777-777777777777'
+  const failedDeliveryID = '88888888-8888-4888-8888-888888888888'
+  const testDeliveryID = '88888888-8888-4888-8888-888888888889'
+  const alertHost = { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'offline', sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true }
+  let alertStatus = 'open'
+  let alertAcknowledgedAt: string | undefined
+  let retriedDelivery = false
+  let testQueued = false
+  let deliveryPolls = 0
+  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ json: { items: [{ id: alertID, severity: 'critical', type: 'host_offline', resourceType: 'host', resourceId: alertHost.id, title: 'Host is offline', message: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', status: alertStatus, createdAt: new Date(Date.now() - 300000).toISOString(), acknowledgedAt: alertAcknowledgedAt }] } }))
+  await page.route(`**/api/v1/alerts/${alertID}/acknowledged`, async (route) => { alertStatus = 'acknowledged'; alertAcknowledgedAt = new Date().toISOString(); await route.fulfill({ json: { ok: true } }) })
+  await page.route(`**/api/v1/alerts/${alertID}/resolved`, async (route) => { alertStatus = 'resolved'; await route.fulfill({ json: { ok: true } }) })
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [alertHost] } }))
+  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [] } }))
+  await page.route('**/api/v1/webhooks', async (route) => route.fulfill({ json: { items: [{ id: webhookID, name: 'Engineering alerts', url: 'https://hooks.example.test/dbmock', hasSecret: true, events: ['alert.created', 'task.failed'], enabled: true, createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString() }] } }))
+  await page.route(`**/api/v1/webhooks/${webhookID}`, async (route) => route.fulfill({ json: { id: webhookID } }))
+  await page.route(`**/api/v1/webhooks/${webhookID}/test`, async (route) => { testQueued = true; await route.fulfill({ status: 202, json: { queued: true, deliveryId: testDeliveryID } }) })
+  await page.route(`**/api/v1/webhooks/${webhookID}/deliveries`, async (route) => {
+    deliveryPolls += 1
+    const now = new Date().toISOString()
+    const items = [{ id: failedDeliveryID, webhookId: webhookID, eventId: '99999999-9999-4999-8999-999999999999', eventType: 'task.failed', status: retriedDelivery ? 'pending' : 'failed', attempts: retriedDelivery ? 0 : 5, nextAttemptAt: now, responseStatus: retriedDelivery ? undefined : 503, responseBody: retriedDelivery ? '' : 'temporarily unavailable', errorMessage: retriedDelivery ? '' : 'webhook returned HTTP 503', createdAt: new Date(Date.now() - 600000).toISOString(), updatedAt: now }]
+    if (testQueued) items.unshift({ id: testDeliveryID, webhookId: webhookID, eventId: '99999999-9999-4999-8999-999999999998', eventType: 'webhook.test', status: deliveryPolls > 2 ? 'delivered' : 'pending', attempts: deliveryPolls > 2 ? 1 : 0, nextAttemptAt: now, responseStatus: deliveryPolls > 2 ? 204 : undefined, responseBody: '', errorMessage: '', createdAt: now, updatedAt: now })
+    await route.fulfill({ json: { items } })
+  })
+  await page.route(`**/api/v1/webhooks/${webhookID}/deliveries/${failedDeliveryID}/retry`, async (route) => { retriedDelivery = true; await route.fulfill({ status: 202, json: { queued: true } }) })
+
+  await page.goto('/alerts')
+  await expect(page.getByRole('button', { name: '主机已离线' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'E2E Host' })).toBeVisible()
+  await expect(page.locator('.ant-badge-count')).toContainText('1')
+  await page.getByRole('button', { name: '主机已离线' }).click()
+  let alertDrawer = page.getByRole('dialog', { name: '告警详情' })
+  await expect(alertDrawer.getByText('平台无法通过 SSH 连接主机。')).toBeVisible()
+  await expect(alertDrawer.getByText(/Connection timed out/)).toBeVisible()
+  await alertDrawer.getByRole('button', { name: '确认告警' }).click()
+  await expect(alertDrawer.getByText('已确认')).toBeVisible()
+  await alertDrawer.getByRole('button', { name: '查看对应资源' }).click()
+  await expect(page).toHaveURL(/\/hosts\?host=11111111/)
+  const alertHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
+  await expect(alertHostDialog).toBeVisible()
+  await alertHostDialog.getByRole('button', { name: '关闭', exact: true }).click()
+
+  await page.goto('/alerts?tab=webhooks')
+  await expect(page.getByRole('heading', { name: 'Engineering alerts' })).toBeVisible()
+  await expect(page.getByText('新告警')).toBeVisible()
+  await page.getByRole('button', { name: '编辑' }).click()
+  const webhookDialog = page.getByRole('dialog', { name: '编辑 Webhook' })
+  await expect(webhookDialog.getByLabel('名称')).toHaveValue('Engineering alerts')
+  await expect(webhookDialog.getByText('已配置签名密钥；留空将保持现有密钥不变。')).toBeVisible()
+  await webhookDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '投递记录' }).click()
+  let deliveryDrawer = page.getByRole('dialog', { name: /投递记录.*Engineering alerts/ })
+  await expect(deliveryDrawer.getByText('503')).toBeVisible()
+  await deliveryDrawer.getByRole('button', { name: '重新投递' }).click()
+  await expect(deliveryDrawer.getByText('等待中')).toBeVisible()
+  await deliveryDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '测试 Webhook' }).click()
+  deliveryDrawer = page.getByRole('dialog', { name: /投递记录.*Engineering alerts/ })
+  await expect(deliveryDrawer.getByText('测试请求')).toBeVisible()
+  await expect(deliveryDrawer.getByText('已送达')).toBeVisible({ timeout: 10000 })
+  await deliveryDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.unroute(`**/api/v1/webhooks/${webhookID}/deliveries/${failedDeliveryID}/retry`)
+  await page.unroute(`**/api/v1/webhooks/${webhookID}/deliveries`)
+  await page.unroute(`**/api/v1/webhooks/${webhookID}/test`)
+  await page.unroute(`**/api/v1/webhooks/${webhookID}`)
+  await page.unroute('**/api/v1/webhooks')
+  await page.unroute('**/api/v1/instances')
+  await page.unroute('**/api/v1/hosts')
+  await page.unroute(`**/api/v1/alerts/${alertID}/resolved`)
+  await page.unroute(`**/api/v1/alerts/${alertID}/acknowledged`)
+  await page.unroute('**/api/v1/alerts')
+
   await page.goto('/audit')
   await page.locator('.page-header').getByRole('button', { name: '清理' }).click()
   let clearAuditDialog = page.getByRole('dialog', { name: '清理' })
