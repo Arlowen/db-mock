@@ -98,7 +98,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if request.CPU < version.MinCPU || request.MemoryBytes < version.MinMemoryBytes || request.DiskBytes < version.MinDiskBytes {
 		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: resources are below template minimum", domain.ErrInvalid)
 	}
-	host, err := s.selectHost(ctx, request.HostID, version, request.CPU, request.MemoryBytes, request.DiskBytes)
+	host, err := s.selectHost(ctx, request.HostID, version, request.CPU, request.MemoryBytes, request.DiskBytes, request.HostPort)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
@@ -210,7 +210,7 @@ func (s *Service) Connection(ctx context.Context, id uuid.UUID) (domain.Instance
 	return templates.Connection(template, version, instance, instance.ConnectionAddress, string(plain)), nil
 }
 
-func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version domain.TemplateVersion, cpu float64, memory, disk int64) (domain.Host, error) {
+func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version domain.TemplateVersion, cpu float64, memory, disk int64, port int) (domain.Host, error) {
 	if requested != nil {
 		host, err := s.store.GetHost(ctx, *requested)
 		if err != nil {
@@ -228,6 +228,9 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 		}
 		if !fitsHost(host, reservation, cpu, memory, disk) {
 			return domain.Host{}, fmt.Errorf("%w: host does not have enough available resources", domain.ErrConflict)
+		}
+		if !portAvailable(host, reservation, port) {
+			return domain.Host{}, fmt.Errorf("%w: requested port is not available on the selected host", domain.ErrConflict)
 		}
 		return host, nil
 	}
@@ -251,11 +254,14 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 		if !fitsHost(host, reservation, cpu, memory, disk) {
 			continue
 		}
+		if !portAvailable(host, reservation, port) {
+			continue
+		}
 		score := (host.CPUCount-reservation.CPU)/max(host.CPUCount, 1) + float64(host.MemoryBytes-reservation.Memory)/float64(maxInt(host.MemoryBytes, 1))
 		candidates = append(candidates, candidate{host, score})
 	}
 	if len(candidates) == 0 {
-		return domain.Host{}, fmt.Errorf("%w: no compatible host has enough resources", domain.ErrConflict)
+		return domain.Host{}, fmt.Errorf("%w: no compatible host has enough resources or the requested port is unavailable", domain.ErrConflict)
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
 	return candidates[0].host, nil
@@ -265,6 +271,17 @@ func fitsHost(host domain.Host, reservation store.HostReservation, cpu float64, 
 	return reservation.CPU+cpu <= host.CPUCount*.9 &&
 		reservation.Memory+memory <= int64(float64(host.MemoryBytes)*.8) &&
 		reservation.Disk+disk <= int64(float64(host.DiskFreeBytes)*.8)
+}
+
+func portAvailable(host domain.Host, reservation store.HostReservation, port int) bool {
+	if port == 0 {
+		return true
+	}
+	if port < host.PortStart || port > host.PortEnd {
+		return false
+	}
+	_, used := reservation.Ports[port]
+	return !used
 }
 
 func contains(values []string, target string) bool {

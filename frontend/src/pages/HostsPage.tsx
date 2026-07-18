@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { api, errorMessage } from '../lib/api'
+import { reservationForHost } from '../lib/host-capacity'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Host, Instance, Project, Task } from '../lib/types'
@@ -24,17 +25,6 @@ interface HostProbeResult {
 
 const verificationFields = new Set(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot'])
 const safeCreateReturnPath = (value: string | null) => value?.startsWith('/instances?create=1') ? value : ''
-
-interface HostReservation { cpu: number; memory: number; disk: number; ports: number[] }
-
-function reservationFor(instances: Instance[], hostId: string): HostReservation {
-  return instances.filter((instance) => instance.hostId === hostId).reduce((total, instance) => ({
-    cpu: total.cpu + instance.cpu,
-    memory: total.memory + instance.memoryBytes,
-    disk: total.disk + instance.reservedDiskBytes,
-    ports: instance.hostPort ? [...total.ports, instance.hostPort] : total.ports,
-  }), { cpu: 0, memory: 0, disk: 0, ports: [] } as HostReservation)
-}
 
 function percent(used: number, limit: number): number {
   return limit > 0 ? Math.min(100, Math.round(used * 100 / limit)) : 0
@@ -83,7 +73,7 @@ export function HostsPage() {
   const closeEditor = () => { if (saving || testing) return; setOpen(false); if (editing && hostID) setDetail(items.find((item) => item.id === hostID) ?? editing) }
   const remove = async (item: Host) => { try { await api(`/hosts/${item.id}`, { method: 'DELETE', body: { confirmName: item.name } }); closeDetail(); await load() } catch (e) { message.error(errorMessage(e)) } }
   const relatedInstances = detail ? instances.filter((instance) => instance.hostId === detail.id) : []
-  const detailReservation = detail ? reservationFor(instances, detail.id) : { cpu: 0, memory: 0, disk: 0, ports: [] }
+  const detailReservation = detail ? reservationForHost(instances, detail.id) : { cpu: 0, memory: 0, disk: 0, ports: [] }
   const activeTask = hostTasks.find((task) => task.status === 'queued' || task.status === 'running')
   const failedTask = detail && ['offline', 'needs_docker', 'unsupported'].includes(detail.status) ? hostTasks.find((task) => ['failed', 'interrupted', 'canceled'].includes(task.status)) : undefined
   const operationTask = activeTask || failedTask
@@ -102,7 +92,7 @@ export function HostsPage() {
     { title: t('status'), dataIndex: 'status', width: 110, render: (value: string, item: Host) => <div className="host-status-cell"><StatusTag value={value} />{item.maintenance && <Tag>{t('maintenance')}</Tag>}</div> },
     { title: t('ssh'), width: 220, render: (_: unknown, item: Host) => <><Typography.Text>{item.sshUser}@{item.sshAddress}:{item.sshPort}</Typography.Text><br /><Typography.Text type="secondary">{item.distro || item.os || '—'} / {item.architecture || '—'}</Typography.Text></> },
     { title: t('docker'), width: 145, render: (_: unknown, item: Host) => <><Typography.Text>{item.dockerVersion || t('dockerNotInstalled')}</Typography.Text><br /><Typography.Text type="secondary">{t('compose')} {item.composeVersion || '—'}</Typography.Text></> },
-    { title: t('schedulingCapacity'), width: 260, render: (_: unknown, item: Host) => { const related = instances.filter((instance) => instance.hostId === item.id); const reserved = reservationFor(instances, item.id); return <div className="host-list-capacity"><div><DatabaseOutlined /><Typography.Text>{t('managedInstanceCount', { count: related.length })}</Typography.Text></div><Typography.Text type="secondary">{t('reservedCapacity')}: {reserved.cpu} CPU · {bytes(reserved.memory)} · {bytes(reserved.disk)}</Typography.Text></div> } },
+    { title: t('schedulingCapacity'), width: 260, render: (_: unknown, item: Host) => { const related = instances.filter((instance) => instance.hostId === item.id); const reserved = reservationForHost(instances, item.id); return <div className="host-list-capacity"><div><DatabaseOutlined /><Typography.Text>{t('managedInstanceCount', { count: related.length })}</Typography.Text></div><Typography.Text type="secondary">{t('reservedCapacity')}: {reserved.cpu} CPU · {bytes(reserved.memory)} · {bytes(reserved.disk)}</Typography.Text></div> } },
     { title: t('actions'), width: 64, align: 'right' as const, render: (_: unknown, item: Host) => <Dropdown trigger={['click']} menu={{ items: [
       { key: 'probe', icon: <ReloadOutlined />, label: t('reprobeHost'), disabled: !!actioning, onClick: () => void action(item, 'probe') },
       { key: 'edit', icon: <EditOutlined />, label: t('edit'), disabled: !!actioning, onClick: () => show(item) },

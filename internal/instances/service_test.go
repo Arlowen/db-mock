@@ -25,6 +25,24 @@ func TestFitsHostHonorsDeploymentHeadroom(t *testing.T) {
 	}
 }
 
+func TestPortAvailableHonorsPoolAndReservations(t *testing.T) {
+	host := domain.Host{PortStart: 20000, PortEnd: 20010}
+	reservation := store.HostReservation{Ports: map[int]struct{}{20001: {}}}
+
+	if !portAvailable(host, reservation, 0) {
+		t.Fatal("expected automatic port allocation to remain eligible")
+	}
+	if !portAvailable(host, reservation, 20002) {
+		t.Fatal("expected unused port in the host pool to be eligible")
+	}
+	if portAvailable(host, reservation, 20001) {
+		t.Fatal("expected a reserved port to be rejected")
+	}
+	if portAvailable(host, reservation, 19999) {
+		t.Fatal("expected a port outside the host pool to be rejected")
+	}
+}
+
 func TestContainsRequiresExactImageReference(t *testing.T) {
 	refs := []string{"postgres:17", "registry.example.com/team/postgres:17"}
 	if !contains(refs, "postgres:17") {

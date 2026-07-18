@@ -10,6 +10,11 @@ describe('API error messages', () => {
       .toBe('资源状态冲突: 该仓库仍被数据库实例使用，无法删除。')
   })
 
+  it('turns late host port races into an actionable localized message', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: requested port is not available on the selected host')))
+      .toBe('资源状态冲突: 指定端口不在所选主机的端口池内，或已被其他实例占用。')
+  })
+
   it('does not expose an untranslated infrastructure error in place of the recovery hint', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the instance host over SSH')))
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')

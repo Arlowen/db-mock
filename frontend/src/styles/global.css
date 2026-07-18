@@ -58,7 +58,7 @@ button { font: inherit; }
 .database-icon-large { width: 56px; height: 56px; border-radius: 16px; font-size: 34px; }
 .database-icon-small { width: 34px; height: 34px; border-radius: 9px; font-size: 21px; }
 .wizard-form { margin-top: 28px; }
-.wizard-readiness-alert, .wizard-submit-error { margin-top: 16px; }
+.wizard-readiness-alert, .wizard-capacity-alert, .wizard-submit-error { margin-top: 16px; }
 .wizard-form .ant-radio-group { display: flex; width: 100%; }
 .wizard-form .ant-radio-button-wrapper { flex: 1; text-align: center; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
