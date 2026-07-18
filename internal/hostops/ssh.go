@@ -41,16 +41,17 @@ type CommandResult struct {
 }
 
 type ProbeResult struct {
-	HostKey        string
-	OS             string
-	Distro         string
-	Architecture   string
-	DockerVersion  string
-	ComposeVersion string
-	CPUCount       float64
-	MemoryBytes    int64
-	DiskTotalBytes int64
-	DiskFreeBytes  int64
+	HostKey          string  `json:"hostKey"`
+	OS               string  `json:"os"`
+	Distro           string  `json:"distro"`
+	Architecture     string  `json:"architecture"`
+	DockerVersion    string  `json:"dockerVersion"`
+	ComposeVersion   string  `json:"composeVersion"`
+	PasswordlessSudo bool    `json:"passwordlessSudo"`
+	CPUCount         float64 `json:"cpuCount"`
+	MemoryBytes      int64   `json:"memoryBytes"`
+	DiskTotalBytes   int64   `json:"diskTotalBytes"`
+	DiskFreeBytes    int64   `json:"diskFreeBytes"`
 }
 
 func NewManager(vault *crypto.Vault) *Manager {
@@ -178,6 +179,8 @@ distro=""
 if [ -r /etc/os-release ]; then . /etc/os-release; distro="${ID:-unknown}:${VERSION_ID:-unknown}"; fi
 docker_version="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
 compose_version="$(docker compose version --short 2>/dev/null || true)"
+passwordless_sudo=false
+if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then passwordless_sudo=true; fi
 docker_resources="$(docker info --format '{{.NCPU}}|{{.MemTotal}}' 2>/dev/null || true)"
 cpu="${docker_resources%%|*}"; memory="${docker_resources#*|}"
 if [ -z "$docker_resources" ] || [ "$docker_resources" = "$memory" ]; then
@@ -187,7 +190,7 @@ fi
 root=` + root + `
 probe="$root"; while [ ! -e "$probe" ] && [ "$probe" != / ] && [ "$probe" != . ]; do probe="$(dirname "$probe")"; done
 disk="$(df -Pk "$probe" 2>/dev/null | awk 'NR==2{print $2*1024 "|" $4*1024}' || true)"
-printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\ncpu=%s\nmemory=%s\ndisk=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$cpu" "$memory" "$disk"`
+printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\ncpu=%s\nmemory=%s\ndisk=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$passwordless_sudo" "$cpu" "$memory" "$disk"`
 	session, err := client.NewSession()
 	if err != nil {
 		return ProbeResult{}, err
@@ -199,12 +202,13 @@ printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\ncpu=%s\nmemory=%s\ndis
 	}
 	values := ParseKeyValues(string(output))
 	result := ProbeResult{
-		HostKey:        captured,
-		OS:             normalizeOS(values["os"]),
-		Distro:         values["distro"],
-		Architecture:   normalizeArchitecture(values["arch"]),
-		DockerVersion:  values["docker"],
-		ComposeVersion: values["compose"],
+		HostKey:          captured,
+		OS:               normalizeOS(values["os"]),
+		Distro:           values["distro"],
+		Architecture:     normalizeArchitecture(values["arch"]),
+		DockerVersion:    values["docker"],
+		ComposeVersion:   values["compose"],
+		PasswordlessSudo: values["passwordless_sudo"] == "true",
 	}
 	result.CPUCount, _ = strconv.ParseFloat(values["cpu"], 64)
 	result.MemoryBytes, _ = strconv.ParseInt(values["memory"], 10, 64)

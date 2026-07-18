@@ -78,14 +78,17 @@ button { font: inherit; }
 .create-review-options .ant-descriptions-item-label { width: auto; }
 .create-review-options code { white-space: normal; overflow-wrap: anywhere; }
 .create-review-alert { border-color: #cfe0ff; background: #f7faff; }
-.host-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; }
+.host-policy-list { display: grid; gap: 10px; }
+.host-policy-item { min-width: 0; padding: 12px 14px; border: 1px solid #e4e9f0; border-radius: 10px; background: #fff; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.host-policy-item > div { min-width: 0; display: grid; gap: 3px; }
+.host-policy-item .ant-typography-secondary { font-size: 12px; line-height: 1.5; }
+.host-policy-item .ant-switch { flex: none; }
 .form-section, .fingerprint-card { margin-bottom: 20px; background: #fafcff; }
 .form-section-label { display: block; margin-bottom: 14px; color: #344054; font-size: 12px; font-weight: 750; letter-spacing: .04em; }
 .host-advanced { margin: 2px 0 16px; border-color: #e5eaf1; background: #fafcff; }
 .host-advanced .ant-collapse-header { align-items: center !important; }
 .host-advanced .ant-collapse-header-text > div { display: flex; flex-direction: column; gap: 2px; }
 .host-advanced .ant-collapse-header-text .ant-typography-secondary { font-size: 12px; }
-.host-advanced .host-policy-grid .ant-form-item { margin-bottom: 0; }
 .host-continuation-banner { margin-bottom: 16px; border-color: #c9dcf8; background: #f6f9ff; }
 .host-continuation-banner .ant-alert-content { min-width: 0; }
 .host-continuation-banner .ant-alert-action { align-self: center; }
