@@ -272,6 +272,44 @@ button { font: inherit; }
 .template-meta { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eef1f5; display: flex; gap: 12px; flex-wrap: wrap; color: #667085; font-size: 12px; }
 .project-card { height: 100%; }
 .project-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 4px rgb(37 99 235 / 9%); }
+.host-table-card .ant-card-body { padding: 0; }
+.host-table-card .ant-table-cell { vertical-align: middle; }
+.host-name-cell, .host-list-capacity { min-width: 0; display: grid; gap: 3px; }
+.host-name-cell .ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; color: #172033; font-weight: 650; overflow: hidden; }
+.host-name-cell .ant-btn > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.host-name-cell .ant-typography-secondary, .host-list-capacity .ant-typography-secondary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.host-status-cell { display: flex; align-items: flex-start; flex-direction: column; gap: 5px; }
+.host-status-cell .ant-tag { margin: 0; }
+.host-list-capacity > div { display: flex; align-items: center; gap: 7px; }
+.host-list-capacity > div > .anticon { color: #2563eb; }
+.host-detail-drawer .ant-drawer-body { background: #f7f9fc; }
+.host-detail-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.host-detail-title > div { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.host-detail-title > div .anticon { color: #2563eb; }
+.host-detail-title > div .ant-typography { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-detail-title .ant-tag { flex: none; margin: 0; }
+.host-detail { display: grid; gap: 16px; }
+.host-detail .ant-card { box-shadow: none; }
+.host-detail .ant-card-head-title { font-size: 13px; }
+.host-operation { margin: 0; }
+.host-health-banner { padding: 18px; border: 1px solid #cce9dc; border-radius: 12px; background: linear-gradient(135deg, #f6fcf9, #fbfefd); }
+.host-health-banner.is-warning { border-color: #f0d8b2; background: linear-gradient(135deg, #fffbf3, #fffdf9); }
+.host-health-banner.is-error { border-color: #f2c7cc; background: linear-gradient(135deg, #fff8f8, #fffdfd); }
+.host-health-banner > div:first-child { display: flex; align-items: center; gap: 9px; }
+.host-health-banner > div:first-child .ant-tag { margin: 0; }
+.host-health-banner > p.ant-typography { margin: 8px 0 14px; color: #475467; line-height: 1.55; }
+.host-health-facts { padding-top: 13px; border-top: 1px solid rgb(102 112 133 / 15%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.host-health-facts > span { min-width: 0; display: grid; gap: 3px; }
+.host-health-facts .ant-typography-secondary { font-size: 11px; }
+.host-capacity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.host-capacity-item { min-width: 0; padding: 13px; border: 1px solid #e5eaf1; border-radius: 10px; background: #fbfcfe; }
+.host-capacity-item > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.host-capacity-item > div:first-child .ant-typography-secondary { font-size: 11px; text-align: right; }
+.host-capacity-item .ant-progress { margin: 8px 0 2px; }
+.host-capacity-item > .ant-typography-secondary { font-size: 11px; }
+.host-instance-card .ant-card-body { padding: 0; }
+.host-instance-card .ant-table-cell { vertical-align: middle; }
+.host-detail .ant-descriptions-item-label { color: #667085; }
 .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 42px; background: radial-gradient(circle at 15% 10%, #e7f0ff 0, transparent 28%), radial-gradient(circle at 85% 85%, #dff8f4 0, transparent 30%), #f5f7fb; }
 .auth-card { width: min(460px, 100%); border: 1px solid #e4e9f0; box-shadow: 0 24px 70px rgb(23 43 77 / 12%); }
 .brand-lockup { display: flex; align-items: center; gap: 16px; }
@@ -295,6 +333,8 @@ button { font: inherit; }
   .image-toolbar > .ant-select { flex: 1; }
   .alert-toolbar .ant-input-search { flex-basis: calc(100% - 172px); }
   .alert-toolbar .ant-segmented { order: 3; width: 100%; }
+  .host-capacity-grid { grid-template-columns: 1fr; }
+  .host-health-facts { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
