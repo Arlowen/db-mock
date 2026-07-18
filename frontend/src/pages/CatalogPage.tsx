@@ -39,8 +39,10 @@ export function CatalogPage() {
         <div className="template-card-main">
           <div className="template-card-header">
             <DatabaseIcon slug={item.slug} name={displayName} />
-            <Typography.Title level={4} className="template-card-title">{displayName}</Typography.Title>
-            <span className="template-card-tier"><StatusTag value={item.tier} /></span>
+            <div className="template-card-heading">
+              <Typography.Title level={4} className="template-card-title">{displayName}</Typography.Title>
+              <span className="template-card-tier"><StatusTag value={item.tier} /></span>
+            </div>
           </div>
           <Typography.Paragraph className="template-card-description" type="secondary" ellipsis={{ rows: 2 }}>{t(`templateDescription_${item.slug}`, { defaultValue: item.description })}</Typography.Paragraph>
           <Space className="template-card-tags"><Tag>{t(`category_${item.category.replaceAll('-', '_')}`, { defaultValue: item.category })}</Tag>{version?.architectures.map((arch) => <Tag key={arch}>{arch}</Tag>)}</Space>

@@ -330,7 +330,8 @@ button { font: inherit; }
 .template-card .ant-card-body { min-width: 0; min-height: 242px; display: flex; flex: 1; flex-direction: column; }
 .template-card .ant-card-actions { flex: none; }
 .template-card-main { min-width: 0; display: grid; grid-template-rows: 56px 44px 24px; gap: 10px; align-content: start; flex: 1; }
-.template-card-header { min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(52px, max-content); align-items: center; gap: 14px; }
+.template-card-header { width: 100%; min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; gap: 14px; }
+.template-card-heading { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(52px, max-content); align-items: center; gap: 12px; }
 .template-card-tier { min-width: 52px; display: flex; align-items: center; justify-content: flex-end; }
 .template-card-tier .ant-tag { margin-inline-end: 0; }
 .template-card-title.ant-typography { min-width: 0; margin: 0; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
