@@ -45,3 +45,16 @@ func TestNormalizeWebhook(t *testing.T) {
 		})
 	}
 }
+
+func TestSafeCSVCellPreventsSpreadsheetFormulas(t *testing.T) {
+	for _, value := range []string{"=cmd()", "+SUM(1,1)", "-1+2", "@IMPORTDATA", "  =cmd()"} {
+		if got := safeCSVCell(value); got != "'"+value {
+			t.Fatalf("expected %q to be escaped, got %q", value, got)
+		}
+	}
+	for _, value := range []string{"admin", "10.0.0.8", "", "completed"} {
+		if got := safeCSVCell(value); got != value {
+			t.Fatalf("expected %q to stay unchanged, got %q", value, got)
+		}
+	}
+}

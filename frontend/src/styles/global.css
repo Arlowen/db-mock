@@ -148,6 +148,29 @@ button { font: inherit; }
 .task-log-card .ant-timeline-item-last { padding-bottom: 0; }
 .task-log-entry { display: grid; gap: 3px; }
 .task-log-entry .ant-typography-secondary { font-size: 12px; }
+.audit-table-card .ant-table-cell { vertical-align: middle; }
+.audit-action-link.ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; font-weight: 650; text-align: start; white-space: normal; }
+.audit-resource-cell { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.audit-resource-cell .ant-tag { flex: none; margin: 0; }
+.audit-resource-cell .ant-typography { min-width: 0; }
+.audit-detail-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.audit-detail-title .ant-typography:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audit-detail { display: grid; gap: 16px; }
+.audit-detail-summary { padding: 18px; border: 1px solid #dbe5f2; border-radius: 12px; background: linear-gradient(135deg, #f8fbff, #fbfdff); display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 13px; }
+.audit-detail-summary.is-success { border-color: #cce9dc; background: linear-gradient(135deg, #f6fcf9, #fbfefd); }
+.audit-detail-summary.is-failure { border-color: #f2c7cc; background: linear-gradient(135deg, #fff8f8, #fffdfd); }
+.audit-detail-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: #2563eb; background: #eaf2ff; font-size: 20px; }
+.audit-detail-summary.is-success .audit-detail-icon { color: #12805c; background: #e6f7ef; }
+.audit-detail-summary.is-failure .audit-detail-icon { color: #c02c3a; background: #ffe7e9; }
+.audit-detail-summary p.ant-typography { margin: 8px 0 0; line-height: 1.5; }
+.audit-detail-meta .ant-descriptions-item-label { width: 118px; color: #667085; }
+.audit-detail-meta .ant-btn-link { height: auto; padding: 0; }
+.audit-change-list { display: grid; gap: 0; }
+.audit-change-row { min-width: 0; min-height: 46px; padding: 10px 0; display: grid; grid-template-columns: minmax(150px, .8fr) minmax(0, 1.2fr); align-items: center; gap: 16px; }
+.audit-change-row + .audit-change-row { border-top: 1px solid #edf0f4; }
+.audit-change-row > div { min-width: 0; overflow-wrap: anywhere; }
+.audit-change-row code { white-space: normal; overflow-wrap: anywhere; }
+.audit-message.ant-typography { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-viewer, .settings-json { margin: 0; padding: 16px; border-radius: 10px; background: #101828; color: #d6e0f0; overflow: auto; max-height: 560px; min-height: 130px; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-json { min-height: 180px; max-height: 300px; }
 .json-editor textarea, textarea.json-editor { font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }

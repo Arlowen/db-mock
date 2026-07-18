@@ -290,11 +290,37 @@ func (s *Server) exportAudit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="dbmock-audit.csv"`)
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(w)
-	_ = writer.Write([]string{"ID", "Time", "User", "Action", "Resource type", "Resource name", "Result", "IP", "Message"})
+	_ = writer.Write([]string{"ID", "Time", "User", "Action", "Resource type", "Resource ID", "Resource name", "Result", "IP", "Request ID", "Task ID", "Changes", "Message"})
 	for _, item := range items {
-		_ = writer.Write([]string{strconv.FormatInt(item.ID, 10), item.CreatedAt.Format(time.RFC3339), item.Username, item.Action, item.ResourceType, item.ResourceName, item.Result, item.IP, item.Message})
+		row := []string{strconv.FormatInt(item.ID, 10), item.CreatedAt.Format(time.RFC3339), item.Username, item.Action,
+			item.ResourceType, uuidString(item.ResourceID), item.ResourceName, item.Result, item.IP, item.RequestID,
+			uuidString(item.TaskID), string(item.Changes), item.Message}
+		for index := range row {
+			row[index] = safeCSVCell(row[index])
+		}
+		_ = writer.Write(row)
 	}
 	writer.Flush()
+}
+
+func uuidString(value *uuid.UUID) string {
+	if value == nil {
+		return ""
+	}
+	return value.String()
+}
+
+func safeCSVCell(value string) string {
+	trimmed := strings.TrimLeft(value, " \t\r\n")
+	if trimmed == "" {
+		return value
+	}
+	switch trimmed[0] {
+	case '=', '+', '-', '@':
+		return "'" + value
+	default:
+		return value
+	}
 }
 func (s *Server) clearAudit(w http.ResponseWriter, r *http.Request) {
 	var input struct {

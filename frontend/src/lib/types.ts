@@ -9,7 +9,7 @@ export interface Task { id: string; kind: string; status: string; resourceType: 
 export interface Alert { id: string; severity: string; type: string; resourceType: string; resourceId: string; title: string; message: string; details?: Record<string, unknown>; status: string; createdAt: string; acknowledgedAt?: string; acknowledgedBy?: string; resolvedAt?: string; resolvedBy?: string }
 export interface Webhook { id: string; name: string; url: string; hasSecret: boolean; events: string[]; enabled: boolean; createdAt: string; updatedAt: string; lastDeliveryStatus?: string; lastDeliveryAt?: string; failedDeliveries: number; queuedDeliveries: number }
 export interface WebhookDelivery { id: string; webhookId: string; eventId: string; eventType: string; status: string; attempts: number; nextAttemptAt: string; responseStatus?: number; responseBody?: string; errorMessage?: string; createdAt: string; updatedAt: string }
-export interface Audit { id: number; username: string; action: string; resourceType: string; resourceName: string; ip: string; result: string; message: string; createdAt: string }
+export interface Audit { id: number; userId?: string; username: string; action: string; resourceType: string; resourceId?: string; resourceName: string; ip: string; requestId: string; taskId?: string; result: string; changes: Record<string, unknown>; message: string; createdAt: string }
 export interface ImageArtifact { id: string; name: string; filename: string; sizeBytes: number; sha256: string; format: string; imageRefs: string[]; architectures: string[]; status: string; usedByCount: number; createdAt: string; lastUsedAt?: string }
 
 export const bytes = (value?: number): string => {

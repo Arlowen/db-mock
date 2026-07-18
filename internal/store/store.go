@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,7 +89,7 @@ type AuditInput struct {
 }
 
 func (s *Store) AddAudit(ctx context.Context, input AuditInput) error {
-	changes, err := json.Marshal(input.Changes)
+	changes, err := marshalAuditChanges(input.Changes)
 	if err != nil || string(changes) == "null" {
 		changes = []byte("{}")
 	}
@@ -98,6 +99,48 @@ func (s *Store) AddAudit(ctx context.Context, input AuditInput) error {
 		input.Action, input.ResourceType, input.ResourceID, input.ResourceName, input.IP, input.RequestID,
 		input.TaskID, input.Result, changes, input.Message)
 	return err
+}
+
+func marshalAuditChanges(input any) ([]byte, error) {
+	raw, err := json.Marshal(input)
+	if err != nil || string(raw) == "null" {
+		return raw, err
+	}
+	var value any
+	if err = json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	redactAuditValue(value)
+	return json.Marshal(value)
+}
+
+func redactAuditValue(value any) {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, child := range current {
+			if auditSensitiveKey(key) {
+				if _, safeFlag := child.(bool); !safeFlag {
+					current[key] = "[REDACTED]"
+					continue
+				}
+			}
+			redactAuditValue(child)
+		}
+	case []any:
+		for _, child := range current {
+			redactAuditValue(child)
+		}
+	}
+}
+
+func auditSensitiveKey(key string) bool {
+	normalized := strings.ToLower(strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(key))
+	for _, fragment := range []string{"password", "secret", "token", "credential", "privatekey", "passphrase", "authorization", "cookie", "connectionuri", "jdbcuri"} {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) ListAudit(ctx context.Context, search, resourceType string, before time.Time, limit int) ([]domain.AuditLog, error) {
