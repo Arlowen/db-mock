@@ -61,6 +61,18 @@ button { font: inherit; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .host-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; }
 .form-section, .fingerprint-card { margin-bottom: 20px; background: #fafcff; }
+.form-section-label { display: block; margin-bottom: 14px; color: #344054; font-size: 12px; font-weight: 750; letter-spacing: .04em; }
+.host-advanced { margin: 2px 0 16px; border-color: #e5eaf1; background: #fafcff; }
+.host-advanced .ant-collapse-header { align-items: center !important; }
+.host-advanced .ant-collapse-header-text > div { display: flex; flex-direction: column; gap: 2px; }
+.host-advanced .ant-collapse-header-text .ant-typography-secondary { font-size: 12px; }
+.host-advanced .host-policy-grid .ant-form-item { margin-bottom: 0; }
+.verification-section { display: grid; gap: 8px; }
+.verification-section .form-section-label { margin-bottom: 0; }
+.verification-section .ant-alert-description { margin-top: 10px; }
+.verification-section .ant-descriptions-item-label { color: #667085; font-size: 12px; }
+.fingerprint-value { display: inline-block; max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
+.workflow-modal-footer, .workflow-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .secret-details { margin-top: 22px; }
 .log-viewer, .settings-json { margin: 0; padding: 16px; border-radius: 10px; background: #101828; color: #d6e0f0; overflow: auto; max-height: 560px; min-height: 130px; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-json { min-height: 180px; max-height: 300px; }

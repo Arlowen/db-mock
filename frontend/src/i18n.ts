@@ -61,6 +61,9 @@ export const zh: Record<string, string> = {
 
   projectDeleteBlocked: '包含主机或实例的项目无法删除。',
   addHost: '接入主机', testConnection: '测试连接', confirmFingerprint: '确认 SSH 指纹',
+  connectionSettings: '连接信息', advancedSettings: '高级设置', advancedHostSettingsHint: '数据库访问地址、数据目录、端口池与代理', hostPolicies: '主机策略', hostPoliciesHint: '异常自动重启默认开启；Docker 管理和维护模式默认关闭',
+  connectionVerification: '连接验证', connectionVerificationHint: '保存前请测试 SSH 连接，平台会确认主机身份并检测系统、Docker 与可用资源。', connectionVerified: '连接验证通过', connectionChanged: '连接信息已变更，请重新测试。',
+  testResultSystem: '系统与架构', testResultDocker: 'Docker 与 Compose', testResultResources: '可用资源',
   installDocker: '安装 Docker', upgradeDocker: '升级 Docker', maintenance: '维护模式', applyDockerProxy: '应用 Docker 代理',
   sshAddress: 'SSH 地址', sshPort: 'SSH 端口', sshUser: 'SSH 用户', authentication: '认证方式',
   privateKey: '私钥', privateKeyPassphrase: '私钥口令', privateKeyPlaceholder: '-----BEGIN OPENSSH PRIVATE KEY-----',
@@ -107,6 +110,8 @@ export const zh: Record<string, string> = {
   registryURLPlaceholder: 'https://harbor.example.com', webhookURLPlaceholder: 'https://example.com/hooks/dbmock',
 
   taskLogs: '任务日志', retry: '重试', taskStatusAll: '全部状态', taskCanceled: '取消任务',
+  taskQueued: '任务已进入队列', taskQueuedDescription: '任务 {{id}} 已创建，可离开当前页面继续工作。', viewTask: '查看任务', cancelRequested: '已请求取消任务',
+  previous: '上一步', invalidJSONObject: '请输入合法的 JSON 对象，例如 {"TZ":"Asia/Shanghai"}',
   preflight: '预检', tuning: '主机调优', image: '镜像准备', render: '渲染配置', composeStage: 'Compose 操作',
   files: '文件清理', snapshot: '临时快照', migration: '升级脚本', connect: '连接主机', persist: '保存能力', probe: '能力检测',
   taskKind_instance_create: '创建数据库实例', taskKind_instance_start: '启动数据库实例', taskKind_instance_stop: '停止数据库实例',
@@ -216,6 +221,9 @@ export const en: Record<string, string> = {
 
   projectDeleteBlocked: 'Projects containing hosts or instances cannot be deleted.',
   addHost: 'Add host', testConnection: 'Test connection', confirmFingerprint: 'Confirm SSH fingerprint',
+  connectionSettings: 'Connection', advancedSettings: 'Advanced settings', advancedHostSettingsHint: 'Database address, data directory, port pool, and proxy', hostPolicies: 'Host policies', hostPoliciesHint: 'Auto restart is on; Docker management and maintenance are off by default',
+  connectionVerification: 'Connection verification', connectionVerificationHint: 'Test SSH before saving. The platform confirms host identity and detects the system, Docker, and available resources.', connectionVerified: 'Connection verified', connectionChanged: 'Connection details changed. Test again before saving.',
+  testResultSystem: 'System and architecture', testResultDocker: 'Docker and Compose', testResultResources: 'Available resources',
   installDocker: 'Install Docker', upgradeDocker: 'Upgrade Docker', maintenance: 'Maintenance', applyDockerProxy: 'Apply Docker proxy',
   sshAddress: 'SSH address', sshPort: 'SSH port', sshUser: 'SSH user', authentication: 'Authentication',
   privateKey: 'Private key', privateKeyPassphrase: 'Private key passphrase', privateKeyPlaceholder: '-----BEGIN OPENSSH PRIVATE KEY-----',
@@ -262,6 +270,8 @@ export const en: Record<string, string> = {
   registryURLPlaceholder: 'https://harbor.example.com', webhookURLPlaceholder: 'https://example.com/hooks/dbmock',
 
   taskLogs: 'Task logs', retry: 'Retry', taskStatusAll: 'All statuses', taskCanceled: 'Cancel task',
+  taskQueued: 'Task queued', taskQueuedDescription: 'Task {{id}} was created. You can leave this page and keep working.', viewTask: 'View task', cancelRequested: 'Task cancellation requested',
+  previous: 'Back', invalidJSONObject: 'Enter a valid JSON object, for example {"TZ":"Asia/Shanghai"}',
   preflight: 'Preflight', tuning: 'Host tuning', image: 'Image preparation', render: 'Configuration render', composeStage: 'Compose operation',
   files: 'File cleanup', snapshot: 'Temporary snapshot', migration: 'Upgrade script', connect: 'Host connection', persist: 'Capability save', probe: 'Capability probe',
   taskKind_instance_create: 'Create database instance', taskKind_instance_start: 'Start database instance', taskKind_instance_stop: 'Stop database instance',
