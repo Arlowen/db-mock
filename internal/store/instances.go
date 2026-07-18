@@ -93,7 +93,7 @@ func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain
 		return domain.Instance{}, fmt.Errorf("%w: insufficient host resources", domain.ErrConflict)
 	}
 	if input.HostPort == 0 {
-		if err := tx.QueryRow(ctx, `SELECT p FROM generate_series($2,$3) p WHERE NOT EXISTS
+		if err := tx.QueryRow(ctx, `SELECT p FROM generate_series($2::integer,$3::integer) p WHERE NOT EXISTS
             (SELECT 1 FROM instances WHERE host_id=$1 AND host_port=p AND status<>'deleted') ORDER BY p LIMIT 1`,
 			input.HostID, host.PortStart, host.PortEnd).Scan(&input.HostPort); err != nil {
 			return domain.Instance{}, fmt.Errorf("%w: no port is available", domain.ErrConflict)

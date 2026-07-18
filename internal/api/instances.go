@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -184,7 +185,7 @@ func (s *Server) instanceLogs(w http.ResponseWriter, r *http.Request) {
 	tail, _ := strconv.Atoi(r.URL.Query().Get("tail"))
 	logs, err := s.docker.Logs(r.Context(), host, instance, tail)
 	if err != nil {
-		httpx.Error(w, r, err)
+		httpx.Error(w, r, fmt.Errorf("%w: unable to reach the instance host over SSH", domain.ErrUnavailable))
 		return
 	}
 	if r.URL.Query().Get("download") == "true" {

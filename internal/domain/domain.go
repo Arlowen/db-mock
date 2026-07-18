@@ -15,6 +15,7 @@ var (
 	ErrForbidden     = errors.New("operation forbidden")
 	ErrInvalid       = errors.New("invalid input")
 	ErrNotConfigured = errors.New("platform is not initialized")
+	ErrUnavailable   = errors.New("resource temporarily unavailable")
 )
 
 type User struct {

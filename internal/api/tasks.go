@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/auth"
 	"github.com/pika/db-mock/internal/httpx"
 )
@@ -17,7 +18,16 @@ func (s *Server) taskRoutes(r chi.Router) {
 	r.Post("/{id}/retry", s.retryTask)
 }
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListTasks(r.Context(), r.URL.Query().Get("status"), 100)
+	var resourceID *uuid.UUID
+	if value := r.URL.Query().Get("resourceId"); value != "" {
+		parsed, err := httpx.UUIDParam(value)
+		if err != nil {
+			httpx.Error(w, r, err)
+			return
+		}
+		resourceID = &parsed
+	}
+	items, err := s.store.ListTasks(r.Context(), r.URL.Query().Get("status"), r.URL.Query().Get("resourceType"), resourceID, 100)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

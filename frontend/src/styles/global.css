@@ -77,6 +77,14 @@ button { font: inherit; }
 .fingerprint-value { display: inline-block; max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
 .workflow-modal-footer, .workflow-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .instance-page-alert { margin-bottom: 16px; }
+.instance-operation { margin-bottom: 16px; padding: 15px 18px; border: 1px solid #cfe0ff; border-radius: 12px; background: #f7faff; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(180px, 320px) auto; align-items: center; gap: 20px; }
+.instance-operation.is-failed { border-color: #ffd0d5; background: #fff8f8; grid-template-columns: minmax(260px, 1fr) auto; }
+.instance-operation-copy { min-width: 0; }
+.instance-operation-copy .ant-tag { margin-inline-end: 0; }
+.instance-operation-copy .ant-typography { margin: 5px 0 0; line-height: 1.45; }
+.instance-operation-progress { margin: 0; }
+.instance-operation-actions { justify-self: end; }
+.description-link.ant-btn { height: auto; padding: 0; }
 .health-summary-card { height: 100%; }
 .health-summary-card .ant-card-body { min-height: 220px; display: grid; grid-template-columns: 50px minmax(0, 1fr); align-content: start; gap: 12px; }
 .health-summary-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; font-size: 23px; }
@@ -101,6 +109,7 @@ button { font: inherit; }
 .connection-string { min-width: 0; padding: 12px 14px; border: 1px solid #e4e9f0; border-radius: 10px; background: #f8fafc; display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: start; gap: 14px; }
 .connection-string code { white-space: normal; overflow-wrap: anywhere; }
 .ops-alert { margin-bottom: 18px; }
+.logs-updated { font-size: 12px; font-weight: 400; }
 .metric-summary { margin-bottom: 22px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #e7ebf1; border-radius: 12px; overflow: hidden; background: #fbfcfe; }
 .metric-stat { min-width: 0; min-height: 96px; padding: 15px 18px; display: flex; flex-direction: column; gap: 4px; }
 .metric-stat + .metric-stat { border-left: 1px solid #e7ebf1; }
@@ -277,6 +286,10 @@ button { font: inherit; }
   .metric-stat:nth-child(4) { border-top: 1px solid #e7ebf1; }
   .connection-toolbar { align-items: stretch; flex-direction: column; }
   .connection-string { grid-template-columns: 1fr; gap: 6px; }
+  .instance-operation, .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
+  .instance-operation-actions { justify-self: start; }
+  .ops-panel .ant-card-head-wrapper { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .ops-panel .ant-card-extra { margin: 0; }
   .image-toolbar { flex-wrap: wrap; }
   .image-toolbar > .ant-input-affix-wrapper { flex-basis: 100%; }
   .image-toolbar > .ant-select { flex: 1; }

@@ -47,12 +47,13 @@ func (s *Store) GetTask(ctx context.Context, id uuid.UUID) (domain.Task, error) 
 	return item, translate(err)
 }
 
-func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]domain.Task, error) {
+func (s *Store) ListTasks(ctx context.Context, status, resourceType string, resourceID *uuid.UUID, limit int) ([]domain.Task, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, "SELECT "+taskColumns+` FROM tasks WHERE ($1='' OR status=$1)
-        ORDER BY created_at DESC LIMIT $2`, status, limit)
+        AND ($2='' OR resource_type=$2) AND ($3::uuid IS NULL OR resource_id=$3)
+        ORDER BY created_at DESC LIMIT $4`, status, resourceType, resourceID, limit)
 	if err != nil {
 		return nil, err
 	}

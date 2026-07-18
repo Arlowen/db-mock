@@ -77,6 +77,10 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusPreconditionFailed
 		code = "not_initialized"
 		message = "Platform is not initialized"
+	case errors.Is(err, domain.ErrUnavailable):
+		status = http.StatusServiceUnavailable
+		code = "resource_unavailable"
+		message = err.Error()
 	}
 	JSON(w, status, ErrorBody{Error: ErrorDetail{Code: code, Message: message}, RequestID: auth.RequestID(r.Context())})
 }
