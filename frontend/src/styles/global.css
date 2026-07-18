@@ -332,8 +332,8 @@ button { font: inherit; }
 .template-card .ant-card-actions { flex: none; }
 .template-card-main { min-width: 0; display: grid; grid-template-rows: 56px 44px 24px; gap: 10px; align-content: start; flex: 1; }
 .template-card-header { width: 100%; min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; gap: 14px; }
-.template-card-heading { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(52px, max-content); align-items: center; gap: 12px; }
-.template-card-tier { min-width: 52px; display: flex; align-items: center; justify-content: flex-end; }
+.template-card-heading { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(52px, max-content); align-items: start; gap: 12px; }
+.template-card-tier { min-width: 52px; padding-top: 1px; display: flex; align-items: center; justify-content: flex-end; }
 .template-card-tier .ant-tag { margin-inline-end: 0; }
 .template-card-title.ant-typography { min-width: 0; margin: 0; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .template-card-description.ant-typography { width: calc(100% - 70px); min-height: 44px; margin: 0; margin-inline-start: 70px; line-height: 22px; }

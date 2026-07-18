@@ -362,7 +362,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.locator('.database-icon')).toHaveCount(19)
   await expect(page.getByRole('img', { name: 'MySQL' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'PostgreSQL' })).toBeVisible()
-  const cardLayout = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).slice(0, 3).map((card) => {
+  const cardLayout = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).map((card) => {
     const rect = card.getBoundingClientRect()
     const offsetTop = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().top ?? 0) - rect.top)
     const offsetLeft = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().left ?? 0) - rect.left)
@@ -375,9 +375,9 @@ test('initializes the platform and switches the embedded interface language', as
     }
   }))
   expect(cardLayout[0].baselines).toEqual(cardLayout[1].baselines)
-  expect(cardLayout[1].baselines).toEqual(cardLayout[2].baselines)
+  expect(cardLayout.every(({ baselines }) => JSON.stringify(baselines) === JSON.stringify(cardLayout[0].baselines))).toBe(true)
   expect(cardLayout[0].rails).toEqual(cardLayout[1].rails)
-  expect(cardLayout[1].rails).toEqual(cardLayout[2].rails)
+  expect(cardLayout.every(({ rails }) => JSON.stringify(rails) === JSON.stringify(cardLayout[0].rails))).toBe(true)
   expect(cardLayout.every(({ rails }) => rails[0] === rails[4] && rails[1] === rails[2] && rails[2] === rails[3])).toBe(true)
   expect(new Set(cardLayout.map(({ tierRight }) => tierRight)).size).toBe(1)
   expect(Math.max(...cardLayout.map(({ right }) => right))).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth))

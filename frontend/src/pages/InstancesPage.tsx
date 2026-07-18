@@ -7,7 +7,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { DatabaseIcon } from '../components/DatabaseIcon'
 import appI18n from '../i18n'
-import { api, errorMessage } from '../lib/api'
+import { ApiError, api, errorMessage } from '../lib/api'
 import { hostCanAccept, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageRegistryHost, registryMatchesImage } from '../lib/image-source'
 import { instanceQuickAction } from '../lib/instance-actions'
@@ -188,12 +188,14 @@ export function InstancesPage() {
 interface Metric { collectedAt: string; cpuPercent: number; memoryBytes: number; memoryPercent: number; diskUsedBytes: number; diskTotalBytes: number }
 interface Connection { address: string; port: number; username: string; password: string; database: string; uri: string; jdbc?: string }
 
-function responseError(text: string) {
+function responseError(text: string, status: number) {
   try {
     const parsed = JSON.parse(text) as { error?: { code?: string; message?: string } }
-    return parsed.error?.code ? appI18n.t(`error_${parsed.error.code}`, { defaultValue: parsed.error.message || text }) : parsed.error?.message || text
+    return parsed.error?.code
+      ? new ApiError(status, parsed.error.code, parsed.error.message || text)
+      : new Error(parsed.error?.message || text)
   } catch {
-    return text
+    return new Error(text)
   }
 }
 
@@ -252,7 +254,7 @@ export function InstanceDetailPage() {
   const changeTab = (tab: string) => { const next = new URLSearchParams(detailParams); if (tab === 'overview') next.delete('tab'); else next.set('tab', tab); setActiveTab(tab); setDetailParams(next, { replace: true }) }
   const run = async (action: string, body: Record<string, unknown> = {}) => { try { setActioning(action); const task = await api<Task>(`/instances/${id}/actions/${action}`, { method: 'POST', body }); setTasks((current) => [task, ...current]); notifyTask(task); setDeleteOpen(false); setUpgradeOpen(false); if (action === 'delete') navigate('/instances'); else await load() } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') } }
   const loadConnection = async () => { try { setConnectionLoading(true); setConnection(await api<Connection>(`/instances/${id}/connection`)) } catch (e) { message.error(errorMessage(e)) } finally { setConnectionLoading(false) } }
-  const loadLogs = useCallback(async () => { try { setLogsLoading(true); setLogsError(''); const response = await fetch(`/api/v1/instances/${id}/logs?tail=${logTail}`, { credentials: 'same-origin' }); const text = await response.text(); if (!response.ok) throw new Error(responseError(text)); setLogs(text); setLogsUpdatedAt(new Date()) } catch (error) { setLogsError(errorMessage(error)) } finally { setLogsLoading(false) } }, [id, logTail])
+  const loadLogs = useCallback(async () => { try { setLogsLoading(true); setLogsError(''); const response = await fetch(`/api/v1/instances/${id}/logs?tail=${logTail}`, { credentials: 'same-origin' }); const text = await response.text(); if (!response.ok) throw responseError(text, response.status); setLogs(text); setLogsUpdatedAt(new Date()) } catch (error) { setLogsError(errorMessage(error)) } finally { setLogsLoading(false) } }, [id, logTail])
   const loadMetrics = useCallback(async () => { try { setMetricsLoading(true); setMetricsError(''); const response = await api<{ items: Metric[] }>(`/instances/${id}/metrics?hours=${metricHours}`); setMetrics(response.items) } catch (error) { setMetricsError(errorMessage(error)) } finally { setMetricsLoading(false) } }, [id, metricHours])
   useEffect(() => { if (activeTab !== 'logs' && activeTab !== 'metrics') return; const refresh = () => activeTab === 'logs' ? loadLogs() : loadMetrics(); void refresh(); if (activeTab === 'logs' && !logsAutoRefresh) return; const timer = window.setInterval(() => void refresh(), activeTab === 'logs' ? 5000 : 30000); return () => clearInterval(timer) }, [activeTab, loadLogs, loadMetrics, logsAutoRefresh])
   useEffect(() => { if (activeTab !== 'connection') setConnection(null) }, [activeTab])
