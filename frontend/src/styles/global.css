@@ -106,6 +106,36 @@ button { font: inherit; }
 .metric-stat span { color: #667085; font-size: 12px; }
 .metric-stat .metric-time { padding-top: 3px; font-size: 14px; line-height: 1.45; }
 .metric-chart { height: 360px; }
+.task-operation-link.ant-btn { height: auto; padding: 0; white-space: normal; text-align: start; line-height: 1.4; }
+.task-operation-cell { display: grid; gap: 4px; }
+.task-operation-cell .ant-typography-secondary { font-size: 12px; }
+.task-resource { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.task-resource .ant-tag { flex: none; margin-inline-end: 0; }
+.task-resource .ant-btn { min-width: 0; height: auto; padding-inline: 4px; overflow: hidden; }
+.task-resource .ant-btn > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.task-stage-cell { min-width: 0; display: grid; gap: 3px; }
+.task-stage-cell .ant-typography { min-width: 0; max-width: 200px; }
+.task-table-actions { white-space: nowrap; }
+.task-drawer-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.task-drawer-title .ant-typography:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-detail { display: grid; gap: 16px; }
+.task-detail-summary { padding: 18px; border: 1px solid #dbe5f2; border-radius: 12px; background: linear-gradient(135deg, #f8fbff, #fbfdff); }
+.task-detail-summary.is-failed { border-color: #f2c7cc; background: linear-gradient(135deg, #fff8f8, #fffdfd); }
+.task-detail-summary.is-succeeded { border-color: #cce9dc; background: linear-gradient(135deg, #f6fcf9, #fbfefd); }
+.task-detail-summary .ant-tag { margin-inline-end: 0; }
+.task-detail-summary .ant-typography-secondary { margin: 8px 0 14px; }
+.task-detail-summary .ant-progress { margin-bottom: 0; }
+.task-detail-alert { margin: 0; }
+.task-error-detail { min-width: 0; display: grid; align-items: start; gap: 9px; }
+.task-error-detail .ant-tag { width: fit-content; margin: 0; }
+.task-error-detail code { white-space: normal; overflow-wrap: anywhere; }
+.task-detail-meta .ant-descriptions-item-label { width: 120px; color: #667085; }
+.task-detail-meta .ant-btn-link { height: auto; padding: 0; }
+.task-log-card .ant-card-body { padding-top: 20px; }
+.task-log-card .ant-timeline-item-last { padding-bottom: 0; }
+.task-log-entry { display: grid; gap: 3px; }
+.task-log-entry .ant-typography-secondary { font-size: 12px; }
 .log-viewer, .settings-json { margin: 0; padding: 16px; border-radius: 10px; background: #101828; color: #d6e0f0; overflow: auto; max-height: 560px; min-height: 130px; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-json { min-height: 180px; max-height: 300px; }
 .json-editor textarea, textarea.json-editor { font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
