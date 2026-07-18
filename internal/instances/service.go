@@ -179,12 +179,15 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 	if err != nil {
 		return domain.Task{}, err
 	}
-	allowed := map[string]bool{"start": true, "stop": true, "restart": true, "delete": true, "upgrade": true}
-	if !allowed[action] {
-		return domain.Task{}, domain.ErrInvalid
+	if err = validateInstanceAction(instance.Status, action, newVersion); err != nil {
+		return domain.Task{}, err
 	}
-	if action == "upgrade" && newVersion == nil {
-		return domain.Task{}, domain.ErrInvalid
+	active, err := s.store.HasActiveResourceTask(ctx, "instance", instance.ID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if active {
+		return domain.Task{}, fmt.Errorf("%w: another operation is already queued or running for this resource", domain.ErrConflict)
 	}
 	task, err := s.store.CreateTask(ctx, store.TaskInput{Kind: "instance." + action, ResourceType: "instance", ResourceID: &instance.ID,
 		RequestedBy: userID, HostID: &instance.HostID, Payload: ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: newVersion}})
@@ -192,6 +195,27 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 		s.tasks.Wake()
 	}
 	return task, err
+}
+
+func validateInstanceAction(status, action string, newVersion *uuid.UUID) error {
+	allowedStatuses := map[string]map[string]bool{
+		"start":   {"stopped": true, "failed": true},
+		"stop":    {"running": true, "degraded": true},
+		"restart": {"running": true, "degraded": true},
+		"delete":  {"running": true, "stopped": true, "degraded": true, "failed": true},
+		"upgrade": {"running": true, "stopped": true, "degraded": true},
+	}
+	statuses, ok := allowedStatuses[action]
+	if !ok {
+		return domain.ErrInvalid
+	}
+	if action == "upgrade" && newVersion == nil {
+		return domain.ErrInvalid
+	}
+	if !statuses[status] {
+		return fmt.Errorf("%w: instance action is not allowed for the current status", domain.ErrConflict)
+	}
+	return nil
 }
 
 func (s *Service) Connection(ctx context.Context, id uuid.UUID) (domain.InstanceConnection, error) {

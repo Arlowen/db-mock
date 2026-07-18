@@ -1,11 +1,53 @@
 package instances
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/store"
 )
+
+func TestValidateInstanceAction(t *testing.T) {
+	versionID := uuid.New()
+	valid := []struct {
+		status  string
+		action  string
+		version *uuid.UUID
+	}{
+		{status: "stopped", action: "start"},
+		{status: "failed", action: "start"},
+		{status: "running", action: "stop"},
+		{status: "degraded", action: "restart"},
+		{status: "failed", action: "delete"},
+		{status: "stopped", action: "upgrade", version: &versionID},
+	}
+	for _, test := range valid {
+		if err := validateInstanceAction(test.status, test.action, test.version); err != nil {
+			t.Fatalf("expected %s for %s to be valid, got %v", test.action, test.status, err)
+		}
+	}
+
+	conflicts := []struct{ status, action string }{
+		{status: "running", action: "start"},
+		{status: "stopped", action: "stop"},
+		{status: "provisioning", action: "delete"},
+		{status: "deleted", action: "restart"},
+	}
+	for _, test := range conflicts {
+		if err := validateInstanceAction(test.status, test.action, nil); !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("expected %s for %s to conflict, got %v", test.action, test.status, err)
+		}
+	}
+
+	if err := validateInstanceAction("running", "upgrade", nil); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("expected upgrade without a version to be invalid, got %v", err)
+	}
+	if err := validateInstanceAction("running", "unknown", nil); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("expected unknown action to be invalid, got %v", err)
+	}
+}
 
 func TestFitsHostHonorsDeploymentHeadroom(t *testing.T) {
 	host := domain.Host{CPUCount: 10, MemoryBytes: 1000, DiskFreeBytes: 1000}

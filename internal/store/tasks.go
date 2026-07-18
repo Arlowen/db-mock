@@ -3,11 +3,13 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pika/db-mock/internal/domain"
 )
 
@@ -39,6 +41,10 @@ func (s *Store) CreateTask(ctx context.Context, input TaskInput) (domain.Task, e
 	err = s.pool.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, item.ID, input.Kind, input.ResourceType,
 		input.ResourceID, input.RequestedBy, input.HostID, payload).Scan(taskScan(&item)...)
+	var databaseError *pgconn.PgError
+	if errors.As(err, &databaseError) && databaseError.ConstraintName == "tasks_active_resource_idx" {
+		return domain.Task{}, fmt.Errorf("%w: another operation is already queued or running for this resource", domain.ErrConflict)
+	}
 	return item, translate(err)
 }
 

@@ -206,6 +206,10 @@ button { font: inherit; }
 .configuration-note { margin-top: 16px; background: linear-gradient(135deg, #f8fbff, #f7fffd); }
 .table-toolbar { margin-bottom: 18px; }
 .table-filter-card { margin-bottom: 12px; }
+.instance-table-card .ant-card-body { padding: 0; }
+.instance-table-card .ant-table-cell { vertical-align: middle; }
+.instance-table-name.ant-btn { display: block; max-width: 100%; height: auto; padding-inline: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.delete-instance-alert { margin-bottom: 16px; }
 .tab-count { display: inline-flex; align-items: center; gap: 7px; }
 .tab-count > span { min-width: 21px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; color: #667085; background: #edf1f6; font-size: 11px; line-height: 20px; }
 .ant-tabs-tab-active .tab-count > span { color: #2563eb; background: #eaf2ff; }

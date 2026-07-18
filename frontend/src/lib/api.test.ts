@@ -15,6 +15,11 @@ describe('API error messages', () => {
       .toBe('资源状态冲突: 指定端口不在所选主机的端口池内，或已被其他实例占用。')
   })
 
+  it('explains conflicting instance operations in the active language', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: another operation is already queued or running for this resource')))
+      .toBe('资源状态冲突: 该实例已有操作正在排队或执行，请在任务完成后重试。')
+  })
+
   it('does not expose an untranslated infrastructure error in place of the recovery hint', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the instance host over SSH')))
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')
