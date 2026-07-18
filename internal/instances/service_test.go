@@ -49,6 +49,20 @@ func TestValidateInstanceAction(t *testing.T) {
 	}
 }
 
+func TestInstanceActionProgressMessage(t *testing.T) {
+	tests := map[string]string{
+		"start":   "Starting instance",
+		"stop":    "Stopping instance",
+		"restart": "Restarting instance",
+		"other":   "Updating instance",
+	}
+	for action, expected := range tests {
+		if actual := instanceActionProgressMessage(action); actual != expected {
+			t.Fatalf("instanceActionProgressMessage(%q)=%q, want %q", action, actual, expected)
+		}
+	}
+}
+
 func TestFitsHostHonorsDeploymentHeadroom(t *testing.T) {
 	host := domain.Host{CPUCount: 10, MemoryBytes: 1000, DiskFreeBytes: 1000}
 	reservation := store.HostReservation{CPU: 4, Memory: 300, Disk: 300}

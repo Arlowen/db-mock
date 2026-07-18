@@ -501,7 +501,7 @@ func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task
 	if err != nil {
 		return nil, err
 	}
-	if err = runtime.Stage(ctx, 20, "compose", strings.Title(action)+"ing instance", false); err != nil {
+	if err = runtime.Stage(ctx, 20, "compose", instanceActionProgressMessage(action), false); err != nil {
 		return nil, err
 	}
 	switch action {
@@ -525,6 +525,19 @@ func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task
 		return nil, err
 	}
 	return map[string]any{"instanceId": instance.ID, "status": status}, nil
+}
+
+func instanceActionProgressMessage(action string) string {
+	switch action {
+	case "start":
+		return "Starting instance"
+	case "stop":
+		return "Stopping instance"
+	case "restart":
+		return "Restarting instance"
+	default:
+		return "Updating instance"
+	}
 }
 
 func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (any, error) {

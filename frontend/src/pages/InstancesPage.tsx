@@ -245,7 +245,9 @@ export function InstanceDetailPage() {
       setPageError(failedRequest?.status === 'rejected' ? errorMessage(failedRequest.reason) : '')
     } catch (error) { setPageError(errorMessage(error)) } finally { setPageLoading(false) }
   }, [id])
-  useEffect(() => { setItem(null); setPageLoading(true); void load(); const timer = window.setInterval(() => void load(), 10000); return () => clearInterval(timer) }, [load])
+  const hasActiveOperation = tasks.some((task) => ['queued', 'running', 'retrying'].includes(task.status))
+  useEffect(() => { setItem(null); setPageLoading(true); void load() }, [load])
+  useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
   useEffect(() => { if (requestedTab && ['overview', 'connection', 'logs', 'metrics'].includes(requestedTab)) setActiveTab(requestedTab) }, [requestedTab])
   const changeTab = (tab: string) => { const next = new URLSearchParams(detailParams); if (tab === 'overview') next.delete('tab'); else next.set('tab', tab); setActiveTab(tab); setDetailParams(next, { replace: true }) }
   const run = async (action: string, body: Record<string, unknown> = {}) => { try { setActioning(action); const task = await api<Task>(`/instances/${id}/actions/${action}`, { method: 'POST', body }); setTasks((current) => [task, ...current]); notifyTask(task); setDeleteOpen(false); setUpgradeOpen(false); if (action === 'delete') navigate('/instances'); else await load() } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') } }
