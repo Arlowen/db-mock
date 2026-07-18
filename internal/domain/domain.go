@@ -243,19 +243,25 @@ type Alert struct {
 	Status         string          `json:"status"`
 	CreatedAt      time.Time       `json:"createdAt"`
 	AcknowledgedAt *time.Time      `json:"acknowledgedAt,omitempty"`
+	AcknowledgedBy string          `json:"acknowledgedBy,omitempty"`
 	ResolvedAt     *time.Time      `json:"resolvedAt,omitempty"`
+	ResolvedBy     string          `json:"resolvedBy,omitempty"`
 }
 
 type Webhook struct {
-	ID              uuid.UUID       `json:"id"`
-	Name            string          `json:"name"`
-	URL             string          `json:"url"`
-	EncryptedSecret string          `json:"-"`
-	HasSecret       bool            `json:"hasSecret"`
-	Events          json.RawMessage `json:"events"`
-	Enabled         bool            `json:"enabled"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
+	ID                 uuid.UUID       `json:"id"`
+	Name               string          `json:"name"`
+	URL                string          `json:"url"`
+	EncryptedSecret    string          `json:"-"`
+	HasSecret          bool            `json:"hasSecret"`
+	Events             json.RawMessage `json:"events"`
+	Enabled            bool            `json:"enabled"`
+	CreatedAt          time.Time       `json:"createdAt"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
+	LastDeliveryStatus string          `json:"lastDeliveryStatus,omitempty"`
+	LastDeliveryAt     *time.Time      `json:"lastDeliveryAt,omitempty"`
+	FailedDeliveries   int             `json:"failedDeliveries"`
+	QueuedDeliveries   int             `json:"queuedDeliveries"`
 }
 
 type WebhookDelivery struct {

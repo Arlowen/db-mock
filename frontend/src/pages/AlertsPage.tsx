@@ -2,7 +2,7 @@ import {
   BellOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SendOutlined,
 } from '@ant-design/icons'
 import {
-  Alert as InlineAlert, App, Button, Card, Col, Descriptions, Drawer, Form, Input, Modal, Popconfirm, Row,
+  Alert as InlineAlert, App, Button, Card, Checkbox, Col, Descriptions, Drawer, Form, Input, Modal, Popconfirm, Row,
   Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography,
 } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -12,6 +12,7 @@ import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { api, errorMessage } from '../lib/api'
 import { formatDateTime, translateCode } from '../lib/localization'
 import type { Alert as AlertItem, Host, Instance, Webhook, WebhookDelivery } from '../lib/types'
+import { normalizeWebhookEvents } from '../lib/webhook-events'
 
 const webhookEvents = [
   '*', 'alert.created', 'instance.failed', 'instance.restart_failed', 'host.offline', 'host.disk_warning',
@@ -22,12 +23,21 @@ function eventKey(value: string) {
   return `event_${value === '*' ? 'all' : value.replaceAll('.', '_')}`
 }
 
+interface WebhookValues {
+  name: string
+  url: string
+  secret?: string
+  clearSecret?: boolean
+  events: string[]
+  enabled: boolean
+}
+
 export function AlertsPage() {
   const { t, i18n } = useTranslation()
   const { message } = App.useApp()
   const location = useLocation()
   const navigate = useNavigate()
-  const [form] = Form.useForm()
+  const [form] = Form.useForm<WebhookValues>()
   const [alerts, setAlerts] = useState<AlertItem[]>([])
   const [webhooks, setWebhooks] = useState<Webhook[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
@@ -45,6 +55,7 @@ export function AlertsPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('active')
   const [severityFilter, setSeverityFilter] = useState('')
+  const clearWebhookSecret = Form.useWatch('clearSecret', form)
 
   const query = useMemo(() => new URLSearchParams(location.search), [location.search])
   const activeTab = query.get('tab') === 'webhooks' ? 'webhooks' : 'alerts'
@@ -152,14 +163,14 @@ export function AlertsPage() {
   const showCreateWebhook = () => {
     setEditing(null)
     form.resetFields()
-    form.setFieldsValue({ enabled: true, events: ['alert.created'] })
+    form.setFieldsValue({ enabled: true, events: ['alert.created'], clearSecret: false })
     setFormOpen(true)
   }
 
   const showEditWebhook = (item: Webhook) => {
     setEditing(item)
     form.resetFields()
-    form.setFieldsValue({ name: item.name, url: item.url, secret: '', events: item.events, enabled: item.enabled })
+    form.setFieldsValue({ name: item.name, url: item.url, secret: '', clearSecret: false, events: item.events, enabled: item.enabled })
     setFormOpen(true)
   }
 
@@ -187,7 +198,7 @@ export function AlertsPage() {
       setActioning(`toggle:${item.id}`)
       await api(`/webhooks/${item.id}`, {
         method: 'PUT',
-        body: { name: item.name, url: item.url, secret: '', events: item.events, enabled },
+        body: { name: item.name, url: item.url, secret: '', clearSecret: false, events: item.events, enabled },
       })
       await load(true)
     } catch (error) {
@@ -245,6 +256,8 @@ export function AlertsPage() {
     if (resource.path) navigate(resource.path)
   }
 
+  const alertActor = (value?: string) => value === 'system' ? t('systemActor') : value || '—'
+
   const alertColumns = [
     {
       title: t('status'), width: 100,
@@ -293,7 +306,8 @@ export function AlertsPage() {
       <div className="webhook-card-header"><div><Typography.Title level={4}>{item.name}</Typography.Title><Typography.Text type="secondary">{formatDateTime(item.updatedAt, i18n.language)}</Typography.Text></div><Switch aria-label={`${item.name} ${t('enabled')}`} checked={item.enabled} loading={actioning === `toggle:${item.id}`} onChange={(value) => void updateWebhookEnabled(item, value)} /></div>
       <Typography.Text className="webhook-url" copyable ellipsis={{ tooltip: item.url }}>{item.url}</Typography.Text>
       <div className="webhook-event-list">{item.events.map((event) => <Tag key={event}>{t(eventKey(event), { defaultValue: event })}</Tag>)}</div>
-      <div className="webhook-security"><StatusTag value={item.enabled ? 'online' : 'stopped'} />{item.hasSecret && <Typography.Text type="secondary">{t('hmacSigningEnabled')}</Typography.Text>}</div>
+      <div className="webhook-security"><StatusTag value={item.enabled ? 'enabled' : 'disabled'} />{item.hasSecret && <Typography.Text type="secondary">{t('hmacSigningEnabled')}</Typography.Text>}</div>
+      <div className="webhook-delivery-facts"><div><Typography.Text type="secondary">{t('lastDelivery')}</Typography.Text><Space size={6}>{item.lastDeliveryStatus ? <StatusTag value={item.lastDeliveryStatus} /> : <Typography.Text>{t('notTested')}</Typography.Text>}{item.lastDeliveryAt && <Typography.Text type="secondary">{formatDateTime(item.lastDeliveryAt, i18n.language)}</Typography.Text>}</Space></div><div><Typography.Text type="secondary">{t('deliveryQueue')}</Typography.Text><Space size={6}>{item.failedDeliveries > 0 && <Tag color="red">{t('failedDeliveryCount', { count: item.failedDeliveries })}</Tag>}{item.queuedDeliveries > 0 && <Tag color="gold">{t('queuedDeliveryCount', { count: item.queuedDeliveries })}</Tag>}{!item.failedDeliveries && !item.queuedDeliveries && <Typography.Text>{t('queueClear')}</Typography.Text>}</Space></div></div>
       <div className="webhook-card-footer"><Button icon={<HistoryOutlined />} onClick={() => setQuery({ tab: 'webhooks', webhook: item.id, alert: undefined })}>{t('deliveryHistory')}</Button><Space><Button icon={<EditOutlined />} onClick={() => showEditWebhook(item)}>{t('edit')}</Button><Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${item.id}`} disabled={!item.enabled || (!!actioning && actioning !== `test:${item.id}`)} onClick={() => void testWebhook(item)}>{t('testWebhook')}</Button><Popconfirm title={t('delete')} description={t('webhookDeleteConfirm')} okButtonProps={{ danger: true }} onConfirm={() => void deleteWebhook(item)}><Button danger aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} loading={actioning === `delete:${item.id}`} /></Popconfirm></Space></div>
     </Card></Col>)}
     {webhooks.length === 0 && <Col span={24}><Card><EmptyState action={showCreateWebhook} actionLabel={t('addWebhook')} description={t('webhooksEmptyDescription')} /></Card></Col>}
@@ -311,7 +325,9 @@ export function AlertsPage() {
       {selectedAlert ? <div className="alert-detail"><div className={`alert-detail-summary severity-${selectedAlert.severity}`}><div className="alert-detail-icon"><BellOutlined /></div><div><Space wrap><StatusTag value={selectedAlert.severity} /><StatusTag value={selectedAlert.status} /></Space><Typography.Title level={4}>{t(`alertTitle_${selectedAlert.type}`, { defaultValue: selectedAlert.title })}</Typography.Title><Typography.Paragraph>{summaryFor(selectedAlert)}</Typography.Paragraph></div></div><Card size="small" title={t('resource')}><div className="alert-detail-resource"><Tag>{translateCode(t, selectedAlert.resourceType, 'resourceType')}</Tag>{resourceFor(selectedAlert).path ? <Button type="link" icon={<LinkOutlined />} onClick={() => openResource(selectedAlert)}>{resourceFor(selectedAlert).name}</Button> : <Typography.Text type="secondary">{resourceFor(selectedAlert).name}</Typography.Text>}</div></Card><Card size="small" title={t('alertLifecycle')}><Descriptions size="small" column={1} items={[
         { key: 'created', label: t('alertFirstSeen'), children: formatDateTime(selectedAlert.createdAt, i18n.language) },
         { key: 'acknowledged', label: t('alertAcknowledgedAt'), children: formatDateTime(selectedAlert.acknowledgedAt, i18n.language) },
+        { key: 'acknowledgedBy', label: t('alertAcknowledgedBy'), children: alertActor(selectedAlert.acknowledgedBy) },
         { key: 'resolved', label: t('alertResolvedAt'), children: formatDateTime(selectedAlert.resolvedAt, i18n.language) },
+        { key: 'resolvedBy', label: t('alertResolvedBy'), children: alertActor(selectedAlert.resolvedBy) },
         { key: 'id', label: t('identifier'), children: <Typography.Text code copyable>{selectedAlert.id}</Typography.Text> },
       ]} /></Card><InlineAlert type="info" showIcon message={t('technicalDetails')} description={<Typography.Text code copyable>{selectedAlert.message}</Typography.Text>} /></div> : !loading && <EmptyState compact description={t('resourceUnavailable')} />}
     </Drawer>
@@ -319,16 +335,16 @@ export function AlertsPage() {
     <Modal title={editing ? t('editWebhook') : t('addWebhook')} open={formOpen} onCancel={() => { if (!saving) setFormOpen(false) }} onOk={() => void saveWebhook()} confirmLoading={saving} okText={t('save')} width={620}>
       <Typography.Paragraph type="secondary" className="webhook-form-description">{t('webhookFormDescription')}</Typography.Paragraph>
       <Form form={form} layout="vertical" autoComplete="off">
-        <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input placeholder={t('webhookNamePlaceholder')} /></Form.Item>
-        <Form.Item name="url" label={t('url')} rules={[{ required: true }, { type: 'url' }]}><Input type="url" placeholder={t('webhookURLPlaceholder')} /></Form.Item>
-        <Form.Item name="secret" label={t('hmacSecret')} extra={t(editing?.hasSecret ? 'webhookSecretEditHint' : 'webhookSecretCreateHint')}><Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>
-        <Form.Item name="events" label={t('webhookEvents')} extra={t('webhookEventsHint')} rules={[{ required: true }]}><Select mode="multiple" maxTagCount="responsive" options={webhookEvents.map((value) => ({ value, label: t(eventKey(value), { defaultValue: value }) }))} /></Form.Item>
+        <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input aria-label={t('name')} maxLength={120} placeholder={t('webhookNamePlaceholder')} /></Form.Item>
+        <Form.Item name="url" label={t('url')} extra={t('webhookURLHint')} rules={[{ required: true }, { type: 'url' }]}><Input aria-label={t('url')} type="url" maxLength={2048} placeholder={t('webhookURLPlaceholder')} /></Form.Item>
+        <div className="webhook-secret-field"><Form.Item name="secret" label={t('hmacSecret')} extra={t(editing?.hasSecret ? 'webhookSecretEditHint' : 'webhookSecretCreateHint')}><Input.Password aria-label={t('hmacSecret')} maxLength={4096} disabled={!!clearWebhookSecret} autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>{editing?.hasSecret && <Form.Item name="clearSecret" valuePropName="checked"><Checkbox onChange={(event) => { if (event.target.checked) form.setFieldValue('secret', '') }}>{t('removeWebhookSecret')}</Checkbox></Form.Item>}</div>
+        <Form.Item name="events" label={t('webhookEvents')} extra={t('webhookEventsHint')} normalize={(values: string[], previous: string[]) => normalizeWebhookEvents(previous || [], values || [])} rules={[{ required: true }]}><Select aria-label={t('webhookEvents')} mode="multiple" maxTagCount="responsive" options={webhookEvents.map((value) => ({ value, label: t(eventKey(value), { defaultValue: value }) }))} /></Form.Item>
         <Form.Item name="enabled" label={t('enabled')} valuePropName="checked"><Switch /></Form.Item>
       </Form>
     </Modal>
 
     <Drawer title={selectedWebhook ? `${t('deliveryHistory')} · ${selectedWebhook.name}` : t('deliveryHistory')} width={760} open={!!selectedWebhookID} onClose={() => { setFocusedDeliveryID(''); setQuery({ webhook: undefined }) }} extra={selectedWebhook && <Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${selectedWebhook.id}`} disabled={!selectedWebhook.enabled} onClick={() => void testWebhook(selectedWebhook)}>{t('testWebhook')}</Button>}>
-      {selectedWebhook && <div className="delivery-webhook-summary"><div><Space><StatusTag value={selectedWebhook.enabled ? 'online' : 'stopped'} />{selectedWebhook.hasSecret && <Tag>{t('hmacSigningEnabled')}</Tag>}</Space><Typography.Text copyable ellipsis={{ tooltip: selectedWebhook.url }}>{selectedWebhook.url}</Typography.Text></div><Typography.Paragraph type="secondary">{t('deliveryHistoryDescription')}</Typography.Paragraph></div>}
+      {selectedWebhook && <div className="delivery-webhook-summary"><div><Space><StatusTag value={selectedWebhook.enabled ? 'enabled' : 'disabled'} />{selectedWebhook.hasSecret && <Tag>{t('hmacSigningEnabled')}</Tag>}</Space><Typography.Text copyable ellipsis={{ tooltip: selectedWebhook.url }}>{selectedWebhook.url}</Typography.Text></div><Typography.Paragraph type="secondary">{t('deliveryHistoryDescription')}</Typography.Paragraph></div>}
       {deliveryError && <InlineAlert className="ops-alert" type="error" showIcon message={t('deliveryLoadFailed')} description={deliveryError} action={<Button size="small" onClick={() => selectedWebhookID && void loadDeliveries(selectedWebhookID)}>{t('retry')}</Button>} />}
       <Table rowKey="id" size="small" loading={deliveryLoading} dataSource={deliveries} pagination={false} rowClassName={(item) => item.id === focusedDeliveryID ? 'delivery-row-focused' : ''} locale={{ emptyText: <EmptyState compact description={t('noDeliveries')} /> }} expandable={{ rowExpandable: (item) => !!(item.errorMessage || item.responseBody), expandedRowRender: (item) => <Descriptions className="delivery-details" size="small" column={1} items={[
         { key: 'error', label: t('errorDetail'), children: item.errorMessage ? <Typography.Text type="danger" code copyable>{item.errorMessage}</Typography.Text> : '—' },

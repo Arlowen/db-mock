@@ -142,6 +142,11 @@ Compose 容器状态，避免为每个容器单独建立连接。指标批量入
 自动重启同时使用 Compose `restart: unless-stopped` 和控制面失败计数。用户手动停止会
 设置 `desired_state=stopped`；监控器只在 `desired_state=running` 且实例开关启用时补偿。
 
+告警状态转换保存确认人与解决人，自动恢复由 `system` 标识。Webhook 投递使用持久化
+队列和 `FOR UPDATE SKIP LOCKED` 领取：业务事件最多尝试 5 次，测试请求只尝试 1 次；
+禁用 Webhook 会取消待发记录，进程重启后超过 1 分钟的 `sending` 记录会恢复为待重试
+或在目标已禁用时取消。HTTP 客户端不跟随重定向，避免将签名载荷发送到意外地址。
+
 ## 10. 镜像上传与分发
 
 浏览器按固定块上传，服务端按上传 ID 保存块位图和临时文件。完成后校验 SHA-256、解析
@@ -185,4 +190,3 @@ Compose 服务：
 - SSH/Docker：协议级 fake server 与命令快照；Linux x86 实机作为发布验收。
 - 前端：组件测试、API mock、关键创建/启停/删除流程的 Playwright。
 - 构建：前端产物嵌入 Go、Compose 启动、健康检查、多架构镜像。
-

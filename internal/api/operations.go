@@ -3,10 +3,12 @@ package api
 import (
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -40,11 +42,11 @@ func (s *Server) updateAlert(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
 	}
-	if err = s.store.SetAlertStatus(r.Context(), id, status); err != nil {
+	actor, _ := auth.ActorFrom(r.Context())
+	if err = s.store.SetAlertStatus(r.Context(), id, status, actor.User.Username); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	actor, _ := auth.ActorFrom(r.Context())
 	_ = s.audit(r, actor, "alert."+status, "alert", &id, "", nil, "success", "")
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -60,20 +62,51 @@ func (s *Server) webhookRoutes(r chi.Router) {
 }
 
 type webhookRequest struct {
-	Name    string   `json:"name"`
-	URL     string   `json:"url"`
-	Secret  string   `json:"secret"`
-	Events  []string `json:"events"`
-	Enabled bool     `json:"enabled"`
+	Name        string   `json:"name"`
+	URL         string   `json:"url"`
+	Secret      string   `json:"secret"`
+	ClearSecret bool     `json:"clearSecret"`
+	Events      []string `json:"events"`
+	Enabled     bool     `json:"enabled"`
 }
 
-func validateWebhook(input webhookRequest) error {
+var supportedWebhookEvents = map[string]bool{
+	"*": true, "alert.created": true, "instance.failed": true, "instance.restart_failed": true,
+	"host.offline": true, "host.disk_warning": true, "host.disk_critical": true,
+	"task.finished": true, "task.succeeded": true, "task.failed": true, "webhook.test": true,
+}
+
+func normalizeWebhook(input *webhookRequest) error {
+	input.Name = strings.TrimSpace(input.Name)
+	input.URL = strings.TrimSpace(input.URL)
 	parsed, err := url.Parse(input.URL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Fragment != "" {
 		return domain.ErrInvalid
 	}
-	if input.Name == "" {
+	if input.Name == "" || len(input.Name) > 120 || len(input.URL) > 2048 || len(input.Secret) > 4096 || len(input.Events) == 0 {
 		return domain.ErrInvalid
+	}
+	seen := make(map[string]bool, len(input.Events))
+	events := make([]string, 0, len(input.Events))
+	hasWildcard := false
+	for _, event := range input.Events {
+		event = strings.TrimSpace(event)
+		if !supportedWebhookEvents[event] {
+			return domain.ErrInvalid
+		}
+		if event == "*" {
+			hasWildcard = true
+			continue
+		}
+		if !seen[event] {
+			seen[event] = true
+			events = append(events, event)
+		}
+	}
+	if hasWildcard {
+		input.Events = []string{"*"}
+	} else {
+		input.Events = events
 	}
 	return nil
 }
@@ -91,7 +124,7 @@ func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	if err := validateWebhook(input); err != nil {
+	if err := normalizeWebhook(&input); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
@@ -122,7 +155,7 @@ func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	if err = validateWebhook(input); err != nil {
+	if err = normalizeWebhook(&input); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
@@ -132,7 +165,7 @@ func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	events, _ := json.Marshal(input.Events)
-	item, err := s.store.UpdateWebhook(r.Context(), id, store.WebhookInput{Name: input.Name, URL: input.URL, EncryptedSecret: secret, Events: events, Enabled: input.Enabled})
+	item, err := s.store.UpdateWebhook(r.Context(), id, store.WebhookInput{Name: input.Name, URL: input.URL, EncryptedSecret: secret, ClearSecret: input.ClearSecret, Events: events, Enabled: input.Enabled})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -161,8 +194,14 @@ func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	if _, err = s.store.GetWebhook(r.Context(), id); err != nil {
+	item, getErr := s.store.GetWebhook(r.Context(), id)
+	if getErr != nil {
+		err = getErr
 		httpx.Error(w, r, err)
+		return
+	}
+	if !item.Enabled {
+		httpx.Error(w, r, fmt.Errorf("%w: webhook is disabled", domain.ErrConflict))
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
@@ -203,6 +242,15 @@ func (s *Server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 	deliveryID, err := httpx.UUIDParam(chi.URLParam(r, "deliveryID"))
 	if err != nil {
 		httpx.Error(w, r, err)
+		return
+	}
+	hook, getErr := s.store.GetWebhook(r.Context(), webhookID)
+	if getErr != nil {
+		httpx.Error(w, r, getErr)
+		return
+	}
+	if !hook.Enabled {
+		httpx.Error(w, r, fmt.Errorf("%w: webhook is disabled", domain.ErrConflict))
 		return
 	}
 	if err = s.store.RetryWebhookDelivery(r.Context(), webhookID, deliveryID); err != nil {

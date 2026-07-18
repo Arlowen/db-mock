@@ -22,7 +22,23 @@ type Dispatcher struct {
 }
 
 func New(target *store.Store, vault *appcrypto.Vault, logger *slog.Logger) *Dispatcher {
-	return &Dispatcher{store: target, vault: vault, logger: logger, client: &http.Client{Timeout: 15 * time.Second}}
+	return &Dispatcher{store: target, vault: vault, logger: logger, client: newWebhookClient()}
+}
+
+func newWebhookClient() *http.Client {
+	return &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func maxAttempts(eventType string) int {
+	if eventType == "webhook.test" {
+		return 1
+	}
+	return 5
 }
 
 func (d *Dispatcher) Start(ctx context.Context) { go d.loop(ctx) }
@@ -54,7 +70,7 @@ func (d *Dispatcher) dispatch(ctx context.Context) {
 		if sendErr != nil {
 			errorMessage = sendErr.Error()
 		}
-		if err := d.store.FinishWebhookDelivery(ctx, delivery.ID, success, status, body, errorMessage, delivery.Attempts); err != nil {
+		if err := d.store.FinishWebhookDelivery(ctx, delivery.ID, success, status, body, errorMessage, delivery.Attempts, maxAttempts(delivery.EventType)); err != nil {
 			d.logger.Error("finish webhook delivery", "error", err)
 		}
 	}

@@ -3,10 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/pika/db-mock/internal/domain"
 )
 
@@ -15,6 +15,7 @@ type WebhookInput struct {
 	Name            string
 	URL             string
 	EncryptedSecret string
+	ClearSecret     bool
 	Events          json.RawMessage
 	Enabled         bool
 }
@@ -47,7 +48,12 @@ func (s *Store) GetWebhook(ctx context.Context, id uuid.UUID) (domain.Webhook, e
 }
 
 func (s *Store) ListWebhooks(ctx context.Context) ([]domain.Webhook, error) {
-	rows, err := s.pool.Query(ctx, "SELECT "+webhookColumns+" FROM webhooks ORDER BY lower(name)")
+	rows, err := s.pool.Query(ctx, `SELECT `+webhookColumns+`,
+		COALESCE((SELECT status FROM webhook_deliveries WHERE webhook_id=webhooks.id ORDER BY created_at DESC LIMIT 1),''),
+		(SELECT updated_at FROM webhook_deliveries WHERE webhook_id=webhooks.id ORDER BY created_at DESC LIMIT 1),
+		(SELECT count(*) FROM webhook_deliveries WHERE webhook_id=webhooks.id AND status='failed'),
+		(SELECT count(*) FROM webhook_deliveries WHERE webhook_id=webhooks.id AND status IN ('pending','retrying','sending'))
+		FROM webhooks ORDER BY lower(name)`)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +61,8 @@ func (s *Store) ListWebhooks(ctx context.Context) ([]domain.Webhook, error) {
 	items := make([]domain.Webhook, 0)
 	for rows.Next() {
 		var item domain.Webhook
-		if err := rows.Scan(webhookScan(&item)...); err != nil {
+		values := append(webhookScan(&item), &item.LastDeliveryStatus, &item.LastDeliveryAt, &item.FailedDeliveries, &item.QueuedDeliveries)
+		if err := rows.Scan(values...); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -64,12 +71,30 @@ func (s *Store) ListWebhooks(ctx context.Context) ([]domain.Webhook, error) {
 }
 
 func (s *Store) UpdateWebhook(ctx context.Context, id uuid.UUID, input WebhookInput) (domain.Webhook, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Webhook{}, err
+	}
+	defer tx.Rollback(ctx)
 	var item domain.Webhook
-	err := s.pool.QueryRow(ctx, `UPDATE webhooks SET name=$2,url=$3,
-        encrypted_secret=CASE WHEN $4='' THEN encrypted_secret ELSE $4 END,events=$5,enabled=$6,updated_at=now()
-        WHERE id=$1 RETURNING `+webhookColumns, id, input.Name, input.URL, input.EncryptedSecret,
-		input.Events, input.Enabled).Scan(webhookScan(&item)...)
-	return item, translate(err)
+	err = tx.QueryRow(ctx, `UPDATE webhooks SET name=$2,url=$3,
+		encrypted_secret=CASE WHEN $7 THEN '' WHEN $4='' THEN encrypted_secret ELSE $4 END,events=$5,enabled=$6,updated_at=now()
+		WHERE id=$1 RETURNING `+webhookColumns, id, input.Name, input.URL, input.EncryptedSecret,
+		input.Events, input.Enabled, input.ClearSecret).Scan(webhookScan(&item)...)
+	if err != nil {
+		return domain.Webhook{}, translate(err)
+	}
+	if !input.Enabled {
+		if _, err = tx.Exec(ctx, `UPDATE webhook_deliveries SET status='canceled',
+			error_message='webhook disabled before delivery',updated_at=now()
+			WHERE webhook_id=$1 AND status IN ('pending','retrying')`, id); err != nil {
+			return domain.Webhook{}, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Webhook{}, err
+	}
+	return item, nil
 }
 
 func (s *Store) DeleteWebhook(ctx context.Context, id uuid.UUID) error {
@@ -130,9 +155,18 @@ func (s *Store) EnqueueWebhookFor(ctx context.Context, webhookID uuid.UUID, even
 		return uuid.Nil, err
 	}
 	id := uuid.New()
-	_, err = s.pool.Exec(ctx, `INSERT INTO webhook_deliveries(id,webhook_id,event_id,event_type,payload)
-		VALUES($1,$2,$3,$4,$5)`, id, webhookID, uuid.New(), eventType, encoded)
-	return id, err
+	result, err := s.pool.Exec(ctx, `INSERT INTO webhook_deliveries(id,webhook_id,event_id,event_type,payload)
+		SELECT $1,$2,$3,$4,$5 FROM webhooks WHERE id=$2 AND enabled=true`, id, webhookID, uuid.New(), eventType, encoded)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if result.RowsAffected() == 0 {
+		if unavailable := s.webhookUnavailable(ctx, webhookID); unavailable != nil {
+			return uuid.Nil, unavailable
+		}
+		return uuid.Nil, domain.ErrConflict
+	}
+	return id, nil
 }
 
 func (s *Store) ListWebhookDeliveries(ctx context.Context, webhookID uuid.UUID, limit int) ([]domain.WebhookDelivery, error) {
@@ -162,11 +196,29 @@ func (s *Store) ListWebhookDeliveries(ctx context.Context, webhookID uuid.UUID, 
 func (s *Store) RetryWebhookDelivery(ctx context.Context, webhookID, deliveryID uuid.UUID) error {
 	result, err := s.pool.Exec(ctx, `UPDATE webhook_deliveries SET status='pending',attempts=0,
 		next_attempt_at=now(),response_status=NULL,response_body='',error_message='',updated_at=now()
-		WHERE id=$1 AND webhook_id=$2 AND status='failed'`, deliveryID, webhookID)
-	if err == nil && result.RowsAffected() == 0 {
+		WHERE id=$1 AND webhook_id=$2 AND status='failed'
+		AND EXISTS(SELECT 1 FROM webhooks WHERE id=$2 AND enabled=true)`, deliveryID, webhookID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		if unavailable := s.webhookUnavailable(ctx, webhookID); unavailable != nil {
+			return unavailable
+		}
 		return domain.ErrNotFound
 	}
-	return err
+	return nil
+}
+
+func (s *Store) webhookUnavailable(ctx context.Context, id uuid.UUID) error {
+	var enabled bool
+	if err := s.pool.QueryRow(ctx, "SELECT enabled FROM webhooks WHERE id=$1", id).Scan(&enabled); err != nil {
+		return translate(err)
+	}
+	if !enabled {
+		return fmt.Errorf("%w: webhook is disabled", domain.ErrConflict)
+	}
+	return nil
 }
 
 func eventMatches(events []string, eventType string) bool {
@@ -179,16 +231,25 @@ func eventMatches(events []string, eventType string) bool {
 }
 
 func (s *Store) ClaimWebhookDelivery(ctx context.Context) (WebhookDelivery, domain.Webhook, error) {
+	if _, err := s.pool.Exec(ctx, `UPDATE webhook_deliveries AS delivery SET
+		status=CASE WHEN hook.enabled THEN 'retrying' ELSE 'canceled' END,
+		next_attempt_at=CASE WHEN hook.enabled THEN now() ELSE delivery.next_attempt_at END,
+		error_message='delivery interrupted by control service restart',updated_at=now()
+		FROM webhooks AS hook WHERE delivery.webhook_id=hook.id AND delivery.status='sending'
+		AND delivery.updated_at < now() - interval '1 minute'`); err != nil {
+		return WebhookDelivery{}, domain.Webhook{}, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return WebhookDelivery{}, domain.Webhook{}, err
 	}
 	defer tx.Rollback(ctx)
 	var item WebhookDelivery
-	err = tx.QueryRow(ctx, `SELECT id,webhook_id,event_id,event_type,payload,status,attempts,next_attempt_at,
-        response_status,response_body,error_message FROM webhook_deliveries
-        WHERE status IN ('pending','retrying') AND next_attempt_at<=now() ORDER BY created_at
-        FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&item.ID, &item.WebhookID, &item.EventID, &item.EventType,
+	err = tx.QueryRow(ctx, `SELECT delivery.id,delivery.webhook_id,delivery.event_id,delivery.event_type,delivery.payload,
+		delivery.status,delivery.attempts,delivery.next_attempt_at,delivery.response_status,delivery.response_body,delivery.error_message
+		FROM webhook_deliveries AS delivery JOIN webhooks AS hook ON hook.id=delivery.webhook_id
+		WHERE hook.enabled=true AND delivery.status IN ('pending','retrying') AND delivery.next_attempt_at<=now() ORDER BY delivery.created_at
+		FOR UPDATE OF delivery SKIP LOCKED LIMIT 1`).Scan(&item.ID, &item.WebhookID, &item.EventID, &item.EventType,
 		&item.Payload, &item.Status, &item.Attempts, &item.NextAttemptAt, &item.ResponseStatus,
 		&item.ResponseBody, &item.ErrorMessage)
 	if err != nil {
@@ -209,11 +270,11 @@ func (s *Store) ClaimWebhookDelivery(ctx context.Context) (WebhookDelivery, doma
 	return item, hook, nil
 }
 
-func (s *Store) FinishWebhookDelivery(ctx context.Context, id uuid.UUID, success bool, responseStatus int, responseBody, errorMessage string, attempts int) error {
+func (s *Store) FinishWebhookDelivery(ctx context.Context, id uuid.UUID, success bool, responseStatus int, responseBody, errorMessage string, attempts, maxAttempts int) error {
 	status := "delivered"
 	next := time.Now()
 	if !success {
-		if attempts >= 5 {
+		if attempts >= maxAttempts {
 			status = "failed"
 		} else {
 			status = "retrying"
@@ -232,5 +293,3 @@ func min(a, b int) int {
 	}
 	return b
 }
-
-var _ = pgx.ErrNoRows

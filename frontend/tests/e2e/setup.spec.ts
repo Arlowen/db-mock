@@ -322,16 +322,29 @@ test('initializes the platform and switches the embedded interface language', as
   const alertHost = { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'offline', sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true }
   let alertStatus = 'open'
   let alertAcknowledgedAt: string | undefined
+  let alertAcknowledgedBy: string | undefined
+  let alertResolvedAt: string | undefined
+  let alertResolvedBy: string | undefined
+  let webhookHasSecret = true
   let retriedDelivery = false
   let testQueued = false
   let deliveryPolls = 0
-  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ json: { items: [{ id: alertID, severity: 'critical', type: 'host_offline', resourceType: 'host', resourceId: alertHost.id, title: 'Host is offline', message: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', status: alertStatus, createdAt: new Date(Date.now() - 300000).toISOString(), acknowledgedAt: alertAcknowledgedAt }] } }))
-  await page.route(`**/api/v1/alerts/${alertID}/acknowledged`, async (route) => { alertStatus = 'acknowledged'; alertAcknowledgedAt = new Date().toISOString(); await route.fulfill({ json: { ok: true } }) })
-  await page.route(`**/api/v1/alerts/${alertID}/resolved`, async (route) => { alertStatus = 'resolved'; await route.fulfill({ json: { ok: true } }) })
+  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ json: { items: [{ id: alertID, severity: 'critical', type: 'host_offline', resourceType: 'host', resourceId: alertHost.id, title: 'Host is offline', message: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', status: alertStatus, createdAt: new Date(Date.now() - 300000).toISOString(), acknowledgedAt: alertAcknowledgedAt, acknowledgedBy: alertAcknowledgedBy, resolvedAt: alertResolvedAt, resolvedBy: alertResolvedBy }] } }))
+  await page.route(`**/api/v1/alerts/${alertID}/acknowledged`, async (route) => { alertStatus = 'acknowledged'; alertAcknowledgedAt = new Date().toISOString(); alertAcknowledgedBy = 'e2e-admin'; await route.fulfill({ json: { ok: true } }) })
+  await page.route(`**/api/v1/alerts/${alertID}/resolved`, async (route) => { alertStatus = 'resolved'; alertResolvedAt = new Date().toISOString(); alertResolvedBy = 'e2e-admin'; await route.fulfill({ json: { ok: true } }) })
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [alertHost] } }))
   await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route('**/api/v1/webhooks', async (route) => route.fulfill({ json: { items: [{ id: webhookID, name: 'Engineering alerts', url: 'https://hooks.example.test/dbmock', hasSecret: true, events: ['alert.created', 'task.failed'], enabled: true, createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString() }] } }))
-  await page.route(`**/api/v1/webhooks/${webhookID}`, async (route) => route.fulfill({ json: { id: webhookID } }))
+  await page.route('**/api/v1/webhooks', async (route) => route.fulfill({ json: { items: [{ id: webhookID, name: 'Engineering alerts', url: 'https://hooks.example.test/dbmock', hasSecret: webhookHasSecret, events: ['alert.created', 'task.failed'], enabled: true, lastDeliveryStatus: 'failed', lastDeliveryAt: new Date().toISOString(), failedDeliveries: 1, queuedDeliveries: 0, createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString() }] } }))
+  await page.route(`**/api/v1/webhooks/${webhookID}`, async (route) => {
+    if (route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON()
+      expect(body.events).toEqual(['*'])
+      if (body.clearSecret) webhookHasSecret = false
+      await route.fulfill({ json: { id: webhookID, ...body, hasSecret: webhookHasSecret } })
+      return
+    }
+    await route.fulfill({ json: { id: webhookID } })
+  })
   await page.route(`**/api/v1/webhooks/${webhookID}/test`, async (route) => { testQueued = true; await route.fulfill({ status: 202, json: { queued: true, deliveryId: testDeliveryID } }) })
   await page.route(`**/api/v1/webhooks/${webhookID}/deliveries`, async (route) => {
     deliveryPolls += 1
@@ -352,6 +365,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(alertDrawer.getByText(/Connection timed out/)).toBeVisible()
   await alertDrawer.getByRole('button', { name: '确认告警' }).click()
   await expect(alertDrawer.getByText('已确认')).toBeVisible()
+  await expect(alertDrawer.getByText('e2e-admin')).toBeVisible()
   await alertDrawer.getByRole('button', { name: '查看对应资源' }).click()
   await expect(page).toHaveURL(/\/hosts\?host=11111111/)
   const alertHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
@@ -361,11 +375,19 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto('/alerts?tab=webhooks')
   await expect(page.getByRole('heading', { name: 'Engineering alerts' })).toBeVisible()
   await expect(page.getByText('新告警')).toBeVisible()
+  await expect(page.getByText('1 条失败投递')).toBeVisible()
   await page.getByRole('button', { name: '编辑' }).click()
   const webhookDialog = page.getByRole('dialog', { name: '编辑 Webhook' })
   await expect(webhookDialog.getByLabel('名称')).toHaveValue('Engineering alerts')
   await expect(webhookDialog.getByText('已配置签名密钥；留空将保持现有密钥不变。')).toBeVisible()
-  await webhookDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await webhookDialog.getByRole('combobox', { name: '订阅事件' }).click()
+  const allEventsOption = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').filter({ hasText: '全部事件' })
+  await expect(allEventsOption).toBeVisible()
+  await allEventsOption.click()
+  await webhookDialog.getByRole('checkbox', { name: '移除已配置的 HMAC 密钥' }).check()
+  await expect(webhookDialog.getByRole('textbox', { name: 'HMAC 密钥' })).toBeDisabled()
+  await webhookDialog.getByRole('button', { name: /保\s*存/ }).click()
+  await expect(page.getByText('HMAC 签名已开启')).toHaveCount(0)
   await page.getByRole('button', { name: '投递记录' }).click()
   let deliveryDrawer = page.getByRole('dialog', { name: /投递记录.*Engineering alerts/ })
   await expect(deliveryDrawer.getByText('503')).toBeVisible()
