@@ -95,13 +95,30 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto('/instances')
   await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从目录选择模板部署。')).toBeVisible()
   await expect(page.locator('.page-header').getByRole('button', { name: '接入主机' })).toBeVisible()
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 }] } }))
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [
+    { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
+    { id: '22222222-2222-4222-8222-222222222222', name: 'E2E Staging', status: 'offline', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
+  ] } }))
   let submittedInstanceBody: Record<string, unknown> | undefined
+  const listInstances = [
+    { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: { team: 'checkout' }, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 1, memoryBytes: 1073741824, reservedDiskBytes: 10737418240, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString() },
+    { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Staging Cache', hostId: '22222222-2222-4222-8222-222222222222', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'staging', labels: { team: 'platform' }, status: 'stopped', desiredState: 'stopped', autoRestart: true, restartFailures: 0, cpu: 1, memoryBytes: 1073741824, reservedDiskBytes: 10737418240, hostPort: 26379, containerPort: 6379, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'cache', templateSlug: 'redis', templateName: 'Redis', templateVersion: '8', hostName: 'E2E Staging', connectionAddress: '10.0.0.9', createdAt: new Date().toISOString() },
+  ]
   await page.route('**/api/v1/instances', async (route) => {
-    if (route.request().method() !== 'POST') { await route.continue(); return }
+    if (route.request().method() !== 'POST') { await route.fulfill({ json: { items: listInstances } }); return }
     submittedInstanceBody = route.request().postDataJSON() as Record<string, unknown>
     await route.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'invalid input: e2e submission stopped' } } })
   })
+  await page.goto('/instances')
+  await expect(page.getByText('共 2 个实例')).toBeVisible()
+  await page.getByRole('combobox', { name: '主机' }).click()
+  await page.getByText('E2E Host', { exact: true }).last().click()
+  await expect(page.getByText('筛选出 1 / 2 个实例')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Orders DB' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Staging Cache' })).toHaveCount(0)
+  await page.getByRole('combobox', { name: '主机' }).click()
+  await page.getByText('全部主机', { exact: true }).last().click()
+  await expect(page.getByText('共 2 个实例')).toBeVisible()
   await page.goto('/instances?create=1')
   const createInstanceDrawer = page.getByRole('dialog', { name: '创建数据库' })
   await expect(createInstanceDrawer).toBeVisible()
