@@ -69,6 +69,9 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if strings.TrimSpace(request.Name) == "" {
 		return domain.Instance{}, domain.Task{}, domain.ErrInvalid
 	}
+	if request.ImageArtifactID != nil && request.RegistryID != nil {
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: choose either an offline image or a registry", domain.ErrInvalid)
+	}
 	if request.Environment != "" && request.Environment != "development" && request.Environment != "testing" && request.Environment != "staging" && request.Environment != "production" {
 		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: unsupported environment", domain.ErrInvalid)
 	}
@@ -97,6 +100,20 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	host, err := s.selectHost(ctx, request.HostID, version, request.CPU, request.MemoryBytes, request.DiskBytes)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
+	}
+	if request.ImageArtifactID != nil {
+		artifact, getErr := s.store.GetImageArtifact(ctx, *request.ImageArtifactID)
+		if getErr != nil {
+			return domain.Instance{}, domain.Task{}, getErr
+		}
+		if artifact.Status != "ready" || !supports(artifact.Architectures, host.Architecture) || !contains(artifact.ImageRefs, version.ImageReference) {
+			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
+		}
+	}
+	if request.RegistryID != nil {
+		if _, getErr := s.store.GetRegistry(ctx, *request.RegistryID); getErr != nil {
+			return domain.Instance{}, domain.Task{}, getErr
+		}
 	}
 	manifest, err := templates.ParseManifest(version.Manifest)
 	if err != nil {
@@ -194,8 +211,18 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 		if err != nil {
 			return domain.Host{}, err
 		}
+		if host.Status != "online" || host.Maintenance {
+			return domain.Host{}, fmt.Errorf("%w: host is not available for deployments", domain.ErrConflict)
+		}
 		if !supports(version.Architectures, host.Architecture) {
 			return domain.Host{}, fmt.Errorf("%w: host architecture is incompatible", domain.ErrConflict)
+		}
+		reservation, err := s.store.HostReservations(ctx, host.ID)
+		if err != nil {
+			return domain.Host{}, err
+		}
+		if !fitsHost(host, reservation, cpu, memory, disk) {
+			return domain.Host{}, fmt.Errorf("%w: host does not have enough available resources", domain.ErrConflict)
 		}
 		return host, nil
 	}
@@ -216,7 +243,7 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 		if err != nil {
 			continue
 		}
-		if reservation.CPU+cpu > host.CPUCount*.9 || reservation.Memory+memory > int64(float64(host.MemoryBytes)*.8) || reservation.Disk+disk > int64(float64(host.DiskFreeBytes)*.8) {
+		if !fitsHost(host, reservation, cpu, memory, disk) {
 			continue
 		}
 		score := (host.CPUCount-reservation.CPU)/max(host.CPUCount, 1) + float64(host.MemoryBytes-reservation.Memory)/float64(maxInt(host.MemoryBytes, 1))
@@ -227,6 +254,21 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
 	return candidates[0].host, nil
+}
+
+func fitsHost(host domain.Host, reservation store.HostReservation, cpu float64, memory, disk int64) bool {
+	return reservation.CPU+cpu <= host.CPUCount*.9 &&
+		reservation.Memory+memory <= int64(float64(host.MemoryBytes)*.8) &&
+		reservation.Disk+disk <= int64(float64(host.DiskFreeBytes)*.8)
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) load(ctx context.Context, task domain.Task) (ActionPayload, domain.Instance, domain.Host, domain.Template, domain.TemplateVersion, error) {

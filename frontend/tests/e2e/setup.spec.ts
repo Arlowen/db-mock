@@ -199,7 +199,9 @@ test('initializes the platform and switches the embedded interface language', as
   await page.locator('.template-card').first().getByRole('button', { name: '创建' }).click()
   const redirectedHostDialog = page.getByRole('dialog', { name: '接入主机' })
   await expect(redirectedHostDialog).toBeVisible()
-  await expect(page).toHaveURL(/\/hosts$/)
+  await expect(page).toHaveURL(/\/hosts\?returnTo=/)
+  const preservedReturn = new URL(page.url()).searchParams.get('returnTo')
+  expect(preservedReturn).toMatch(/^\/instances\?create=1&template=/)
   await redirectedHostDialog.getByRole('button', { name: '关闭', exact: true }).click()
 
   const taskID = '22222222-2222-4222-8222-222222222222'

@@ -11,6 +11,7 @@ import type { Host, Instance, Task } from '../lib/types'
 
 interface TaskLog { id: number; level: string; message: string; createdAt: string }
 interface ResourceLink { label: string; path?: string; icon?: ReactNode }
+const safeCreateReturnPath = (value: string | null) => value?.startsWith('/instances?create=1') ? value : ''
 
 export function TasksPage() {
   const { t, i18n } = useTranslation()
@@ -19,6 +20,7 @@ export function TasksPage() {
   const notifyTask = useTaskNotification()
   const [params, setParams] = useSearchParams()
   const taskID = params.get('task')
+  const continueTo = safeCreateReturnPath(params.get('continue'))
   const [items, setItems] = useState<Task[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [instances, setInstances] = useState<Instance[]>([])
@@ -93,6 +95,7 @@ export function TasksPage() {
   }, [hostNames, instanceNames])
 
   const closeDetail = () => { setSelected(null); setLogs([]); setDetailError(''); setParams({}, { replace: true }) }
+  const continueCreation = () => { if (!continueTo) return; setSelected(null); setLogs([]); setDetailError(''); navigate(continueTo) }
   const goToResource = (task: Task) => { const resource = resourceLink(task); if (!resource.path) return; closeDetail(); navigate(resource.path) }
   const canRetry = (task: Task) => ['failed', 'canceled', 'interrupted'].includes(task.status)
   const canCancel = (task: Task) => task.cancelable && !task.cancelAsked && ['queued', 'running'].includes(task.status)
@@ -104,7 +107,7 @@ export function TasksPage() {
       if (name === 'retry') {
         const retried = await api<Task>(`/tasks/${item.id}/retry`, { method: 'POST', body: {} })
         notifyTask(retried)
-        setParams({ task: retried.id })
+        setParams(continueTo ? { task: retried.id, continue: continueTo } : { task: retried.id })
       } else {
         await api(`/tasks/${item.id}/cancel`, { method: 'POST', body: {} })
         message.success(t('cancelRequested'))
@@ -138,7 +141,7 @@ export function TasksPage() {
   ]
 
   const selectedResource = selected ? resourceLink(selected) : undefined
-  const drawerFooter = selected ? <div className="task-drawer-footer"><Button disabled={!selectedResource?.path} icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button><Space>{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t('cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space></div> : undefined
+  const drawerFooter = selected ? <div className="task-drawer-footer"><Space><Button disabled={!selectedResource?.path} icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>{continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space><Space>{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t('cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space></div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} actions={<><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value) }} style={{ width: 160 }} options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button></>} />
@@ -147,6 +150,7 @@ export function TasksPage() {
     <Drawer title={selected ? <div className="task-drawer-title"><Typography.Text strong>{translateCode(t, selected.kind, 'taskKind')}</Typography.Text><Typography.Text code copyable={{ text: selected.id }}>{selected.id.slice(0, 8)}</Typography.Text></div> : t('taskDetails')} open={!!taskID} onClose={closeDetail} width={760} destroyOnHidden footer={drawerFooter}>
       {detailLoading ? <Card loading /> : detailError ? <Alert type="error" showIcon message={t('taskLoadFailed')} description={detailError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID, true)}>{t('retry')}</Button>} /> : selected && <div className="task-detail">
         <div className={`task-detail-summary is-${selected.status}`}><div><Space><StatusTag value={selected.status} /><Typography.Text strong>{translateCode(t, selected.message, 'taskMessage')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('taskSummaryDescription', { operation: translateCode(t, selected.kind, 'taskKind'), resource: selectedResource?.label || '—' })}</Typography.Paragraph></div><Progress percent={selected.progress} status={selected.status === 'failed' ? 'exception' : selected.status === 'succeeded' ? 'success' : undefined} /></div>
+        {continueTo && <Alert className="task-detail-alert" type={selected.status === 'succeeded' ? 'success' : selected.status === 'failed' ? 'warning' : 'info'} showIcon message={selected.status === 'succeeded' ? t('hostReadyContinue') : selected.status === 'failed' ? t('hostSetupFailedContinue') : t('hostSetupInProgress')} description={selected.status === 'succeeded' ? t('hostReadyContinueHint') : selected.status === 'failed' ? t('hostSetupFailedContinueHint') : t('hostSetupInProgressHint')} action={selected.status === 'succeeded' ? <Button size="small" type="primary" onClick={continueCreation}>{t('continueCreateDatabase')}</Button> : undefined} />}
         {selected.cancelAsked && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
         {selected.errorMessage && <Alert className="task-detail-alert" type="error" showIcon message={t('taskFailureTitle', { stage: translateCode(t, selected.stage) })} description={<div className="task-error-detail">{selected.errorCode && <Tag color="red">{selected.errorCode}</Tag>}<Typography.Text code copyable>{selected.errorMessage}</Typography.Text></div>} />}
         <Descriptions className="task-detail-meta" bordered size="small" column={2} items={[
