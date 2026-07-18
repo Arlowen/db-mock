@@ -40,6 +40,7 @@ import { useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { ApiError, api, discardImageUpload, errorMessage, uploadInChunks } from '../lib/api'
 import type { ImageUploadPhase } from '../lib/api'
+import { isRegistryURL } from '../lib/image-source'
 import { formatDateTime } from '../lib/localization'
 import type { ImageArtifact, Registry } from '../lib/types'
 import { bytes } from '../lib/types'
@@ -441,7 +442,7 @@ export function ImagesPage() {
       <Form form={registryForm} layout="vertical" requiredMark={false} autoComplete="off">
         <div className="form-grid">
           <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input aria-label={t('name')} /></Form.Item>
-          <Form.Item name="url" label={t('registryURL')} rules={[{ required: true }, { type: 'url' }]}><Input aria-label={t('registryURL')} type="url" placeholder={t('registryURLPlaceholder')} /></Form.Item>
+          <Form.Item name="url" label={t('registryURL')} rules={[{ required: true }, { validator: (_, value?: string) => !value || isRegistryURL(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidRegistryURL'))) }]}><Input aria-label={t('registryURL')} type="url" placeholder={t('registryURLPlaceholder')} /></Form.Item>
         </div>
         <div className="form-grid">
           <Form.Item name="username" label={t('username')}><Input aria-label={t('username')} autoComplete="off" data-1p-ignore data-lpignore="true" /></Form.Item>

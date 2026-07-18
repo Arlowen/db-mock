@@ -207,6 +207,17 @@ test('initializes the platform and switches the embedded interface language', as
   await uploadImageDialog.getByLabel(/预期 SHA-256/).fill('invalid')
   await expect(uploadImageDialog.getByText('请输入 64 位十六进制 SHA-256')).toBeVisible()
   await uploadImageDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '添加仓库' }).first().click()
+  const addRegistryDialog = page.getByRole('dialog', { name: '添加仓库' })
+  await addRegistryDialog.getByLabel('名称').fill('Internal Registry')
+  const registryURL = addRegistryDialog.getByLabel('镜像仓库 URL')
+  await registryURL.fill('https://harbor.example.test/team')
+  await addRegistryDialog.getByRole('button', { name: /保\s*存/ }).click()
+  await expect(addRegistryDialog.getByText('请输入仅包含 http(s) 协议、主机名和可选端口的仓库地址。')).toBeVisible()
+  await registryURL.fill('http://registry:5000')
+  await registryURL.press('Tab')
+  await expect(addRegistryDialog.getByText('请输入仅包含 http(s) 协议、主机名和可选端口的仓库地址。')).not.toBeVisible()
+  await addRegistryDialog.getByRole('button', { name: '关闭', exact: true }).click()
 
   const imageID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const registryID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
