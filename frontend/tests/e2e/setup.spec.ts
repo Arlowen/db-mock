@@ -169,6 +169,10 @@ test('initializes the platform and switches the embedded interface language', as
   relatedTasks = [{ id: '66666666-6666-4666-8666-666666666666', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', errorCode: 'ssh_timeout', errorMessage: 'ssh connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
   await page.reload()
   await expect(page.getByText('SSH 连接超时')).toBeVisible()
+  await page.getByRole('tab', { name: '连接信息' }).click()
+  await expect(page.getByText('连接可用性受当前状态影响')).toBeVisible()
+  await expect(page.getByText('实例当前为“失败”。连接信息仍可查看或复制，但请等待实例恢复为运行中后再尝试连接。')).toBeVisible()
+  await page.getByRole('tab', { name: '详情' }).click()
   await page.getByRole('button', { name: '重试任务' }).click()
   await expect(page.getByText('排队中', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
@@ -187,6 +191,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.reload()
 
   await page.getByRole('tab', { name: '连接信息' }).click()
+  await expect(page.getByText('连接可用性受当前状态影响')).toHaveCount(0)
   await expect(page.getByText('连接信息受保护')).toBeVisible()
   await page.getByRole('button', { name: '显示连接信息' }).click()
   await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()

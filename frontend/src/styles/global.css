@@ -126,6 +126,7 @@ button { font: inherit; }
 .health-facts > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .health-facts .ant-typography-secondary { font-size: 12px; }
 .connection-card .ant-card-body { min-height: 300px; }
+.connection-status-alert { margin-bottom: 20px; }
 .connection-gate { width: min(520px, 100%); margin: 22px auto 10px; text-align: center; }
 .connection-gate-icon { width: 52px; height: 52px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 15px; color: #2563eb; background: #edf4ff; font-size: 23px; }
 .connection-gate h4.ant-typography { margin-bottom: 8px; }
