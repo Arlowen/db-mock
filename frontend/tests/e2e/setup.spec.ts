@@ -264,11 +264,14 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.locator('.database-icon')).toHaveCount(19)
   await expect(page.getByRole('img', { name: 'MySQL' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'PostgreSQL' })).toBeVisible()
-  const cardBaselines = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).slice(0, 2).map((card) => {
-    const top = (selector: string) => Math.round(card.querySelector(selector)?.getBoundingClientRect().top ?? 0)
-    return ['.template-card-title-row', '.template-card-description', '.template-card-tags', '.template-meta', '.ant-card-actions'].map(top)
+  const cardLayout = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).slice(0, 3).map((card) => {
+    const rect = card.getBoundingClientRect()
+    const offsetTop = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().top ?? 0) - rect.top)
+    return { width: Math.round(rect.width), baselines: ['.template-card-header', '.template-card-description', '.template-card-tags', '.template-meta', '.ant-card-actions'].map(offsetTop) }
   }))
-  expect(cardBaselines[0]).toEqual(cardBaselines[1])
+  expect(cardLayout[0].baselines).toEqual(cardLayout[1].baselines)
+  expect(cardLayout[1].baselines).toEqual(cardLayout[2].baselines)
+  expect(Math.min(...cardLayout.map(({ width }) => width))).toBeGreaterThanOrEqual(360)
   await page.getByRole('searchbox', { name: '搜索' }).fill('definitely-no-such-database')
   await expect(page.getByText('没有匹配的数据库模板。请调整搜索词或筛选条件。')).toBeVisible()
   await page.getByRole('button', { name: '清除筛选' }).click()
@@ -412,6 +415,8 @@ test('initializes the platform and switches the embedded interface language', as
   const allEventsOption = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').filter({ hasText: '全部事件' })
   await expect(allEventsOption).toBeVisible()
   await allEventsOption.click()
+  await page.keyboard.press('Escape')
+  await expect(allEventsOption).toBeHidden()
   await webhookDialog.getByRole('checkbox', { name: '移除已配置的 HMAC 密钥' }).check()
   await expect(webhookDialog.getByRole('textbox', { name: 'HMAC 密钥' })).toBeDisabled()
   await webhookDialog.getByRole('button', { name: /保\s*存/ }).click()
