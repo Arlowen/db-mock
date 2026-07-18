@@ -18,6 +18,8 @@ func TestValidateRegistry(t *testing.T) {
 		{name: "missing name", input: registryRequest{URL: "https://registry.example.com"}},
 		{name: "invalid scheme", input: registryRequest{Name: "Registry", URL: "file:///tmp/registry"}},
 		{name: "path not supported", input: registryRequest{Name: "Registry", URL: "https://registry.example.com/project"}},
+		{name: "embedded credentials not supported", input: registryRequest{Name: "Registry", URL: "https://user:secret@registry.example.com"}},
+		{name: "query not supported", input: registryRequest{Name: "Registry", URL: "https://registry.example.com?token=secret"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

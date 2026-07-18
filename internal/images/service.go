@@ -122,11 +122,11 @@ func (s *Service) Complete(ctx context.Context, userID, id uuid.UUID, name strin
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	if upload.ExpectedSHA256 != "" && upload.ExpectedSHA256 != digest {
-		return domain.ImageArtifact{}, errors.New("SHA-256 checksum does not match")
+		return domain.ImageArtifact{}, fmt.Errorf("%w: SHA-256 checksum does not match", domain.ErrInvalid)
 	}
 	refs, architectures, format, err := inspectArchive(upload.TemporaryPath)
 	if err != nil {
-		return domain.ImageArtifact{}, err
+		return domain.ImageArtifact{}, fmt.Errorf("%w: %v", domain.ErrInvalid, err)
 	}
 	extension := ".tar"
 	if strings.HasSuffix(strings.ToLower(upload.Filename), ".gz") || strings.HasSuffix(strings.ToLower(upload.Filename), ".tgz") {
@@ -154,6 +154,28 @@ func (s *Service) Complete(ctx context.Context, userID, id uuid.UUID, name strin
 	}
 	_ = s.store.UpdateUploadProgress(ctx, id, upload.TotalBytes, "complete")
 	return artifact, nil
+}
+
+func (s *Service) Cancel(ctx context.Context, userID, id uuid.UUID) error {
+	lock := s.lock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	defer s.locks.Delete(id)
+	upload, err := s.store.GetUpload(ctx, id)
+	if err != nil {
+		return err
+	}
+	if upload.CreatedBy != userID {
+		return domain.ErrForbidden
+	}
+	path, err := s.store.DeleteUpload(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {

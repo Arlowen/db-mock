@@ -18,6 +18,21 @@ func (s *Server) imageRoutes(r chi.Router) {
 	r.Get("/uploads/{id}", s.getImageUpload)
 	r.Put("/uploads/{id}/chunk", s.uploadImageChunk)
 	r.Post("/uploads/{id}/complete", s.completeImageUpload)
+	r.Delete("/uploads/{id}", s.cancelImageUpload)
+}
+func (s *Server) cancelImageUpload(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	if err = s.images.Cancel(r.Context(), actor.User.ID, id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.audit(r, actor, "image.upload.cancel", "image_upload", &id, "", nil, "success", "")
+	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListImageArtifacts(r.Context())

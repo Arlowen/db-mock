@@ -39,8 +39,31 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 }
 
 export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return i18n.t(`error_${error.code}`, { defaultValue: error.message })
+  if (error instanceof ApiError) {
+    const summary = i18n.t(`error_${error.code}`, { defaultValue: error.message })
+    if (!['invalid_input', 'resource_conflict', 'resource_unavailable'].includes(error.code)) return summary
+    const detail = error.message.replace(/^(invalid input|resource conflict|resource temporarily unavailable):\s*/i, '').trim()
+    if (!detail || detail.toLowerCase() === error.code.replaceAll('_', ' ')) return summary
+    const detailKey = detail.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+    const translationKey = `errorDetail_${detailKey}`
+    if (error.code === 'resource_unavailable' && !i18n.exists(translationKey)) return summary
+    const localized = i18n.t(translationKey, { defaultValue: detail })
+    return `${summary}: ${localized}`
+  }
   return error instanceof Error ? error.message : String(error)
+}
+
+export type ImageUploadPhase = 'resuming' | 'uploading' | 'verifying'
+
+function imageUploadResumeKey(file: File): string {
+  return `dbmock-upload:${file.name}:${file.size}:${file.lastModified}`
+}
+
+export async function discardImageUpload(file: File): Promise<void> {
+  const resumeKey = imageUploadResumeKey(file)
+  const uploadID = localStorage.getItem(resumeKey)
+  if (!uploadID) return
+  try { await api(`/images/uploads/${uploadID}`, { method: 'DELETE' }) } finally { localStorage.removeItem(resumeKey) }
 }
 
 export async function uploadInChunks(
@@ -48,8 +71,10 @@ export async function uploadInChunks(
   onProgress: (percent: number) => void,
   expectedSha256 = '',
   displayName = file.name,
+  onPhase: (phase: ImageUploadPhase) => void = () => undefined,
+  signal?: AbortSignal,
 ): Promise<unknown> {
-  const resumeKey = `dbmock-upload:${file.name}:${file.size}:${file.lastModified}`
+  const resumeKey = imageUploadResumeKey(file)
   let upload: { id: string; receivedBytes: number; totalBytes?: number; status?: string } | undefined
   const previousID = localStorage.getItem(resumeKey)
   if (previousID) {
@@ -59,21 +84,35 @@ export async function uploadInChunks(
     } catch { localStorage.removeItem(resumeKey) }
   }
   if (!upload) {
+    onPhase('uploading')
     upload = await api<{ id: string; receivedBytes: number }>('/images/uploads', {
       method: 'POST',
       body: { filename: file.name, totalBytes: file.size, sha256: expectedSha256 },
+      signal,
     })
     localStorage.setItem(resumeKey, upload.id)
+  } else {
+    onPhase('resuming')
   }
   const chunkSize = 8 * 1024 * 1024
   let offset = upload.receivedBytes
+  onProgress(Math.round((offset / file.size) * 100))
   while (offset < file.size) {
     const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size))
-    await api(`/images/uploads/${upload.id}/chunk?offset=${offset}`, { method: 'PUT', body: chunk })
+    await api(`/images/uploads/${upload.id}/chunk?offset=${offset}`, { method: 'PUT', body: chunk, signal })
     offset += chunk.size
     onProgress(Math.round((offset / file.size) * 100))
+    onPhase('uploading')
   }
-  const result = await api(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName } })
-  localStorage.removeItem(resumeKey)
-  return result
+  onPhase('verifying')
+  try {
+    const result = await api(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName }, signal })
+    localStorage.removeItem(resumeKey)
+    return result
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 400) {
+      await discardImageUpload(file).catch(() => localStorage.removeItem(resumeKey))
+    }
+    throw error
+  }
 }

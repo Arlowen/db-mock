@@ -176,6 +176,10 @@ button { font: inherit; }
 .image-upload-form { margin-top: 18px; }
 .checksum-input input { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .image-upload-error { margin-top: 12px; }
+.image-upload-progress { margin-top: 16px; padding: 13px 14px 9px; border: 1px solid #dce5f1; border-radius: 10px; background: #f8fbff; }
+.image-upload-progress > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.image-upload-progress > div:first-child .ant-typography-secondary { font-size: 12px; text-align: right; }
+.image-upload-progress .ant-progress { margin-top: 8px; }
 .registry-controller-note { margin-bottom: 16px; }
 .registry-grid .ant-col { display: flex; }
 .registry-card { width: 100%; height: 100%; }

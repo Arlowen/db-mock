@@ -34,3 +34,33 @@ func TestContainsRequiresExactImageReference(t *testing.T) {
 		t.Fatal("expected a different image tag to be rejected")
 	}
 }
+
+func TestImageRegistryHost(t *testing.T) {
+	tests := map[string]string{
+		"postgres:17":                        "docker.io",
+		"library/postgres:17":                "docker.io",
+		"ghcr.io/example/postgres:17":        "ghcr.io",
+		"localhost:5000/example/postgres:17": "localhost:5000",
+		"registry-1.docker.io/postgres:17":   "docker.io",
+	}
+	for reference, expected := range tests {
+		if got := imageRegistryHost(reference); got != expected {
+			t.Fatalf("imageRegistryHost(%q)=%q, want %q", reference, got, expected)
+		}
+	}
+}
+
+func TestValidateRegistryImageSource(t *testing.T) {
+	matching := domain.Registry{URL: "https://ghcr.io", Status: "online"}
+	if err := validateRegistryImageSource(matching, "ghcr.io/example/postgres:17"); err != nil {
+		t.Fatal(err)
+	}
+	for _, registry := range []domain.Registry{
+		{URL: "https://harbor.example.com", Status: "online"},
+		{URL: "https://ghcr.io", Status: "degraded"},
+	} {
+		if err := validateRegistryImageSource(registry, "ghcr.io/example/postgres:17"); err == nil {
+			t.Fatalf("expected registry %#v to be rejected", registry)
+		}
+	}
+}

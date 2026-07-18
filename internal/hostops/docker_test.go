@@ -25,3 +25,9 @@ func TestParseManagedStatesMarksMixedContainersDegraded(t *testing.T) {
 		t.Fatalf("unexpected states: %#v", states)
 	}
 }
+
+func TestRegistryServerStripsURLScheme(t *testing.T) {
+	if got := registryServer("https://harbor.example.com:5443/"); got != "harbor.example.com:5443" {
+		t.Fatalf("got %q", got)
+	}
+}

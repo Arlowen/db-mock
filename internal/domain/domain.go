@@ -102,6 +102,8 @@ type Registry struct {
 	UpdatedAt              time.Time  `json:"updatedAt"`
 	LastTestedAt           *time.Time `json:"lastTestedAt,omitempty"`
 	Status                 string     `json:"status"`
+	StatusMessage          string     `json:"statusMessage,omitempty"`
+	StatusCode             *int       `json:"statusCode,omitempty"`
 }
 
 type Template struct {
@@ -302,6 +304,7 @@ type ImageArtifact struct {
 	CreatedBy     uuid.UUID  `json:"createdBy"`
 	CreatedAt     time.Time  `json:"createdAt"`
 	LastUsedAt    *time.Time `json:"lastUsedAt,omitempty"`
+	UsedByCount   int        `json:"usedByCount"`
 }
 
 type Upload struct {

@@ -34,10 +34,12 @@ import {
   Upload,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
-import { api, errorMessage, uploadInChunks } from '../lib/api'
+import { ApiError, api, discardImageUpload, errorMessage, uploadInChunks } from '../lib/api'
+import type { ImageUploadPhase } from '../lib/api'
 import { formatDateTime } from '../lib/localization'
 import type { ImageArtifact, Registry } from '../lib/types'
 import { bytes } from '../lib/types'
@@ -71,27 +73,29 @@ function archiveName(filename: string): string {
 export function ImagesPage() {
   const { t, i18n } = useTranslation()
   const { message } = App.useApp()
+  const [params, setParams] = useSearchParams()
   const [images, setImages] = useState<ImageArtifact[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
-  const [activeTab, setActiveTab] = useState('images')
+  const [activeTab, setActiveTab] = useState(params.get('tab') === 'registries' ? 'registries' : 'images')
   const [search, setSearch] = useState('')
   const [architecture, setArchitecture] = useState('')
   const [status, setStatus] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [uploadPhase, setUploadPhase] = useState<ImageUploadPhase | 'idle' | 'paused' | 'error'>('idle')
   const [savingRegistry, setSavingRegistry] = useState(false)
   const [testingRegistry, setTestingRegistry] = useState('')
   const [imageOpen, setImageOpen] = useState(false)
   const [registryOpen, setRegistryOpen] = useState(false)
   const [selectedImage, setSelectedImage] = useState<ImageArtifact | null>(null)
   const [editingRegistry, setEditingRegistry] = useState<Registry | null>(null)
-  const [registryResults, setRegistryResults] = useState<Record<string, RegistryTestResult>>({})
   const [file, setFile] = useState<UploadFile | null>(null)
   const [progress, setProgress] = useState(0)
   const [uploadForm] = Form.useForm<UploadValues>()
   const [registryForm] = Form.useForm<RegistryValues>()
+  const uploadAbort = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -110,6 +114,14 @@ export function ImagesPage() {
   }, [])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => { setActiveTab(params.get('tab') === 'registries' ? 'registries' : 'images') }, [params])
+
+  const changeTab = (value: string) => {
+    const next = new URLSearchParams(params)
+    if (value === 'registries') next.set('tab', value); else next.delete('tab')
+    setActiveTab(value)
+    setParams(next, { replace: true })
+  }
 
   const architectures = useMemo(() => Array.from(new Set(images.flatMap((item) => item.architectures))).sort(), [images])
   const filteredImages = useMemo(() => {
@@ -133,6 +145,7 @@ export function ImagesPage() {
     setFile(null)
     setProgress(0)
     setUploadError('')
+    setUploadPhase('idle')
     uploadForm.resetFields()
     setImageOpen(true)
   }
@@ -155,16 +168,19 @@ export function ImagesPage() {
     setFile(nextFile)
     setUploadError('')
     setProgress(0)
+    setUploadPhase('idle')
     if (nextFile && !uploadForm.getFieldValue('name')) uploadForm.setFieldValue('name', archiveName(nextFile.name))
   }
 
   const upload = async () => {
     if (!file?.originFileObj) return
+    const controller = new AbortController()
+    uploadAbort.current = controller
     try {
       const values = await uploadForm.validateFields()
       setUploading(true)
       setUploadError('')
-      await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim())
+      await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal)
       message.success(t('imageUploadComplete'))
       setImageOpen(false)
       setFile(null)
@@ -172,30 +188,46 @@ export function ImagesPage() {
       uploadForm.resetFields()
       await load()
     } catch (error) {
-      if (error instanceof Error) setUploadError(errorMessage(error))
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setUploadPhase('paused')
+        message.info(t('imageUploadPaused'))
+      } else if (error instanceof Error) {
+        setUploadPhase('error')
+        if (error instanceof ApiError && error.status === 400) setProgress(0)
+        setUploadError(errorMessage(error))
+      }
     } finally {
+      uploadAbort.current = null
       setUploading(false)
     }
+  }
+
+  const pauseUpload = () => uploadAbort.current?.abort()
+  const discardUpload = async () => {
+    if (!file?.originFileObj) return
+    try {
+      await discardImageUpload(file.originFileObj)
+      setProgress(0)
+      setUploadError('')
+      setUploadPhase('idle')
+      message.success(t('imageUploadDiscarded'))
+    } catch (error) { message.error(errorMessage(error)) }
   }
 
   const saveRegistry = async () => {
     try {
       setSavingRegistry(true)
       const values = await registryForm.validateFields()
-      await api(editingRegistry ? `/registries/${editingRegistry.id}` : '/registries', {
+      const saved = await api<Registry>(editingRegistry ? `/registries/${editingRegistry.id}` : '/registries', {
         method: editingRegistry ? 'PUT' : 'POST',
         body: values,
       })
       message.success(t('saved'))
-      if (editingRegistry) setRegistryResults((current) => {
-        const next = { ...current }
-        delete next[editingRegistry.id]
-        return next
-      })
       setRegistryOpen(false)
       setEditingRegistry(null)
       registryForm.resetFields()
       await load()
+      void testRegistry(saved)
     } catch (error) {
       if (error instanceof Error) message.error(errorMessage(error))
     } finally {
@@ -207,8 +239,7 @@ export function ImagesPage() {
     try {
       setTestingRegistry(item.id)
       const result = await api<RegistryTestResult>(`/registries/${item.id}/test`, { method: 'POST' })
-      setRegistryResults((current) => ({ ...current, [item.id]: result }))
-      setRegistries((current) => current.map((registry) => registry.id === item.id ? { ...registry, status: result.status, lastTestedAt: result.checkedAt } : registry))
+      setRegistries((current) => current.map((registry) => registry.id === item.id ? { ...registry, status: result.status, statusMessage: result.message, statusCode: result.statusCode, lastTestedAt: result.checkedAt } : registry))
       if (result.status === 'online') message.success(t('registryTestSuccess'))
     } catch (error) {
       message.error(errorMessage(error))
@@ -313,7 +344,7 @@ export function ImagesPage() {
           {
             title: '',
             width: 88,
-            render: (_: unknown, item: ImageArtifact) => <Space size={2} className="image-row-actions"><Button type="text" onClick={() => setSelectedImage(item)}>{t('details')}</Button><Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} onConfirm={() => void removeImage(item)}><Button danger type="text" aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} /></Popconfirm></Space>,
+            render: (_: unknown, item: ImageArtifact) => <Space size={2} className="image-row-actions"><Button type="text" onClick={() => setSelectedImage(item)}>{t('details')}</Button><Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={item.usedByCount > 0} onConfirm={() => void removeImage(item)}><Button danger type="text" disabled={item.usedByCount > 0} aria-label={`${t('delete')} ${item.name}`} title={item.usedByCount > 0 ? t('imageUsedByInstances', { count: item.usedByCount }) : t('delete')} icon={<DeleteOutlined />} /></Popconfirm></Space>,
           },
         ]}
       />
@@ -324,7 +355,6 @@ export function ImagesPage() {
     <Alert className="registry-controller-note" type="info" showIcon message={t('registryTestFromController')} description={t('registryTestFromControllerHint')} />
     {loading ? <Card loading /> : <Row gutter={[16, 16]} className="registry-grid">
       {registries.map((item) => {
-        const testResult = registryResults[item.id]
         return <Col xs={24} lg={12} xl={8} key={item.id}>
           <Card className="registry-card">
             <div className="registry-card-header">
@@ -341,7 +371,7 @@ export function ImagesPage() {
               {item.hasCaCertificate && <Tag color="cyan">{t('customCA')}</Tag>}
               {!item.hasPassword && !item.hasCaCertificate && <Tag>{t('standardTLS')}</Tag>}
             </Space>
-            {testResult && <Alert className="registry-test-result" type={testResult.status === 'online' ? 'success' : testResult.status === 'offline' ? 'error' : 'warning'} showIcon message={t(testResult.message)} description={testResult.statusCode ? `HTTP ${testResult.statusCode}` : undefined} />}
+            {item.statusMessage && <Alert className="registry-test-result" type={item.status === 'online' ? 'success' : item.status === 'offline' ? 'error' : 'warning'} showIcon message={t(item.statusMessage)} description={item.statusCode ? `HTTP ${item.statusCode}` : undefined} />}
             <div className="registry-card-footer">
               <Button icon={<CheckCircleOutlined />} loading={testingRegistry === item.id} onClick={() => void testRegistry(item)}>{t('testRegistry')}</Button>
               <Space size={4}>
@@ -363,7 +393,7 @@ export function ImagesPage() {
       actions={<><Button icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+    <Tabs activeKey={activeTab} onChange={changeTab} items={[
       { key: 'images', label: <span className="tab-count">{t('offlineImages')}<span>{images.length}</span></span>, children: imageTab },
       { key: 'registries', label: <span className="tab-count">{t('registries')}<span>{registries.length}</span></span>, children: registryTab },
     ]} />
@@ -371,13 +401,9 @@ export function ImagesPage() {
     <Modal
       title={t('uploadImage')}
       open={imageOpen}
-      onCancel={() => { if (!uploading) setImageOpen(false) }}
-      onOk={() => void upload()}
-      confirmLoading={uploading}
-      okText={uploading ? t('uploading') : t('uploadImage')}
-      okButtonProps={{ disabled: !file }}
-      cancelButtonProps={{ disabled: uploading }}
+      onCancel={() => { if (uploading) pauseUpload(); else setImageOpen(false) }}
       width={680}
+      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={() => { if (uploading) pauseUpload(); else setImageOpen(false) }}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || uploading} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
     >
       <Typography.Paragraph type="secondary" className="image-upload-intro">{t('imageUploadHint')}</Typography.Paragraph>
       <Upload.Dragger
@@ -397,8 +423,8 @@ export function ImagesPage() {
         <Form.Item name="expectedSha256" label={`${t('expectedChecksum')} (${t('optional')})`} extra={t('checksumHint')} rules={[{ pattern: /^[a-fA-F0-9]{64}$/, message: t('invalidChecksum') }]}><Input className="checksum-input" placeholder={t('checksumPlaceholder')} disabled={uploading} /></Form.Item>
       </Form>
       <Alert type="info" showIcon message={t('resumableUpload')} description={t('resumableUploadHint')} />
-      {progress > 0 && <Progress percent={progress} status={uploadError ? 'exception' : undefined} style={{ marginTop: 18 }} />}
-      {uploadError && <Alert className="image-upload-error" type="error" showIcon message={t('imageUploadFailed')} description={uploadError} />}
+      {(progress > 0 || uploadPhase === 'verifying') && <div className="image-upload-progress"><div><Typography.Text strong>{uploadPhase === 'verifying' ? t('verifyingImageArchive') : uploadPhase === 'resuming' ? t('resumingImageUpload') : uploadPhase === 'paused' ? t('imageUploadPaused') : t('uploadingImageChunks')}</Typography.Text><Typography.Text type="secondary">{uploadPhase === 'verifying' ? t('verifyingImageArchiveHint') : t('imageUploadProgressHint')}</Typography.Text></div><Progress percent={progress} status={uploadError ? 'exception' : uploadPhase === 'verifying' ? 'active' : undefined} /></div>}
+      {uploadError && <Alert className="image-upload-error" type="error" showIcon message={t('imageUploadFailed')} description={uploadError} action={file && progress > 0 ? <Button size="small" onClick={() => void discardUpload()}>{t('discardUpload')}</Button> : undefined} />}
     </Modal>
 
     <Modal
@@ -414,14 +440,14 @@ export function ImagesPage() {
       <Typography.Paragraph type="secondary" className="registry-form-intro">{t('registryFormDescription')}</Typography.Paragraph>
       <Form form={registryForm} layout="vertical" requiredMark={false} autoComplete="off">
         <div className="form-grid">
-          <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
-          <Form.Item name="url" label={t('registryURL')} rules={[{ required: true }, { type: 'url' }]}><Input type="url" placeholder={t('registryURLPlaceholder')} /></Form.Item>
+          <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input aria-label={t('name')} /></Form.Item>
+          <Form.Item name="url" label={t('registryURL')} rules={[{ required: true }, { type: 'url' }]}><Input aria-label={t('registryURL')} type="url" placeholder={t('registryURLPlaceholder')} /></Form.Item>
         </div>
         <div className="form-grid">
-          <Form.Item name="username" label={t('username')}><Input autoComplete="off" data-1p-ignore data-lpignore="true" /></Form.Item>
-          <div className="registry-secret-field"><Form.Item name="password" label={t('password')} extra={editingRegistry?.hasPassword ? t('registryPasswordKeepHint') : t('registryPasswordHint')}><Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>{editingRegistry?.hasPassword && <Form.Item name="clearPassword" valuePropName="checked"><Checkbox onChange={(event) => { if (event.target.checked) registryForm.setFieldValue('password', '') }}>{t('removeRegistryPassword')}</Checkbox></Form.Item>}</div>
+          <Form.Item name="username" label={t('username')}><Input aria-label={t('username')} autoComplete="off" data-1p-ignore data-lpignore="true" /></Form.Item>
+          <div className="registry-secret-field"><Form.Item name="password" label={t('password')} extra={editingRegistry?.hasPassword ? t('registryPasswordKeepHint') : t('registryPasswordHint')}><Input.Password aria-label={t('password')} autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>{editingRegistry?.hasPassword && <Form.Item name="clearPassword" valuePropName="checked"><Checkbox onChange={(event) => { if (event.target.checked) registryForm.setFieldValue('password', '') }}>{t('removeRegistryPassword')}</Checkbox></Form.Item>}</div>
         </div>
-        <Form.Item name="caCertificate" label={t('selfSignedCA')} extra={editingRegistry?.hasCaCertificate ? t('registryCAKeepHint') : t('registryCAHint')}><Input.TextArea rows={5} placeholder={t('certificatePlaceholder')} /></Form.Item>
+        <Form.Item name="caCertificate" label={t('selfSignedCA')} extra={editingRegistry?.hasCaCertificate ? t('registryCAKeepHint') : t('registryCAHint')}><Input.TextArea aria-label={t('selfSignedCA')} rows={5} placeholder={t('certificatePlaceholder')} /></Form.Item>
         {editingRegistry?.hasCaCertificate && <Form.Item name="clearCaCertificate" valuePropName="checked"><Checkbox onChange={(event) => { if (event.target.checked) registryForm.setFieldValue('caCertificate', '') }}>{t('removeRegistryCA')}</Checkbox></Form.Item>}
       </Form>
     </Modal>
@@ -431,10 +457,10 @@ export function ImagesPage() {
       open={!!selectedImage}
       onClose={() => setSelectedImage(null)}
       width={620}
-      footer={selectedImage && <div className="workflow-drawer-footer"><Typography.Text type="secondary">{t('imageDeleteBlockedHint')}</Typography.Text><Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} onConfirm={() => void removeImage(selectedImage)}><Button danger icon={<DeleteOutlined />}>{t('delete')}</Button></Popconfirm></div>}
+      footer={selectedImage && <div className="workflow-drawer-footer"><Typography.Text type="secondary">{selectedImage.usedByCount > 0 ? t('imageUsedByInstances', { count: selectedImage.usedByCount }) : t('imageDeleteAvailableHint')}</Typography.Text><Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={selectedImage.usedByCount > 0} onConfirm={() => void removeImage(selectedImage)}><Button danger icon={<DeleteOutlined />} disabled={selectedImage.usedByCount > 0}>{t('delete')}</Button></Popconfirm></div>}
     >
       {selectedImage && <div className="image-detail">
-        <div className="image-detail-summary"><span><CheckCircleOutlined /></span><div><Space><StatusTag value={selectedImage.status} />{selectedImage.architectures.map((value) => <Tag key={value}>{value}</Tag>)}</Space><Typography.Title level={4}>{t('imageReadyForDeployment')}</Typography.Title><Typography.Paragraph type="secondary">{t('imageReadyForDeploymentHint')}</Typography.Paragraph></div></div>
+        <div className="image-detail-summary"><span><CheckCircleOutlined /></span><div><Space wrap><StatusTag value={selectedImage.status} />{selectedImage.architectures.map((value) => <Tag key={value}>{value}</Tag>)}{selectedImage.usedByCount > 0 && <Tag color="blue">{t('imageUsedByInstances', { count: selectedImage.usedByCount })}</Tag>}</Space><Typography.Title level={4}>{t('imageReadyForDeployment')}</Typography.Title><Typography.Paragraph type="secondary">{t('imageReadyForDeploymentHint')}</Typography.Paragraph></div></div>
         <Card size="small" title={t('imageReferences')}><Space wrap>{selectedImage.imageRefs.length ? selectedImage.imageRefs.map((value) => <Tag key={value}>{value}</Tag>) : <Typography.Text type="secondary">{t('noImageReferences')}</Typography.Text>}</Space></Card>
         <Card size="small" title={t('metadata')}><Descriptions column={1} size="small" items={[
           { key: 'filename', label: t('filename'), children: selectedImage.filename },

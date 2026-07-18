@@ -102,9 +102,14 @@ func (d *Docker) LoginRegistry(ctx context.Context, host domain.Host, registry, 
 	if username == "" || password == "" {
 		return nil
 	}
-	command := "docker login " + ShellQuote(registry) + " --username " + ShellQuote(username) + " --password-stdin"
+	server := registryServer(registry)
+	command := "docker login " + ShellQuote(server) + " --username " + ShellQuote(username) + " --password-stdin"
 	_, err := d.runner.Run(ctx, host, command, strings.NewReader(password+"\n"))
 	return err
+}
+
+func registryServer(value string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimSuffix(value, "/"), "https://"), "http://")
 }
 
 func (d *Docker) InstallRegistryCA(ctx context.Context, host domain.Host, registry, certificate string) error {

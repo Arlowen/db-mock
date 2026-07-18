@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +35,12 @@ func (s *Store) UpdateUploadProgress(ctx context.Context, id uuid.UUID, received
 	return err
 }
 
+func (s *Store) DeleteUpload(ctx context.Context, id uuid.UUID) (string, error) {
+	var path string
+	err := s.pool.QueryRow(ctx, "DELETE FROM uploads WHERE id=$1 AND status='uploading' RETURNING temporary_path", id).Scan(&path)
+	return path, translate(err)
+}
+
 func (s *Store) CreateImageArtifact(ctx context.Context, item domain.ImageArtifact) (domain.ImageArtifact, error) {
 	if item.ID == uuid.Nil {
 		item.ID = uuid.New()
@@ -52,15 +59,17 @@ func (s *Store) CreateImageArtifact(ctx context.Context, item domain.ImageArtifa
 func (s *Store) GetImageArtifact(ctx context.Context, id uuid.UUID) (domain.ImageArtifact, error) {
 	var item domain.ImageArtifact
 	err := s.pool.QueryRow(ctx, `SELECT id,name,filename,path,size_bytes,sha256,format,image_refs,architectures,
-        status,created_by,created_at,last_used_at FROM image_artifacts WHERE id=$1`, id).Scan(&item.ID,
+        status,created_by,created_at,last_used_at,(SELECT count(*) FROM instances WHERE configuration->>'imageArtifactId'=image_artifacts.id::text AND status<>'deleted')
+        FROM image_artifacts WHERE id=$1`, id).Scan(&item.ID,
 		&item.Name, &item.Filename, &item.Path, &item.SizeBytes, &item.SHA256, &item.Format,
-		&item.ImageRefs, &item.Architectures, &item.Status, &item.CreatedBy, &item.CreatedAt, &item.LastUsedAt)
+		&item.ImageRefs, &item.Architectures, &item.Status, &item.CreatedBy, &item.CreatedAt, &item.LastUsedAt, &item.UsedByCount)
 	return item, translate(err)
 }
 
 func (s *Store) ListImageArtifacts(ctx context.Context) ([]domain.ImageArtifact, error) {
 	rows, err := s.pool.Query(ctx, `SELECT id,name,filename,path,size_bytes,sha256,format,image_refs,architectures,
-        status,created_by,created_at,last_used_at FROM image_artifacts ORDER BY created_at DESC`)
+        status,created_by,created_at,last_used_at,(SELECT count(*) FROM instances WHERE configuration->>'imageArtifactId'=image_artifacts.id::text AND status<>'deleted')
+        FROM image_artifacts ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +79,7 @@ func (s *Store) ListImageArtifacts(ctx context.Context) ([]domain.ImageArtifact,
 		var item domain.ImageArtifact
 		if err := rows.Scan(&item.ID, &item.Name, &item.Filename, &item.Path, &item.SizeBytes,
 			&item.SHA256, &item.Format, &item.ImageRefs, &item.Architectures, &item.Status,
-			&item.CreatedBy, &item.CreatedAt, &item.LastUsedAt); err != nil {
+			&item.CreatedBy, &item.CreatedAt, &item.LastUsedAt, &item.UsedByCount); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -79,9 +88,15 @@ func (s *Store) ListImageArtifacts(ctx context.Context) ([]domain.ImageArtifact,
 }
 
 func (s *Store) DeleteImageArtifact(ctx context.Context, id uuid.UUID) (string, error) {
+	var inUse bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM instances WHERE configuration->>'imageArtifactId'=$1::text AND status<>'deleted')`, id).Scan(&inUse); err != nil {
+		return "", err
+	}
+	if inUse {
+		return "", fmt.Errorf("%w: offline image is used by managed database instances", domain.ErrConflict)
+	}
 	var path string
-	err := s.pool.QueryRow(ctx, `DELETE FROM image_artifacts WHERE id=$1 AND NOT EXISTS(
-        SELECT 1 FROM instances WHERE configuration->>'imageArtifactId'=$1::text AND status<>'deleted') RETURNING path`, id).Scan(&path)
+	err := s.pool.QueryRow(ctx, `DELETE FROM image_artifacts WHERE id=$1 RETURNING path`, id).Scan(&path)
 	return path, translate(err)
 }
 

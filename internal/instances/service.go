@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -111,7 +112,11 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 		}
 	}
 	if request.RegistryID != nil {
-		if _, getErr := s.store.GetRegistry(ctx, *request.RegistryID); getErr != nil {
+		registry, getErr := s.store.GetRegistry(ctx, *request.RegistryID)
+		if getErr != nil {
+			return domain.Instance{}, domain.Task{}, getErr
+		}
+		if getErr = validateRegistryImageSource(registry, version.ImageReference); getErr != nil {
 			return domain.Instance{}, domain.Task{}, getErr
 		}
 	}
@@ -271,6 +276,34 @@ func contains(values []string, target string) bool {
 	return false
 }
 
+func normalizeRegistryHost(value string) string {
+	value = strings.ToLower(strings.TrimSuffix(value, "/"))
+	if value == "index.docker.io" || value == "registry-1.docker.io" {
+		return "docker.io"
+	}
+	return value
+}
+
+func imageRegistryHost(reference string) string {
+	reference = strings.TrimPrefix(strings.TrimSpace(reference), "docker://")
+	parts := strings.Split(reference, "/")
+	if len(parts) > 1 && (strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") || parts[0] == "localhost") {
+		return normalizeRegistryHost(parts[0])
+	}
+	return "docker.io"
+}
+
+func validateRegistryImageSource(registry domain.Registry, imageReference string) error {
+	parsed, err := url.Parse(registry.URL)
+	if err != nil || parsed.Host == "" || normalizeRegistryHost(parsed.Host) != imageRegistryHost(imageReference) {
+		return fmt.Errorf("%w: registry does not match the template image source", domain.ErrConflict)
+	}
+	if registry.Status == "offline" || registry.Status == "degraded" {
+		return fmt.Errorf("%w: registry connection is not ready", domain.ErrConflict)
+	}
+	return nil
+}
+
 func (s *Service) load(ctx context.Context, task domain.Task) (ActionPayload, domain.Instance, domain.Host, domain.Template, domain.TemplateVersion, error) {
 	var payload ActionPayload
 	if err := tasks.DecodePayload(task, &payload); err != nil {
@@ -329,6 +362,9 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 	if configuration.RegistryID != nil {
 		registry, getErr := s.store.GetRegistry(ctx, *configuration.RegistryID)
 		if getErr != nil {
+			return nil, getErr
+		}
+		if getErr = validateRegistryImageSource(registry, version.ImageReference); getErr != nil {
 			return nil, getErr
 		}
 		password := ""
@@ -530,6 +566,9 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		if getErr != nil {
 			return nil, rollback(getErr)
 		}
+		if getErr = validateRegistryImageSource(registry, newVersion.ImageReference); getErr != nil {
+			return nil, rollback(getErr)
+		}
 		password := ""
 		if registry.EncryptedPassword != "" {
 			secret, openErr := s.vault.Open(registry.EncryptedPassword, "registry:"+registry.ID.String()+":password")
@@ -537,6 +576,15 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 				return nil, rollback(openErr)
 			}
 			password = string(secret)
+		}
+		if registry.EncryptedCACertificate != "" {
+			certificate, openErr := s.vault.Open(registry.EncryptedCACertificate, "registry:"+registry.ID.String()+":ca")
+			if openErr != nil {
+				return nil, rollback(openErr)
+			}
+			if err = s.docker.InstallRegistryCA(ctx, host, registry.URL, string(certificate)); err != nil {
+				return nil, rollback(err)
+			}
 		}
 		if err = s.docker.LoginRegistry(ctx, host, registry.URL, registry.Username, password); err != nil {
 			return nil, rollback(err)

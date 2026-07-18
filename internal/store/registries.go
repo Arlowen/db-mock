@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -21,12 +22,13 @@ type RegistryInput struct {
 }
 
 const registryColumns = `id,name,url,username,encrypted_password,encrypted_ca_certificate,
-    encrypted_password<>'',encrypted_ca_certificate<>'',created_at,updated_at,last_tested_at,status`
+    encrypted_password<>'',encrypted_ca_certificate<>'',created_at,updated_at,last_tested_at,status,
+    status_message,status_code`
 
 func registryScan(item *domain.Registry) []any {
 	return []any{&item.ID, &item.Name, &item.URL, &item.Username, &item.EncryptedPassword,
 		&item.EncryptedCACertificate, &item.HasPassword, &item.HasCACertificate, &item.CreatedAt,
-		&item.UpdatedAt, &item.LastTestedAt, &item.Status}
+		&item.UpdatedAt, &item.LastTestedAt, &item.Status, &item.StatusMessage, &item.StatusCode}
 }
 
 func (s *Store) CreateRegistry(ctx context.Context, input RegistryInput) (domain.Registry, error) {
@@ -75,14 +77,18 @@ func (s *Store) UpdateRegistry(ctx context.Context, id uuid.UUID, input Registry
 	err := s.pool.QueryRow(ctx, `UPDATE registries SET name=$2,url=$3,username=$4,
 		encrypted_password=CASE WHEN $7 THEN '' WHEN $5='' THEN encrypted_password ELSE $5 END,
 		encrypted_ca_certificate=CASE WHEN $8 THEN '' WHEN $6='' THEN encrypted_ca_certificate ELSE $6 END,
-		status='unknown',last_tested_at=NULL,updated_at=now()
+		status='unknown',status_message='',status_code=NULL,last_tested_at=NULL,updated_at=now()
 		WHERE id=$1 RETURNING `+registryColumns, id, input.Name, input.URL, input.Username,
 		input.EncryptedPassword, input.EncryptedCACertificate, input.ClearPassword, input.ClearCACertificate).Scan(registryScan(&item)...)
 	return item, translate(err)
 }
 
-func (s *Store) SetRegistryTestResult(ctx context.Context, id uuid.UUID, status string, checkedAt time.Time) error {
-	result, err := s.pool.Exec(ctx, "UPDATE registries SET status=$2,last_tested_at=$3,updated_at=now() WHERE id=$1", id, status, checkedAt)
+func (s *Store) SetRegistryTestResult(ctx context.Context, id uuid.UUID, status, message string, statusCode int, checkedAt time.Time) error {
+	var code *int
+	if statusCode > 0 {
+		code = &statusCode
+	}
+	result, err := s.pool.Exec(ctx, "UPDATE registries SET status=$2,status_message=$3,status_code=$4,last_tested_at=$5,updated_at=now() WHERE id=$1", id, status, message, code, checkedAt)
 	if err == nil && result.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
@@ -90,6 +96,13 @@ func (s *Store) SetRegistryTestResult(ctx context.Context, id uuid.UUID, status 
 }
 
 func (s *Store) DeleteRegistry(ctx context.Context, id uuid.UUID) error {
+	var inUse bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM instances WHERE configuration->>'registryId'=$1::text AND status<>'deleted')`, id).Scan(&inUse); err != nil {
+		return err
+	}
+	if inUse {
+		return fmt.Errorf("%w: registry is used by managed database instances", domain.ErrConflict)
+	}
 	result, err := s.pool.Exec(ctx, "DELETE FROM registries WHERE id=$1", id)
 	if err == nil && result.RowsAffected() == 0 {
 		return domain.ErrNotFound

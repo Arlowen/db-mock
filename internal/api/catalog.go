@@ -41,10 +41,15 @@ type registryRequest struct {
 
 func validateRegistry(input registryRequest) error {
 	parsed, err := url.Parse(input.URL)
-	if strings.TrimSpace(input.Name) == "" || err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || (parsed.Path != "" && parsed.Path != "/") {
+	if strings.TrimSpace(input.Name) == "" || err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		(parsed.Path != "" && parsed.Path != "/") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return domain.ErrInvalid
 	}
 	return nil
+}
+
+func normalizeRegistryURL(value string) string {
+	return strings.TrimRight(strings.TrimSpace(value), "/")
 }
 
 func (s *Server) listRegistries(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +70,8 @@ func (s *Server) createRegistry(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	input.Name = strings.TrimSpace(input.Name)
+	input.URL = normalizeRegistryURL(input.URL)
 	id := uuid.New()
 	password, err := s.sealOptional(input.Password, "registry:"+id.String()+":password")
 	if err != nil {
@@ -100,6 +107,8 @@ func (s *Server) updateRegistry(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	input.Name = strings.TrimSpace(input.Name)
+	input.URL = normalizeRegistryURL(input.URL)
 	password, err := s.sealOptional(input.Password, "registry:"+id.String()+":password")
 	if err != nil {
 		httpx.Error(w, r, err)
@@ -214,7 +223,7 @@ func (s *Server) testRegistry(w http.ResponseWriter, r *http.Request) {
 	if clientErr == nil {
 		result = probeRegistry(r.Context(), client, item.URL, item.Username, password)
 	}
-	if err = s.store.SetRegistryTestResult(r.Context(), id, result.Status, result.CheckedAt); err != nil {
+	if err = s.store.SetRegistryTestResult(r.Context(), id, result.Status, result.Message, result.StatusCode, result.CheckedAt); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}

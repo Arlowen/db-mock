@@ -169,15 +169,29 @@ test('initializes the platform and switches the embedded interface language', as
   const imageID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const registryID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   let registryName = 'Engineering Harbor'
+  let registryStatus = 'unknown'
+  let registryStatusMessage = ''
+  let registryStatusCode: number | undefined
+  let registryLastTestedAt: string | undefined
   const imageCreatedAt = new Date(Date.now() - 86400000).toISOString()
   const registryUpdatedAt = new Date().toISOString()
-  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker', imageRefs: ['postgres:17.5'], architectures: ['amd64'], status: 'ready', createdAt: imageCreatedAt }] } }))
-  await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: registryID, name: registryName, url: 'https://harbor.example.test', username: 'robot$dbmock', hasPassword: true, hasCaCertificate: true, status: 'unknown', createdAt: registryUpdatedAt, updatedAt: registryUpdatedAt }] } }))
-  await page.route(`**/api/v1/registries/${registryID}/test`, async (route) => route.fulfill({ json: { status: 'online', message: 'registry_reachable', statusCode: 200, checkedAt: new Date().toISOString() } }))
+  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker', imageRefs: ['postgres:17.5'], architectures: ['amd64'], status: 'ready', usedByCount: 2, createdAt: imageCreatedAt }] } }))
+  await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: registryID, name: registryName, url: 'https://harbor.example.test', username: 'robot$dbmock', hasPassword: true, hasCaCertificate: true, status: registryStatus, statusMessage: registryStatusMessage, statusCode: registryStatusCode, lastTestedAt: registryLastTestedAt, createdAt: registryUpdatedAt, updatedAt: registryUpdatedAt }] } }))
+  await page.route(`**/api/v1/registries/${registryID}/test`, async (route) => {
+    registryStatus = 'online'
+    registryStatusMessage = 'registry_reachable'
+    registryStatusCode = 200
+    registryLastTestedAt = new Date().toISOString()
+    await route.fulfill({ json: { status: registryStatus, message: registryStatusMessage, statusCode: registryStatusCode, checkedAt: registryLastTestedAt } })
+  })
   await page.route(`**/api/v1/registries/${registryID}`, async (route) => {
     if (route.request().method() === 'PUT') {
       const body = route.request().postDataJSON()
       registryName = body.name
+      registryStatus = 'unknown'
+      registryStatusMessage = ''
+      registryStatusCode = undefined
+      registryLastTestedAt = undefined
       expect(body.password).toBe('')
       expect(body.caCertificate).toBe('')
       expect(body.clearPassword).toBe(true)
@@ -192,6 +206,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: 'PostgreSQL 17 offline', exact: true }).click()
   const imageDrawer = page.getByRole('dialog', { name: /PostgreSQL 17 offline/ })
   await expect(imageDrawer.getByText('镜像已通过归档检查')).toBeVisible()
+  await expect(imageDrawer.getByText('被 2 个数据库实例使用').first()).toBeVisible()
+  await expect(imageDrawer.getByRole('button', { name: '删除' })).toBeDisabled()
   await expect(imageDrawer.getByText('a'.repeat(64))).toBeVisible()
   await imageDrawer.getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('tab', { name: /镜像仓库/ }).click()
@@ -199,6 +215,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: '测试连通性' }).click()
   await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
   await expect(page.getByText('在线', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
   await page.getByRole('button', { name: '编辑' }).click()
   const registryDialog = page.getByRole('dialog', { name: '编辑仓库' })
   await expect(registryDialog.getByLabel('名称')).toHaveValue('Engineering Harbor')
@@ -209,7 +227,7 @@ test('initializes the platform and switches the embedded interface language', as
   await registryDialog.getByLabel('名称').fill('Platform Harbor')
   await registryDialog.getByRole('button', { name: /保\s*存/ }).click()
   await expect(page.getByRole('heading', { name: 'Platform Harbor' })).toBeVisible()
-  await expect(page.getByText('仓库可访问且认证成功')).toHaveCount(0)
+  await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
   await page.unroute(`**/api/v1/registries/${registryID}`)
   await page.unroute(`**/api/v1/registries/${registryID}/test`)
   await page.unroute('**/api/v1/registries')
