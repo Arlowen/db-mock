@@ -22,7 +22,7 @@ interface HostProbeResult {
   cpuCount: number; memoryBytes: number; diskTotalBytes: number; diskFreeBytes: number;
 }
 
-const verificationFields = new Set(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase'])
+const verificationFields = new Set(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot'])
 const safeCreateReturnPath = (value: string | null) => value?.startsWith('/instances?create=1') ? value : ''
 
 interface HostReservation { cpu: number; memory: number; disk: number; ports: number[] }
@@ -66,7 +66,7 @@ export function HostsPage() {
   useEffect(() => { if (!detail?.id) { setHostTasks([]); setDetailError(''); return }; void loadHostContext(detail.id); const timer = window.setInterval(() => void loadHostContext(detail.id), 5000); return () => clearInterval(timer) }, [detail?.id, loadHostContext])
   const show = (item?: Host) => { if (item) setDetail(null); form.resetFields(); setEditing(item ?? null); setFingerprint(item?.hostKey ?? ''); setProbe(null); setVerificationDirty(false); form.setFieldsValue(item ? { ...item, credential: '', passphrase: '' } : { sshPort: 22, authType: 'private_key', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, maintenance: false, autoRestartDefault: true }); setOpen(true) }
   useEffect(() => { if (params.get('create') === '1') { show(); const next = new URLSearchParams(params); next.delete('create'); setParams(next, { replace: true }) } }, [params, setParams])
-  const test = async () => { try { const values = await form.validateFields(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot']); setTesting(true); setFingerprint(''); setProbe(null); const result = await api<HostProbeResult>('/hosts/test', { method: 'POST', body: { ...values, hostKey: '' } }); setFingerprint(result.hostKey); setProbe(result); setVerificationDirty(false); message.success(t('connectionVerified')) } catch (e) { message.error(errorMessage(e)) } finally { setTesting(false) } }
+  const test = async () => { try { const values = await form.validateFields(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot']); setTesting(true); setFingerprint(''); setProbe(null); const result = await api<HostProbeResult>('/hosts/test', { method: 'POST', body: { ...values, hostKey: '' } }); setFingerprint(result.hostKey); setProbe(result); setVerificationDirty(false); message.success(t('connectionVerified')) } catch (e) { if (e instanceof Error) message.error(errorMessage(e)) } finally { setTesting(false) } }
   const submit = async () => { try { setSaving(true); const values = await form.validateFields(); if (!fingerprint && !editing) { message.warning(t('confirmFingerprint')); return } const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...values, hostKey: fingerprint } }); if ('task' in result) { notifyTask(result.task); setOpen(false); if (returnTo) { navigate(`/tasks?task=${result.task.id}&continue=${encodeURIComponent(returnTo)}`); return } } else message.success(t('saved')); setOpen(false); await load() } catch (e) { if (e instanceof Error) message.error(errorMessage(e)) } finally { setSaving(false) } }
   const action = async (item: Host, actionName: string) => {
     try {
