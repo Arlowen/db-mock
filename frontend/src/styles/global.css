@@ -327,8 +327,8 @@ button { font: inherit; }
 .template-card-header { min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
 .template-card-header .ant-tag { margin-inline-end: 0; }
 .template-card-title.ant-typography { min-width: 0; margin: 0; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.template-card-description.ant-typography { min-height: 44px; margin: 0; line-height: 22px; }
-.template-card-tags { min-width: 0; min-height: 24px; overflow: hidden; }
+.template-card-description.ant-typography { width: calc(100% - 70px); min-height: 44px; margin: 0 0 0 70px; line-height: 22px; }
+.template-card-tags { width: calc(100% - 70px); min-width: 0; min-height: 24px; margin-inline-start: 70px; overflow: hidden; }
 .template-card-tags .ant-tag { margin-inline-end: 0; }
 .template-meta { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eef1f5; display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; color: #667085; font-size: 12px; }
 .template-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
