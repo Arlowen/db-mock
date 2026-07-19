@@ -1,13 +1,9 @@
 package images
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -192,108 +188,4 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 func (s *Service) lock(id uuid.UUID) *sync.Mutex {
 	value, _ := s.locks.LoadOrStore(id, &sync.Mutex{})
 	return value.(*sync.Mutex)
-}
-
-type dockerManifestItem struct {
-	Config   string   `json:"Config"`
-	RepoTags []string `json:"RepoTags"`
-}
-
-func inspectArchive(filename string) ([]string, []string, string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	defer file.Close()
-	var reader io.Reader = file
-	format := "docker-archive"
-	magic := make([]byte, 2)
-	_, _ = io.ReadFull(file, magic)
-	_, _ = file.Seek(0, io.SeekStart)
-	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
-		gzipReader, err := gzip.NewReader(file)
-		if err != nil {
-			return nil, nil, "", err
-		}
-		defer gzipReader.Close()
-		reader = gzipReader
-	}
-	tarReader := tar.NewReader(reader)
-	var manifest []dockerManifestItem
-	configs := make(map[string][]byte)
-	var ociIndex []byte
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, nil, "", fmt.Errorf("read image archive: %w", err)
-		}
-		name := strings.TrimPrefix(filepath.ToSlash(header.Name), "./")
-		if name == "manifest.json" {
-			data, _ := io.ReadAll(io.LimitReader(tarReader, 8*1024*1024))
-			if err := json.Unmarshal(data, &manifest); err != nil {
-				return nil, nil, "", fmt.Errorf("parse Docker manifest: %w", err)
-			}
-		} else if name == "index.json" {
-			ociIndex, _ = io.ReadAll(io.LimitReader(tarReader, 8*1024*1024))
-			format = "oci-archive"
-		} else if strings.HasSuffix(name, ".json") && header.Size < 8*1024*1024 {
-			configs[name], _ = io.ReadAll(io.LimitReader(tarReader, 8*1024*1024))
-		}
-	}
-	var refs []string
-	archSet := make(map[string]struct{})
-	for _, item := range manifest {
-		refs = append(refs, item.RepoTags...)
-		if data := configs[item.Config]; len(data) > 0 {
-			var cfg struct {
-				Architecture string `json:"architecture"`
-			}
-			if json.Unmarshal(data, &cfg) == nil && cfg.Architecture != "" {
-				archSet[cfg.Architecture] = struct{}{}
-			}
-		}
-	}
-	if len(manifest) == 0 && len(ociIndex) == 0 {
-		return nil, nil, "", errors.New("file is not a Docker save or OCI image archive")
-	}
-	if len(ociIndex) > 0 {
-		var index struct {
-			Manifests []struct {
-				Annotations map[string]string `json:"annotations"`
-				Platform    struct {
-					Architecture string `json:"architecture"`
-				} `json:"platform"`
-			} `json:"manifests"`
-		}
-		if json.Unmarshal(ociIndex, &index) == nil {
-			for _, item := range index.Manifests {
-				if ref := item.Annotations["org.opencontainers.image.ref.name"]; ref != "" {
-					refs = append(refs, ref)
-				}
-				if item.Platform.Architecture != "" {
-					archSet[item.Platform.Architecture] = struct{}{}
-				}
-			}
-		}
-	}
-	architectures := make([]string, 0, len(archSet))
-	for arch := range archSet {
-		architectures = append(architectures, arch)
-	}
-	return unique(refs), architectures, format, nil
-}
-
-func unique(values []string) []string {
-	seen := make(map[string]struct{})
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if _, ok := seen[value]; !ok && value != "" {
-			seen[value] = struct{}{}
-			result = append(result, value)
-		}
-	}
-	return result
 }

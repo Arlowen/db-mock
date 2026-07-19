@@ -35,6 +35,11 @@ describe('API error messages', () => {
       .toBe('输入内容无效')
   })
 
+  it('explains how to recover from an incomplete Docker image archive', () => {
+    expect(errorMessage(new ApiError(400, 'invalid_input', 'invalid input: Docker save archive is incomplete')))
+      .toBe('输入内容无效: Docker save 归档不完整，缺少有效配置或镜像层。请重新执行 docker save 后上传。')
+  })
+
   it('keeps useful backend validation details in the English interface', async () => {
     await i18n.changeLanguage('en-US')
     expect(errorMessage(new ApiError(400, 'invalid_input', 'invalid input: unexpected backend validation detail')))

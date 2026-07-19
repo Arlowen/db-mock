@@ -27,10 +27,14 @@ export function InstancesPage() {
   const hasOnlineHost = hosts.some((host) => host.status === 'online' && !host.maintenance)
   const createRequested = params.get('create') === '1'
   const requestedTemplateID = params.get('template')
+  const requestedImageID = params.get('image')
   const requestedTemplateAvailable = !!requestedTemplateID && templates.some((template) => template.versions.some((version) => version.id === requestedTemplateID))
+  const requestedVersion = templates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID)
+  const requestedImage = images.find((image) => image.id === requestedImageID)
+  const requestedImageAvailable = !!requestedVersion && !!requestedImage && requestedImage.status === 'ready' && requestedImage.imageRefs.includes(requestedVersion.imageReference) && requestedImage.architectures.some((architecture) => requestedVersion.architectures.includes(architecture))
   const createIntent = useCallback(() => {
-    return `/instances?create=1${requestedTemplateID ? `&template=${encodeURIComponent(requestedTemplateID)}` : ''}`
-  }, [requestedTemplateID])
+    return `/instances?create=1${requestedTemplateID ? `&template=${encodeURIComponent(requestedTemplateID)}` : ''}${requestedImageID ? `&image=${encodeURIComponent(requestedImageID)}` : ''}`
+  }, [requestedImageID, requestedTemplateID])
   const addRequiredHost = useCallback(() => navigate(`/hosts?create=1&returnTo=${encodeURIComponent(createIntent())}`), [createIntent, navigate])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
@@ -40,9 +44,9 @@ export function InstancesPage() {
     setCreateError('')
     setCreateDraftDirty(false)
     form.resetFields()
-    form.setFieldsValue({ environment: 'development', bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', templateVersionId: requestedTemplateAvailable ? requestedTemplateID : undefined })
+    form.setFieldsValue({ environment: 'development', bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined })
     setDrawer(true)
-  }, [addRequiredHost, createRequested, form, hasOnlineHost, loading, requestedTemplateAvailable, requestedTemplateID])
+  }, [addRequiredHost, createRequested, form, hasOnlineHost, loading, requestedImageAvailable, requestedImageID, requestedTemplateAvailable, requestedTemplateID])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
   const selectedRegistryID = Form.useWatch('registryId', { form, preserve: true })

@@ -7,6 +7,7 @@ import {
   FileZipOutlined,
   PlusOutlined,
   ReloadOutlined,
+  RocketOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
@@ -36,13 +37,13 @@ import {
 import type { UploadFile } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { ApiError, api, discardImageUpload, errorMessage, uploadInChunks } from '../lib/api'
 import type { ImageUploadPhase } from '../lib/api'
 import { isRegistryURL } from '../lib/image-source'
 import { formatDateTime } from '../lib/localization'
-import type { ImageArtifact, Registry } from '../lib/types'
+import type { DatabaseTemplate, Host, ImageArtifact, Registry } from '../lib/types'
 import { bytes } from '../lib/types'
 
 interface UploadValues {
@@ -71,12 +72,21 @@ function archiveName(filename: string): string {
   return filename.replace(/\.(?:tar\.gz|tgz|tar)$/i, '')
 }
 
+function matchingVersions(image: ImageArtifact, templates: DatabaseTemplate[]) {
+  return templates.flatMap((template) => template.versions
+    .filter((version) => image.imageRefs.includes(version.imageReference) && image.architectures.some((architecture) => version.architectures.includes(architecture)))
+    .map((version) => ({ template, version })))
+}
+
 export function ImagesPage() {
   const { t, i18n } = useTranslation()
   const { message, modal } = App.useApp()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [images, setImages] = useState<ImageArtifact[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
+  const [templates, setTemplates] = useState<DatabaseTemplate[]>([])
+  const [hosts, setHosts] = useState<Host[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [activeTab, setActiveTab] = useState(params.get('tab') === 'registries' ? 'registries' : 'images')
@@ -103,12 +113,16 @@ export function ImagesPage() {
   const load = useCallback(async () => {
     try {
       setPageError('')
-      const [imageResponse, registryResponse] = await Promise.all([
+      const [imageResponse, registryResponse, templateResponse, hostResponse] = await Promise.all([
         api<{ items: ImageArtifact[] }>('/images'),
         api<{ items: Registry[] }>('/registries'),
+        api<{ items: DatabaseTemplate[] }>('/templates'),
+        api<{ items: Host[] }>('/hosts'),
       ])
       setImages(imageResponse.items)
       setRegistries(registryResponse.items)
+      setTemplates(templateResponse.items)
+      setHosts(hostResponse.items)
     } catch (error) {
       setPageError(errorMessage(error))
     } finally {
@@ -186,7 +200,7 @@ export function ImagesPage() {
       const values = await uploadForm.validateFields()
       setUploading(true)
       setUploadError('')
-      await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal)
+      const uploadedImage = await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal)
       message.success(t('imageUploadComplete'))
       setUploadDraftDirty(false)
       setImageOpen(false)
@@ -194,6 +208,7 @@ export function ImagesPage() {
       setProgress(0)
       uploadForm.resetFields()
       await load()
+      setSelectedImage(uploadedImage)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setUploadPhase('paused')
@@ -321,6 +336,14 @@ export function ImagesPage() {
     ? <EmptyState compact action={resetImageFilters} actionLabel={t('clearFilters')} description={t('imagesFilteredEmptyDescription')} />
     : <EmptyState compact action={showImageUpload} actionLabel={t('uploadImage')} description={t('imagesEmptyDescription')} />
 
+  const selectedMatches = selectedImage ? matchingVersions(selectedImage, templates) : []
+  const selectedCompatibleHosts = selectedImage ? hosts.filter((host) => host.status === 'online' && !host.maintenance && selectedImage.architectures.includes(host.architecture || '')) : []
+  const primaryMatch = selectedMatches[0]
+  const createWithSelectedImage = () => {
+    if (!selectedImage || !primaryMatch) return
+    navigate(`/instances?create=1&template=${encodeURIComponent(primaryMatch.version.id)}&image=${encodeURIComponent(selectedImage.id)}`)
+  }
+
   const imageTab = <>
     <Card className="image-toolbar-card" size="small">
       <div className="image-toolbar">
@@ -386,8 +409,11 @@ export function ImagesPage() {
           {
             title: t('status'),
             dataIndex: 'status',
-            width: 90,
-            render: (value: string) => <StatusTag value={value} />,
+            width: 138,
+            render: (value: string, item: ImageArtifact) => {
+              const matchCount = matchingVersions(item, templates).length
+              return <div className="image-status-cell"><StatusTag value={value} /><Typography.Text type="secondary">{matchCount ? t('catalogVersionMatchCount', { count: matchCount }) : t('noCatalogMatchShort')}</Typography.Text></div>
+            },
           },
           {
             title: '',
@@ -509,10 +535,13 @@ export function ImagesPage() {
       open={!!selectedImage}
       onClose={() => setSelectedImage(null)}
       width={620}
-      footer={selectedImage && <div className="workflow-drawer-footer"><Typography.Text type="secondary">{selectedImage.usedByCount > 0 ? t('imageUsedByInstances', { count: selectedImage.usedByCount }) : t('imageDeleteAvailableHint')}</Typography.Text><Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={selectedImage.usedByCount > 0} onConfirm={() => void removeImage(selectedImage)}><Button danger icon={<DeleteOutlined />} disabled={selectedImage.usedByCount > 0}>{t('delete')}</Button></Popconfirm></div>}
+      footer={selectedImage && <div className="workflow-drawer-footer"><Typography.Text type="secondary">{selectedImage.usedByCount > 0 ? t('imageUsedByInstances', { count: selectedImage.usedByCount }) : t('imageDeleteAvailableHint')}</Typography.Text><Space>{primaryMatch ? <Button type="primary" icon={<RocketOutlined />} onClick={createWithSelectedImage}>{selectedCompatibleHosts.length ? t('createInstance') : t('connectHostAndContinue')}</Button> : <Button onClick={() => navigate('/catalog')}>{t('catalog')}</Button>}<Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={selectedImage.usedByCount > 0} onConfirm={() => void removeImage(selectedImage)}><Button danger icon={<DeleteOutlined />} disabled={selectedImage.usedByCount > 0}>{t('delete')}</Button></Popconfirm></Space></div>}
     >
       {selectedImage && <div className="image-detail">
         <div className="image-detail-summary"><span><CheckCircleOutlined /></span><div><Space wrap><StatusTag value={selectedImage.status} />{selectedImage.architectures.map((value) => <Tag key={value}>{value}</Tag>)}{selectedImage.usedByCount > 0 && <Tag color="blue">{t('imageUsedByInstances', { count: selectedImage.usedByCount })}</Tag>}</Space><Typography.Title level={4}>{t('imageReadyForDeployment')}</Typography.Title><Typography.Paragraph type="secondary">{t('imageReadyForDeploymentHint')}</Typography.Paragraph></div></div>
+        <Card size="small" title={t('deploymentReadiness')}>
+          {selectedMatches.length ? <div className="image-readiness"><Alert type={selectedCompatibleHosts.length ? 'success' : 'warning'} showIcon message={t('imageMatchesCatalog')} description={selectedCompatibleHosts.length ? t('imageCompatibleHostCount', { versions: selectedMatches.length, hosts: selectedCompatibleHosts.length }) : t('imageNeedsCompatibleHost')} /><div><Typography.Text type="secondary">{t('matchingCatalogVersions')}</Typography.Text><Space wrap size={[6, 6]}>{selectedMatches.map(({ template, version }) => <Tag key={version.id}>{template.name} {version.version}</Tag>)}</Space></div></div> : <Alert type="warning" showIcon message={t('imageHasNoCatalogMatch')} description={t('imageHasNoCatalogMatchHint')} />}
+        </Card>
         <Card size="small" title={t('imageReferences')}><Space wrap>{selectedImage.imageRefs.length ? selectedImage.imageRefs.map((value) => <Tag key={value}>{value}</Tag>) : <Typography.Text type="secondary">{t('noImageReferences')}</Typography.Text>}</Space></Card>
         <Card size="small" title={t('metadata')}><Descriptions column={1} size="small" items={[
           { key: 'filename', label: t('filename'), children: selectedImage.filename },

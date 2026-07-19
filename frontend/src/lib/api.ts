@@ -1,4 +1,5 @@
 import i18n from '../i18n'
+import type { ImageArtifact } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -77,7 +78,7 @@ export async function uploadInChunks(
   displayName = file.name,
   onPhase: (phase: ImageUploadPhase) => void = () => undefined,
   signal?: AbortSignal,
-): Promise<unknown> {
+): Promise<ImageArtifact> {
   const resumeKey = imageUploadResumeKey(file)
   let upload: { id: string; receivedBytes: number; totalBytes?: number; status?: string } | undefined
   const previousID = localStorage.getItem(resumeKey)
@@ -110,7 +111,7 @@ export async function uploadInChunks(
   }
   onPhase('verifying')
   try {
-    const result = await api(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName }, signal })
+    const result = await api<ImageArtifact>(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName }, signal })
     localStorage.removeItem(resumeKey)
     return result
   } catch (error) {

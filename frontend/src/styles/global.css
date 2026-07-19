@@ -244,6 +244,8 @@ button { font: inherit; }
 .image-name-cell .ant-btn-link { width: fit-content; max-width: 100%; height: auto; padding: 0; color: #172033; font-weight: 650; overflow: hidden; }
 .image-name-cell .ant-btn-link > span { overflow: hidden; text-overflow: ellipsis; }
 .image-name-cell .ant-typography-secondary { max-width: 195px; font-size: 12px; }
+.image-status-cell { display: grid; justify-items: start; gap: 4px; }
+.image-status-cell .ant-typography-secondary { font-size: 11px; white-space: nowrap; }
 .image-row-actions { white-space: nowrap; }
 .image-upload-intro, .registry-form-intro { margin-bottom: 18px !important; }
 .registry-secret-field > .ant-form-item:last-child { margin-top: -12px; }
@@ -277,6 +279,8 @@ button { font: inherit; }
 .image-detail-summary > span { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: #12805c; background: #e6f7ef; font-size: 20px; }
 .image-detail-summary h4.ant-typography { margin: 9px 0 4px; }
 .image-detail-summary p.ant-typography { margin: 0; line-height: 1.55; }
+.image-readiness { display: grid; gap: 14px; }
+.image-readiness > div:last-child { display: grid; gap: 8px; }
 .image-detail .ant-card-head-title { font-size: 13px; }
 .image-detail .ant-descriptions-item-label { width: 125px; color: #667085; }
 .image-checksum { display: block; white-space: normal; overflow-wrap: anywhere; }
