@@ -309,6 +309,14 @@ button { font: inherit; }
 .alert-detail-summary p.ant-typography { margin: 0; color: #475467; line-height: 1.55; }
 .alert-detail-resource { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .alert-detail-resource .ant-btn { height: auto; padding: 0; }
+.alert-resource-health .ant-alert-action { align-self: center; }
+.related-alert-list { display: grid; gap: 8px; }
+.related-alert-item { min-width: 0; padding: 10px 11px; border: 1px solid #e7ebf1; border-radius: 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; background: #fafbfd; }
+.related-alert-item > .ant-tag { margin-inline-end: 0; }
+.related-alert-item > div { min-width: 0; display: grid; gap: 2px; }
+.related-alert-item .ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; font-weight: 650; }
+.related-alert-item .ant-typography-secondary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.alert-diagnostic-details code { white-space: normal; overflow-wrap: anywhere; }
 .alert-detail .ant-alert-description code { white-space: normal; overflow-wrap: anywhere; }
 .dashboard-alert-card { width: 100%; }
 .webhook-grid .ant-col { display: flex; }

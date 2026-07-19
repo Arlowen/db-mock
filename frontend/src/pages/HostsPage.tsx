@@ -41,8 +41,13 @@ export function HostsPage() {
   const dockerPolicyReady = dockerManagementReady(manageDocker, probe?.passwordlessSudo, editing?.manageDocker, verificationDirty)
   useEffect(() => {
     if (!probe && !verificationDirty) return
-    const frame = window.requestAnimationFrame(() => verificationSection.current?.scrollIntoView({ block: 'nearest' }))
-    return () => window.cancelAnimationFrame(frame)
+    const revealVerification = () => verificationSection.current?.scrollIntoView({ block: 'nearest' })
+    const frame = window.requestAnimationFrame(revealVerification)
+    const timer = window.setTimeout(revealVerification, 250)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
   }, [manageDocker, probe, verificationDirty])
   const load = useCallback(async () => {
     try {

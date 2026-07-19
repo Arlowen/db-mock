@@ -121,6 +121,8 @@ export function AlertsPage() {
 
   const hostNames = useMemo(() => new Map(hosts.map((item) => [item.id, item.name])), [hosts])
   const instanceNames = useMemo(() => new Map(instances.map((item) => [item.id, item.name])), [instances])
+  const hostsByID = useMemo(() => new Map(hosts.map((item) => [item.id, item])), [hosts])
+  const instancesByID = useMemo(() => new Map(instances.map((item) => [item.id, item])), [instances])
   const selectedAlert = alerts.find((item) => item.id === selectedAlertID)
   const selectedWebhook = webhooks.find((item) => item.id === selectedWebhookID)
   const activeAlertCount = alerts.filter((item) => item.status !== 'resolved').length
@@ -136,6 +138,22 @@ export function AlertsPage() {
     }
     return { name: item.resourceId.slice(0, 8), path: '' }
   }, [hostNames, instanceNames, t])
+
+  const resourceStateFor = useCallback((item: AlertItem) => {
+    if (item.resourceType === 'host') {
+      const host = hostsByID.get(item.resourceId)
+      return host ? { name: host.name, status: host.status, healthy: host.status === 'online' } : undefined
+    }
+    if (item.resourceType === 'instance') {
+      const instance = instancesByID.get(item.resourceId)
+      const healthy = instance?.status === 'running' || (instance?.status === 'stopped' && instance.desiredState === 'stopped')
+      return instance ? { name: instance.name, status: instance.status, healthy } : undefined
+    }
+    return undefined
+  }, [hostsByID, instancesByID])
+  const selectedResourceState = selectedAlert ? resourceStateFor(selectedAlert) : undefined
+  const relatedActiveAlerts = selectedAlert ? alerts.filter((item) => item.id !== selectedAlert.id && item.resourceType === selectedAlert.resourceType && item.resourceId === selectedAlert.resourceId && item.status !== 'resolved').slice(0, 5) : []
+  const selectedDiagnosticEntries = selectedAlert ? Object.entries(selectedAlert.details || {}).slice(0, 8) : []
 
   const summaryFor = useCallback((item: AlertItem) => t(`alertSummary_${item.type}`, { defaultValue: item.message }), [t])
   const filteredAlerts = useMemo(() => alerts.filter((item) => {
@@ -257,6 +275,12 @@ export function AlertsPage() {
   }
 
   const alertActor = (value?: string) => value === 'system' ? t('systemActor') : value || '—'
+  const resolutionConfirmationFor = (item: AlertItem) => {
+    const state = resourceStateFor(item)
+    return state && !state.healthy
+      ? t('alertResolveUnhealthyConfirm', { name: state.name, status: translateCode(t, state.status) })
+      : t('alertResolveConfirm')
+  }
 
   const alertColumns = [
     {
@@ -279,7 +303,7 @@ export function AlertsPage() {
       title: t('actions'), width: 220,
       render: (_: unknown, item: AlertItem) => <Space className="alert-table-actions">
         {item.status === 'open' && <Button size="small" loading={actioning === `${item.id}:acknowledged`} disabled={!!actioning && actioning !== `${item.id}:acknowledged`} onClick={() => void setAlertStatus(item, 'acknowledged')}>{t('acknowledge')}</Button>}
-        {item.status !== 'resolved' && <Button size="small" type="primary" loading={actioning === `${item.id}:resolved`} disabled={!!actioning && actioning !== `${item.id}:resolved`} onClick={() => void setAlertStatus(item, 'resolved')}>{t('resolve')}</Button>}
+        {item.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(item)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(item, 'resolved')}><Button size="small" type="primary" loading={actioning === `${item.id}:resolved`} disabled={!!actioning && actioning !== `${item.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}
         <Button size="small" type="link" onClick={() => setQuery({ tab: 'alerts', alert: item.id, webhook: undefined })}>{t('details')}</Button>
       </Space>,
     },
@@ -321,15 +345,15 @@ export function AlertsPage() {
       { key: 'webhooks', label: <Space size={6}>{t('webhook')}<Tag>{webhooks.length}</Tag></Space>, children: webhookTab },
     ]} />
 
-    <Drawer title={t('alertDetails')} width={560} open={!!selectedAlertID} onClose={() => setQuery({ alert: undefined })} footer={selectedAlert ? <div className="alert-drawer-footer"><Button icon={<LinkOutlined />} disabled={!resourceFor(selectedAlert).path} onClick={() => openResource(selectedAlert)}>{t('viewResource')}</Button><Space>{selectedAlert.status === 'open' && <Button loading={actioning === `${selectedAlert.id}:acknowledged`} onClick={() => void setAlertStatus(selectedAlert, 'acknowledged')}>{t('acknowledge')}</Button>}{selectedAlert.status !== 'resolved' && <Button type="primary" loading={actioning === `${selectedAlert.id}:resolved`} onClick={() => void setAlertStatus(selectedAlert, 'resolved')}>{t('resolve')}</Button>}</Space></div> : undefined}>
-      {selectedAlert ? <div className="alert-detail"><div className={`alert-detail-summary severity-${selectedAlert.severity}`}><div className="alert-detail-icon"><BellOutlined /></div><div><Space wrap><StatusTag value={selectedAlert.severity} /><StatusTag value={selectedAlert.status} /></Space><Typography.Title level={4}>{t(`alertTitle_${selectedAlert.type}`, { defaultValue: selectedAlert.title })}</Typography.Title><Typography.Paragraph>{summaryFor(selectedAlert)}</Typography.Paragraph></div></div><Card size="small" title={t('resource')}><div className="alert-detail-resource"><Tag>{translateCode(t, selectedAlert.resourceType, 'resourceType')}</Tag>{resourceFor(selectedAlert).path ? <Button type="link" icon={<LinkOutlined />} onClick={() => openResource(selectedAlert)}>{resourceFor(selectedAlert).name}</Button> : <Typography.Text type="secondary">{resourceFor(selectedAlert).name}</Typography.Text>}</div></Card><Card size="small" title={t('alertLifecycle')}><Descriptions size="small" column={1} items={[
+    <Drawer title={t('alertDetails')} width={620} open={!!selectedAlertID} onClose={() => setQuery({ alert: undefined })} footer={selectedAlert ? <div className="alert-drawer-footer"><Button icon={<LinkOutlined />} disabled={!resourceFor(selectedAlert).path} onClick={() => openResource(selectedAlert)}>{t('viewResource')}</Button><Space>{selectedAlert.status === 'open' && <Button loading={actioning === `${selectedAlert.id}:acknowledged`} onClick={() => void setAlertStatus(selectedAlert, 'acknowledged')}>{t('acknowledge')}</Button>}{selectedAlert.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(selectedAlert)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(selectedAlert, 'resolved')}><Button type="primary" loading={actioning === `${selectedAlert.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}</Space></div> : undefined}>
+      {selectedAlert ? <div className="alert-detail"><div className={`alert-detail-summary severity-${selectedAlert.severity}`}><div className="alert-detail-icon"><BellOutlined /></div><div><Space wrap><StatusTag value={selectedAlert.severity} /><StatusTag value={selectedAlert.status} /></Space><Typography.Title level={4}>{t(`alertTitle_${selectedAlert.type}`, { defaultValue: selectedAlert.title })}</Typography.Title><Typography.Paragraph>{summaryFor(selectedAlert)}</Typography.Paragraph></div></div>{selectedResourceState ? <InlineAlert className="alert-resource-health" type={selectedResourceState.healthy ? 'success' : 'warning'} showIcon message={t(selectedResourceState.healthy ? 'alertResourceRecovered' : 'alertResourceStillUnhealthy')} description={t(selectedResourceState.healthy ? 'alertResourceRecoveredHint' : 'alertResourceUnhealthyHint', { name: selectedResourceState.name, status: translateCode(t, selectedResourceState.status) })} action={<Button size="small" icon={<LinkOutlined />} onClick={() => openResource(selectedAlert)}>{t('inspectAffectedResource')}</Button>} /> : <InlineAlert type="warning" showIcon message={t('resourceUnavailable')} description={t('alertResourceUnavailableHint')} />}{relatedActiveAlerts.length > 0 && <Card size="small" title={t('relatedActiveAlerts')}><div className="related-alert-list">{relatedActiveAlerts.map((item) => <div className="related-alert-item" key={item.id}><StatusTag value={item.severity} /><div><Button type="link" onClick={() => setQuery({ tab: 'alerts', alert: item.id, webhook: undefined })}>{t(`alertTitle_${item.type}`, { defaultValue: item.title })}</Button><Typography.Text type="secondary">{summaryFor(item)}</Typography.Text></div><StatusTag value={item.status} /></div>)}</div></Card>}{selectedDiagnosticEntries.length > 0 && <Card size="small" title={t('alertDiagnostics')}><Descriptions className="alert-diagnostic-details" size="small" column={1} items={selectedDiagnosticEntries.map(([key, value]) => ({ key, label: t(`alertDetail_${key}`, { defaultValue: key }), children: typeof value === 'string' ? <Typography.Text code>{value}</Typography.Text> : typeof value === 'object' ? <Typography.Text code>{JSON.stringify(value)}</Typography.Text> : String(value) }))} /></Card>}<InlineAlert type="info" showIcon message={t('technicalDetails')} description={<Typography.Text code copyable>{selectedAlert.message}</Typography.Text>} /><Card size="small" title={t('alertLifecycle')}><Descriptions size="small" column={1} items={[
         { key: 'created', label: t('alertFirstSeen'), children: formatDateTime(selectedAlert.createdAt, i18n.language) },
         { key: 'acknowledged', label: t('alertAcknowledgedAt'), children: formatDateTime(selectedAlert.acknowledgedAt, i18n.language) },
         { key: 'acknowledgedBy', label: t('alertAcknowledgedBy'), children: alertActor(selectedAlert.acknowledgedBy) },
         { key: 'resolved', label: t('alertResolvedAt'), children: formatDateTime(selectedAlert.resolvedAt, i18n.language) },
         { key: 'resolvedBy', label: t('alertResolvedBy'), children: alertActor(selectedAlert.resolvedBy) },
         { key: 'id', label: t('identifier'), children: <Typography.Text code copyable>{selectedAlert.id}</Typography.Text> },
-      ]} /></Card><InlineAlert type="info" showIcon message={t('technicalDetails')} description={<Typography.Text code copyable>{selectedAlert.message}</Typography.Text>} /></div> : !loading && <EmptyState compact description={t('resourceUnavailable')} />}
+      ]} /></Card></div> : !loading && <EmptyState compact description={t('resourceUnavailable')} />}
     </Drawer>
 
     <Modal title={editing ? t('editWebhook') : t('addWebhook')} open={formOpen} onCancel={() => { if (!saving) setFormOpen(false) }} onOk={() => void saveWebhook()} confirmLoading={saving} okText={t('save')} width={620}>

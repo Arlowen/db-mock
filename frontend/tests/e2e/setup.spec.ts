@@ -460,6 +460,7 @@ test('initializes the platform and switches the embedded interface language', as
   const hostUpdatedAt = new Date().toISOString()
   let hostTaskStatus = 'running'
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: true, os: 'linux', distro: 'Ubuntu 24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true, consecutiveFailures: 0, labels: { team: 'platform' }, lastCheckedAt: hostUpdatedAt, lastSeenAt: hostUpdatedAt, createdAt: hostUpdatedAt, updatedAt: hostUpdatedAt }] } }))
+  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
   await page.route('**/api/v1/instances?hostId=**', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
   await page.route('**/api/v1/tasks?resourceType=host&resourceId=**', async (route) => route.fulfill({ json: { items: [{ id: taskID, kind: 'host_probe', status: hostTaskStatus, resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: hostTaskStatus === 'running' ? 35 : 100, stage: hostTaskStatus === 'running' ? 'probe' : 'completed', message: hostTaskStatus === 'running' ? 'checking_host_and_template' : 'completed', cancelable: hostTaskStatus === 'running', cancelAsked: false, attempts: 1, createdAt: hostUpdatedAt }] } }))
   await page.route(`**/api/v1/tasks/${taskID}`, async (route) => route.fulfill({ json: { id: taskID, kind: 'host_probe', status: 'running', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 35, stage: 'probe', message: 'checking_host_and_template', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() } }))
@@ -503,7 +504,6 @@ test('initializes the platform and switches the embedded interface language', as
   const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_timeout', errorMessage: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
   const retriedTask = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
-  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
   await page.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, completedHostTask] } }))
   await page.route(`**/api/v1/tasks/${failedTaskID}`, async (route) => route.fulfill({ json: failedTask }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
@@ -546,6 +546,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute('**/api/v1/hosts')
 
   const alertID = '66666666-6666-4666-8666-666666666666'
+  const relatedAlertID = '66666666-6666-4666-8666-666666666667'
   const webhookID = '77777777-7777-4777-8777-777777777777'
   const failedDeliveryID = '88888888-8888-4888-8888-888888888888'
   const testDeliveryID = '88888888-8888-4888-8888-888888888889'
@@ -559,7 +560,10 @@ test('initializes the platform and switches the embedded interface language', as
   let retriedDelivery = false
   let testQueued = false
   let deliveryPolls = 0
-  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ json: { items: [{ id: alertID, severity: 'critical', type: 'host_offline', resourceType: 'host', resourceId: alertHost.id, title: 'Host is offline', message: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', status: alertStatus, createdAt: new Date(Date.now() - 300000).toISOString(), acknowledgedAt: alertAcknowledgedAt, acknowledgedBy: alertAcknowledgedBy, resolvedAt: alertResolvedAt, resolvedBy: alertResolvedBy }] } }))
+  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ json: { items: [
+    { id: alertID, severity: 'critical', type: 'host_offline', resourceType: 'host', resourceId: alertHost.id, title: 'Host is offline', message: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', details: { consecutiveFailures: 4 }, status: alertStatus, createdAt: new Date(Date.now() - 300000).toISOString(), acknowledgedAt: alertAcknowledgedAt, acknowledgedBy: alertAcknowledgedBy, resolvedAt: alertResolvedAt, resolvedBy: alertResolvedBy },
+    { id: relatedAlertID, severity: 'warning', type: 'disk_warning', resourceType: 'host', resourceId: alertHost.id, title: 'Disk usage is high', message: '/var/lib/docker is 86% full', details: { usagePercent: 86, path: '/var/lib/docker' }, status: 'acknowledged', createdAt: new Date(Date.now() - 900000).toISOString(), acknowledgedAt: new Date(Date.now() - 600000).toISOString(), acknowledgedBy: 'platform-ops' },
+  ] } }))
   await page.route(`**/api/v1/alerts/${alertID}/acknowledged`, async (route) => { alertStatus = 'acknowledged'; alertAcknowledgedAt = new Date().toISOString(); alertAcknowledgedBy = 'e2e-admin'; await route.fulfill({ json: { ok: true } }) })
   await page.route(`**/api/v1/alerts/${alertID}/resolved`, async (route) => { alertStatus = 'resolved'; alertResolvedAt = new Date().toISOString(); alertResolvedBy = 'e2e-admin'; await route.fulfill({ json: { ok: true } }) })
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [alertHost] } }))
@@ -587,14 +591,24 @@ test('initializes the platform and switches the embedded interface language', as
 
   await page.goto('/alerts')
   await expect(page.getByRole('button', { name: '主机已离线' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'E2E Host' })).toBeVisible()
-  await expect(page.locator('.ant-badge-count')).toContainText('1')
+  await expect(page.getByRole('button', { name: 'E2E Host' })).toHaveCount(2)
+  await expect(page.getByRole('button', { name: 'E2E Host' }).first()).toBeVisible()
+  await expect(page.locator('.ant-badge-count')).toContainText('2')
   await page.getByRole('button', { name: '主机已离线' }).click()
   let alertDrawer = page.getByRole('dialog', { name: '告警详情' })
   await expect(alertDrawer.getByText('平台无法通过 SSH 连接主机。')).toBeVisible()
   await expect(alertDrawer.getByText(/Connection timed out/)).toBeVisible()
+  await expect(alertDrawer.getByText('受影响资源仍处于异常状态')).toBeVisible()
+  await expect(alertDrawer.getByText(/E2E Host 当前状态为「离线」/)).toBeVisible()
+  await expect(alertDrawer.getByText('同一资源的其他未解决告警')).toBeVisible()
+  await expect(alertDrawer.getByRole('button', { name: '磁盘使用率较高' })).toBeVisible()
+  await expect(alertDrawer.getByText('连续检测失败')).toBeVisible()
+  await alertDrawer.getByRole('button', { name: '标记已解决' }).click()
+  await expect(page.getByText('确认将告警标记为已解决？')).toBeVisible()
+  await expect(page.getByText(/E2E Host 当前仍为「离线」/)).toBeVisible()
+  await page.getByRole('button', { name: /取\s*消/ }).click()
   await alertDrawer.getByRole('button', { name: '确认告警' }).click()
-  await expect(alertDrawer.getByText('已确认')).toBeVisible()
+  await expect(alertDrawer.getByText('已确认').first()).toBeVisible()
   await expect(alertDrawer.getByText('e2e-admin')).toBeVisible()
   await alertDrawer.getByRole('button', { name: '查看对应资源' }).click()
   await expect(page).toHaveURL(/\/hosts\?host=11111111/)
