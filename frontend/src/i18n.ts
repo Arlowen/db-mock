@@ -186,6 +186,7 @@ export const zh: Record<string, string> = {
   webhookURLPlaceholder: 'https://example.com/hooks/dbmock',
 
   taskLogs: '任务日志', retry: '重试', taskStatusAll: '全部状态', taskCanceled: '取消任务',
+  tasksSearchLabel: '搜索任务', tasksSearchPlaceholder: '搜索操作、资源、阶段、错误或任务 ID', taskResultCount: '共 {{count}} 个任务', taskFilteredResultCount: '筛选出 {{filtered}} / {{total}} 个任务',
   taskQueued: '任务已进入队列', taskQueuedDescription: '任务 {{id}} 已创建，可离开当前页面继续工作。', viewTask: '查看任务', cancelRequested: '已请求取消任务',
   taskDetails: '任务详情', viewResource: '查看对应资源', retryTask: '重试任务', cancelTask: '取消任务',
   continueCreateDatabase: '继续创建数据库', hostSetupInProgress: '正在完成主机接入', hostSetupInProgressHint: '能力检测通过后即可回到刚才选择的数据库模板。', hostReadyContinue: '主机已就绪，可以继续创建数据库', hostReadyContinueHint: '模板和创建上下文已保留，无需重新选择。', hostSetupFailedContinue: '主机接入未完成', hostSetupFailedContinueHint: '请先重试任务或修复主机连接，再继续创建数据库。',
@@ -193,6 +194,7 @@ export const zh: Record<string, string> = {
   taskListLoadFailed: '无法加载任务列表', taskLoadFailed: '无法加载任务详情', taskFailureTitle: '在「{{stage}}」阶段失败',
   taskError_application_restarted: '控制服务重启，任务已安全中断', taskError_ssh_timeout: 'SSH 连接超时',
   taskError_task_failed: '任务执行失败，请在详情中查看技术信息和执行日志', taskError_unknown_task_kind: '当前版本无法处理此任务类型', taskError_canceled: '任务已取消', taskError_conflicting_active_task: '同一资源已有另一项操作，重复任务已安全中断',
+  taskRecoveryHostTitle: '先恢复主机连接，再重试任务', taskRecoverySshTimeoutHint: '平台无法连接 {{host}}。请检查网络、SSH 地址和登录凭据，重新检测主机后再返回重试。', inspectFailedHost: '检查故障主机',
   taskSummaryDescription: '对 {{resource}} 执行「{{operation}}」。', executionLog: '执行记录', noTaskLogs: '任务尚未产生执行记录。',
   attempts: '执行次数', startedAt: '开始时间', finishedAt: '结束时间', duration: '耗时',
   durationSeconds: '{{count}} 秒', durationMinutes: '{{count}} 分钟', durationHours: '{{count}} 小时',
@@ -445,6 +447,7 @@ export const en: Record<string, string> = {
   webhookURLPlaceholder: 'https://example.com/hooks/dbmock',
 
   taskLogs: 'Task logs', retry: 'Retry', taskStatusAll: 'All statuses', taskCanceled: 'Cancel task',
+  tasksSearchLabel: 'Search tasks', tasksSearchPlaceholder: 'Search operation, resource, stage, error, or task ID', taskResultCount: '{{count}} tasks', taskFilteredResultCount: '{{filtered}} of {{total}} tasks',
   taskQueued: 'Task queued', taskQueuedDescription: 'Task {{id}} was created. You can leave this page and keep working.', viewTask: 'View task', cancelRequested: 'Task cancellation requested',
   taskDetails: 'Task details', viewResource: 'View resource', retryTask: 'Retry task', cancelTask: 'Cancel task',
   continueCreateDatabase: 'Continue creating database', hostSetupInProgress: 'Host setup is in progress', hostSetupInProgressHint: 'You can return to the selected database template after the capability probe succeeds.', hostReadyContinue: 'Host is ready. Continue creating the database.', hostReadyContinueHint: 'The selected template and creation context have been preserved.', hostSetupFailedContinue: 'Host setup did not complete', hostSetupFailedContinueHint: 'Retry this task or fix the host connection before continuing.',
@@ -452,6 +455,7 @@ export const en: Record<string, string> = {
   taskListLoadFailed: 'Unable to load tasks', taskLoadFailed: 'Unable to load task details', taskFailureTitle: 'Failed during {{stage}}',
   taskError_application_restarted: 'The control service restarted and safely interrupted the task', taskError_ssh_timeout: 'SSH connection timed out',
   taskError_task_failed: 'Task failed. Review the technical detail and execution log.', taskError_unknown_task_kind: 'This version cannot handle the task type.', taskError_canceled: 'Task canceled', taskError_conflicting_active_task: 'Another operation was already active for this resource, so the duplicate task was safely interrupted.',
+  taskRecoveryHostTitle: 'Restore the host connection before retrying', taskRecoverySshTimeoutHint: 'The platform cannot connect to {{host}}. Check the network, SSH address, and credentials, then probe the host before retrying this task.', inspectFailedHost: 'Inspect failed host',
   taskSummaryDescription: '{{operation}} for {{resource}}.', executionLog: 'Execution log', noTaskLogs: 'This task has not produced any execution log entries yet.',
   attempts: 'Attempts', startedAt: 'Started', finishedAt: 'Finished', duration: 'Duration',
   durationSeconds: '{{count}} sec', durationMinutes: '{{count}} min', durationHours: '{{count}} hr',

@@ -149,6 +149,14 @@ button { font: inherit; }
 .metric-stat .metric-time { padding-top: 3px; font-size: 14px; line-height: 1.45; }
 .metric-chart { height: 360px; }
 .task-operation-link.ant-btn { height: auto; padding: 0; white-space: normal; text-align: start; line-height: 1.4; }
+.task-filter-card .ant-card-body { padding: 14px; }
+.task-filter-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.task-filter-search { min-width: 260px; flex: 1 1 320px; }
+.task-filter-status { width: 150px; }
+.task-filter-resource { width: 150px; }
+.task-filter-count { flex: none; margin-left: auto; white-space: nowrap; font-size: 12px; }
+.task-table-card .ant-card-body { padding: 0; }
+.task-table-card .ant-table-cell { vertical-align: middle; }
 .task-operation-cell { display: grid; gap: 4px; }
 .task-operation-cell .ant-typography-secondary { font-size: 12px; }
 .task-resource { min-width: 0; display: flex; align-items: center; gap: 4px; }
@@ -169,6 +177,7 @@ button { font: inherit; }
 .task-detail-summary .ant-typography-secondary { margin: 8px 0 14px; }
 .task-detail-summary .ant-progress { margin-bottom: 0; }
 .task-detail-alert { margin: 0; }
+.task-recovery-alert .ant-alert-action { align-self: center; }
 .task-error-detail { min-width: 0; display: grid; align-items: start; gap: 9px; }
 .task-error-detail .ant-tag { width: fit-content; margin: 0; }
 .task-error-detail code { white-space: normal; overflow-wrap: anywhere; }

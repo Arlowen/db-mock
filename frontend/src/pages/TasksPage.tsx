@@ -1,5 +1,5 @@
 import { ArrowRightOutlined, CloseCircleOutlined, CloudServerOutlined, DatabaseOutlined, ReloadOutlined, RedoOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Card, Descriptions, Drawer, Popconfirm, Progress, Select, Space, Table, Tag, Timeline, Typography } from 'antd'
+import { Alert, App, Button, Card, Descriptions, Drawer, Input, Popconfirm, Progress, Select, Space, Table, Tag, Timeline, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -32,10 +32,17 @@ export function TasksPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [actioning, setActioning] = useState('')
+  const [search, setSearch] = useState('')
+  const [resourceType, setResourceType] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const load = useCallback(async () => {
     try {
-      const value = await api<{ items: Task[] }>(`/tasks${status ? `?status=${status}` : ''}`)
+      const query = new URLSearchParams()
+      if (status) query.set('status', status)
+      if (resourceType) query.set('resourceType', resourceType)
+      const value = await api<{ items: Task[] }>(`/tasks${query.size ? `?${query}` : ''}`)
       setItems(value.items)
       setListError('')
     } catch (error) {
@@ -43,7 +50,7 @@ export function TasksPage() {
     } finally {
       setLoading(false)
     }
-  }, [status])
+  }, [resourceType, status])
 
   const loadResources = useCallback(async () => {
     try {
@@ -130,6 +137,18 @@ export function TasksPage() {
   }
   const compactTime = (value: string) => new Intl.DateTimeFormat(i18n.language, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
   const taskSummary = (task: Task) => task.errorCode ? t(`taskError_${task.errorCode}`, { defaultValue: i18n.language.startsWith('zh') ? t('taskError_task_failed') : task.errorMessage || task.errorCode }) : task.errorMessage || translateCode(t, task.message, 'taskMessage')
+  const filteredItems = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    if (!needle) return items
+    return items.filter((task) => {
+      const resource = resourceLink(task)
+      return [task.id, task.kind, translateCode(t, task.kind, 'taskKind'), resource.label, task.resourceType, task.stage, translateCode(t, task.stage), task.message, translateCode(t, task.message, 'taskMessage'), task.errorCode, task.errorMessage, taskSummary(task)].join(' ').toLowerCase().includes(needle)
+    })
+  }, [i18n.language, items, resourceLink, search, t])
+  const hasFilters = !!(search || status || resourceType)
+  const maxPage = Math.max(1, Math.ceil(filteredItems.length / pageSize))
+  useEffect(() => { if (page > maxPage) setPage(maxPage) }, [maxPage, page])
+  const clearFilters = () => { setSearch(''); setStatus(''); setResourceType(''); setLoading(true); setPage(1) }
 
   const columns = [
     { title: t('status'), dataIndex: 'status', width: 90, render: (value: string) => <StatusTag value={value} /> },
@@ -141,18 +160,22 @@ export function TasksPage() {
   ]
 
   const selectedResource = selected ? resourceLink(selected) : undefined
+  const selectedRecoveryHost = selected?.errorCode === 'ssh_timeout' && selected.hostId ? hosts.find((host) => host.id === selected.hostId) : undefined
+  const inspectRecoveryHost = () => { if (!selectedRecoveryHost) return; closeDetail(); navigate(`/hosts?host=${selectedRecoveryHost.id}`) }
   const drawerFooter = selected ? <div className="task-drawer-footer"><Space><Button disabled={!selectedResource?.path} icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>{continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space><Space>{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t('cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space></div> : undefined
 
   return <>
-    <PageHeader title={t('tasks')} description={t('tasksDescription')} actions={<><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value) }} style={{ width: 160 }} options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button></>} />
+    <PageHeader title={t('tasks')} description={t('tasksDescription')} actions={<Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>} />
     {listError && <Alert className="instance-page-alert" type="error" showIcon message={t('taskListLoadFailed')} description={listError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}
-    <Card><Table rowKey="id" loading={loading} dataSource={items} columns={columns} scroll={{ x: 900 }} locale={{ emptyText: <EmptyState compact action={status ? () => setStatus('') : undefined} actionLabel={t('clearFilters')} description={status ? t('tasksFilteredEmptyDescription') : t('tasksEmptyDescription')} /> }} /></Card>
+    <Card className="table-filter-card task-filter-card"><div className="task-filter-toolbar"><Input.Search allowClear aria-label={t('tasksSearchLabel')} placeholder={t('tasksSearchPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} className="task-filter-search" /><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value); setPage(1) }} className="task-filter-status" options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('resource')} value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value); setPage(1) }} className="task-filter-resource" options={[{ value: '', label: t('allResources') }, ...['instance', 'host'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Typography.Text type="secondary" className="task-filter-count" aria-live="polite">{search ? t('taskFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('taskResultCount', { count: items.length })}</Typography.Text></div></Card>
+    <Card className="task-table-card"><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} scroll={{ x: 900 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={hasFilters ? clearFilters : undefined} actionLabel={t('clearFilters')} description={hasFilters ? t('tasksFilteredEmptyDescription') : t('tasksEmptyDescription')} /> }} /></Card>
     <Drawer title={selected ? <div className="task-drawer-title"><Typography.Text strong>{translateCode(t, selected.kind, 'taskKind')}</Typography.Text><Typography.Text code copyable={{ text: selected.id }}>{selected.id.slice(0, 8)}</Typography.Text></div> : t('taskDetails')} open={!!taskID} onClose={closeDetail} width={760} destroyOnHidden footer={drawerFooter}>
       {detailLoading ? <Card loading /> : detailError ? <Alert type="error" showIcon message={t('taskLoadFailed')} description={detailError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID, true)}>{t('retry')}</Button>} /> : selected && <div className="task-detail">
         <div className={`task-detail-summary is-${selected.status}`}><div><Space><StatusTag value={selected.status} /><Typography.Text strong>{translateCode(t, selected.message, 'taskMessage')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('taskSummaryDescription', { operation: translateCode(t, selected.kind, 'taskKind'), resource: selectedResource?.label || '—' })}</Typography.Paragraph></div><Progress percent={selected.progress} status={selected.status === 'failed' ? 'exception' : selected.status === 'succeeded' ? 'success' : undefined} /></div>
         {continueTo && <Alert className="task-detail-alert" type={selected.status === 'succeeded' ? 'success' : selected.status === 'failed' ? 'warning' : 'info'} showIcon message={selected.status === 'succeeded' ? t('hostReadyContinue') : selected.status === 'failed' ? t('hostSetupFailedContinue') : t('hostSetupInProgress')} description={selected.status === 'succeeded' ? t('hostReadyContinueHint') : selected.status === 'failed' ? t('hostSetupFailedContinueHint') : t('hostSetupInProgressHint')} action={selected.status === 'succeeded' ? <Button size="small" type="primary" onClick={continueCreation}>{t('continueCreateDatabase')}</Button> : undefined} />}
         {selected.cancelAsked && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
         {selected.errorMessage && <Alert className="task-detail-alert" type="error" showIcon message={t('taskFailureTitle', { stage: translateCode(t, selected.stage) })} description={<div className="task-error-detail"><Typography.Text>{taskSummary(selected)}</Typography.Text><Space size={6} wrap><Typography.Text type="secondary">{t('technicalDetails')}</Typography.Text>{selected.errorCode && <Tag color="red">{selected.errorCode}</Tag>}<Typography.Text code copyable>{selected.errorMessage}</Typography.Text></Space></div>} />}
+        {selectedRecoveryHost && <Alert className="task-detail-alert task-recovery-alert" type="warning" showIcon message={t('taskRecoveryHostTitle')} description={t('taskRecoverySshTimeoutHint', { host: selectedRecoveryHost.name })} action={<Button size="small" icon={<CloudServerOutlined />} onClick={inspectRecoveryHost}>{t('inspectFailedHost')}</Button>} />}
         <Descriptions className="task-detail-meta" bordered size="small" column={2} items={[
           { key: 'resource', label: t('resource'), children: selectedResource?.path ? <Button type="link" icon={selectedResource.icon} onClick={() => goToResource(selected)}>{selectedResource.label}</Button> : selectedResource?.label || '—' },
           { key: 'attempts', label: t('attempts'), children: selected.attempts },
