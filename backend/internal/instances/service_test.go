@@ -2,7 +2,9 @@ package instances
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
@@ -70,6 +72,8 @@ func TestInstanceOperationStatus(t *testing.T) {
 		"restart": "restarting",
 		"delete":  "deleting",
 		"upgrade": "upgrading",
+		"backup":  "backing_up",
+		"restore": "restoring",
 	}
 	for action, want := range tests {
 		if got := instanceOperationStatus(action); got != want {
@@ -78,6 +82,54 @@ func TestInstanceOperationStatus(t *testing.T) {
 	}
 	if got := instanceOperationStatus("unknown"); got != "" {
 		t.Fatalf("unknown operation status = %q, want empty", got)
+	}
+}
+
+func TestNormalizeBackupName(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	name, err := normalizeBackupName("", now)
+	if err != nil || name != "Backup 2026-07-20 12:00:00 UTC" {
+		t.Fatalf("unexpected generated backup name %q: %v", name, err)
+	}
+	name, err = normalizeBackupName("  before migration  ", now)
+	if err != nil || name != "before migration" {
+		t.Fatalf("unexpected normalized backup name %q: %v", name, err)
+	}
+	if _, err = normalizeBackupName(strings.Repeat("x", 121), now); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("expected an overlong name to fail, got %v", err)
+	}
+	if _, err = normalizeBackupName("line one\nline two", now); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("expected a multiline name to fail, got %v", err)
+	}
+}
+
+func TestCurrentOrPreviousInstanceStateUsesFreshStableStateOnRetry(t *testing.T) {
+	payload := ActionPayload{PreviousStatus: "running", PreviousDesiredState: "running"}
+	status, desired := currentOrPreviousInstanceState(payload, domain.Instance{Status: "stopped", DesiredState: "stopped"})
+	if status != "stopped" || desired != "stopped" {
+		t.Fatalf("stable retry state = %s/%s, want stopped/stopped", status, desired)
+	}
+	status, desired = currentOrPreviousInstanceState(payload, domain.Instance{Status: "restoring", DesiredState: "running"})
+	if status != "running" || desired != "running" {
+		t.Fatalf("active operation state = %s/%s, want payload running/running", status, desired)
+	}
+}
+
+func TestValidateBackupLifecycleStatuses(t *testing.T) {
+	for _, status := range []string{"running", "stopped"} {
+		if err := validateBackupSourceStatus(status); err != nil {
+			t.Errorf("expected %s to allow backup creation: %v", status, err)
+		}
+	}
+	for _, status := range []string{"running", "stopped", "degraded", "failed"} {
+		if err := validateRestoreSourceStatus(status); err != nil {
+			t.Errorf("expected %s to allow restore: %v", status, err)
+		}
+	}
+	for _, status := range []string{"provisioning", "upgrading", "deleting"} {
+		if !errors.Is(validateBackupSourceStatus(status), domain.ErrConflict) || !errors.Is(validateRestoreSourceStatus(status), domain.ErrConflict) {
+			t.Errorf("expected %s to reject backup and restore", status)
+		}
 	}
 }
 

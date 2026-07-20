@@ -272,7 +272,7 @@ func (m *Monitor) resolveRuntimeAlerts(ctx context.Context, instanceID uuid.UUID
 
 func taskOwnsInstanceState(status string) bool {
 	switch status {
-	case "provisioning", "starting", "stopping", "restarting", "upgrading", "deleting", "failed":
+	case "provisioning", "starting", "stopping", "restarting", "upgrading", "backing_up", "restoring", "deleting", "failed":
 		return true
 	default:
 		return false

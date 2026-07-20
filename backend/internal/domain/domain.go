@@ -188,6 +188,25 @@ type InstanceConnection struct {
 	JDBC     string `json:"jdbc,omitempty"`
 }
 
+type InstanceBackup struct {
+	ID                uuid.UUID  `json:"id"`
+	InstanceID        uuid.UUID  `json:"instanceId"`
+	HostID            uuid.UUID  `json:"hostId"`
+	TemplateVersionID uuid.UUID  `json:"templateVersionId"`
+	TemplateVersion   string     `json:"templateVersion"`
+	Name              string     `json:"name"`
+	Status            string     `json:"status"`
+	RemotePath        string     `json:"-"`
+	SizeBytes         int64      `json:"sizeBytes"`
+	SHA256            string     `json:"sha256,omitempty"`
+	ErrorMessage      string     `json:"errorMessage,omitempty"`
+	CreatedBy         uuid.UUID  `json:"createdBy"`
+	CreatedByUsername string     `json:"createdByUsername"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	CompletedAt       *time.Time `json:"completedAt,omitempty"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
+}
+
 type Task struct {
 	ID           uuid.UUID       `json:"id"`
 	Kind         string          `json:"kind"`

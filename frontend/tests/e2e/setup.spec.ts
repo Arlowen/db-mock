@@ -274,10 +274,15 @@ test('initializes the platform and switches the embedded interface language', as
   const upgradeVersionID = '56565656-5656-4565-8565-565656565656'
   const upgradeImageID = '57575757-5757-4575-8575-575757575757'
   const upgradeRegistryID = '58585858-5858-4585-8585-585858585858'
+  const backupID = '60606060-6060-4060-8060-606060606060'
   let failLogs = true
   let instanceStatus = 'running'
   let relatedTasks: Array<Record<string, unknown>> = []
   let submittedUpgradeBody: Record<string, unknown> | undefined
+  let submittedBackupBody: Record<string, unknown> | undefined
+  let submittedRestoreBody: Record<string, unknown> | undefined
+  let submittedBackupDeleteBody: Record<string, unknown> | undefined
+  let instanceBackups: Array<Record<string, unknown>> = []
   await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
     id: '54545454-5454-4545-8545-545454545454', slug: 'postgresql', name: 'PostgreSQL', nameZh: 'PostgreSQL', description: '', category: 'relational', tier: 'standard', builtin: true, icon: '', riskReport: [], versions: [
       { id: '55555555-5555-4555-8555-555555555555', templateId: '54545454-5454-4545-8545-545454545454', version: '17', imageReference: 'postgres:17', architectures: ['amd64', 'arm64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
@@ -295,6 +300,21 @@ test('initializes the platform and switches the embedded interface language', as
     hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
   } }))
   await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: relatedTasks } }))
+  await page.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { items: instanceBackups } })
+    submittedBackupBody = route.request().postDataJSON()
+    const backup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: String(submittedBackupBody?.name || 'Generated backup'), status: 'creating', sizeBytes: 0, createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    instanceBackups = [backup]
+    await route.fulfill({ status: 202, json: { backup, task: { id: '61616161-6161-4161-8161-616161616161', kind: 'instance.backup', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
+  })
+  await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`, async (route) => {
+    submittedRestoreBody = route.request().postDataJSON()
+    await route.fulfill({ status: 202, json: { backup: { ...instanceBackups[0], status: 'restoring' }, task: { id: '62626262-6262-4262-8262-626262626262', kind: 'instance.restore', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
+  })
+  await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
+    submittedBackupDeleteBody = route.request().postDataJSON()
+    await route.fulfill({ status: 202, json: { backup: { ...instanceBackups[0], status: 'deleting' }, task: { id: '63636363-6363-4363-8363-636363636363', kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
+  })
   await page.route(`**/api/v1/instances/${instanceID}/actions/upgrade`, async (route) => {
     submittedUpgradeBody = route.request().postDataJSON()
     const task = { id: '59595959-5959-4595-8595-595959595959', kind: 'instance.upgrade', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
@@ -342,6 +362,34 @@ test('initializes the platform and switches the embedded interface language', as
   await expect.poll(() => submittedUpgradeBody).toEqual({ templateVersionId: upgradeVersionID, imageSource: 'offline', imageArtifactId: upgradeImageID, registryId: null })
   relatedTasks = []
   await page.reload()
+
+  await page.getByRole('tab', { name: /\u5907\u4efd \(0\)/ }).click()
+  await expect(page.getByText('\u8be5\u5b9e\u4f8b\u8fd8\u6ca1\u6709\u5907\u4efd\u3002\u5728\u53d1\u5e03\u3001\u8fc1\u79fb\u6216\u98ce\u9669\u64cd\u4f5c\u524d\u521b\u5efa\u4e00\u4efd\u53ef\u6062\u590d\u5feb\u7167\u3002')).toBeVisible()
+  await page.getByRole('button', { name: '\u521b\u5efa\u5907\u4efd' }).click()
+  const createBackupDialog = page.getByRole('dialog', { name: '\u521b\u5efa\u5907\u4efd' })
+  await expect(createBackupDialog.getByText('\u521b\u5efa\u5907\u4efd\u4f1a\u4ea7\u751f\u77ed\u6682\u505c\u673a')).toBeVisible()
+  await createBackupDialog.getByLabel('\u5907\u4efd\u540d\u79f0').fill('\u53d1\u5e03\u524d\u5907\u4efd')
+  await createBackupDialog.getByRole('button', { name: /\u521b\s*\u5efa\s*\u5907\s*\u4efd/ }).click()
+  await expect.poll(() => submittedBackupBody).toEqual({ name: '\u53d1\u5e03\u524d\u5907\u4efd' })
+  instanceBackups = [{ ...instanceBackups[0], status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), completedAt: new Date().toISOString() }]
+  await page.reload()
+  await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
+  const backupRow = page.getByRole('row').filter({ hasText: '\u53d1\u5e03\u524d\u5907\u4efd' })
+  await expect(backupRow.getByText('1 MiB')).toBeVisible()
+  await backupRow.getByRole('button', { name: '\u6062\u590d' }).click()
+  const restoreBackupDialog = page.getByRole('dialog', { name: '\u6062\u590d\u5907\u4efd' })
+  await expect(restoreBackupDialog.getByText('\u6062\u590d\u4f1a\u8986\u76d6\u5f53\u524d\u6570\u636e')).toBeVisible()
+  await restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d').fill('Orders DB')
+  await restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ }).click()
+  await expect.poll(() => submittedRestoreBody).toEqual({ confirmName: 'Orders DB' })
+  await page.reload()
+  await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
+  await page.getByRole('row').filter({ hasText: '\u53d1\u5e03\u524d\u5907\u4efd' }).getByRole('button', { name: '\u5220\u9664' }).click()
+  const deleteBackupDialog = page.getByRole('dialog', { name: '\u5220\u9664\u5907\u4efd' })
+  await deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664').fill('\u53d1\u5e03\u524d\u5907\u4efd')
+  await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
+  await expect.poll(() => submittedBackupDeleteBody).toEqual({ confirmName: '\u53d1\u5e03\u524d\u5907\u4efd' })
+  await page.getByRole('tab', { name: '\u8be6\u60c5' }).click()
 
   instanceStatus = 'provisioning'
   relatedTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
@@ -404,6 +452,9 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}/connection`)
   await page.unroute(`**/api/v1/instances/${instanceID}`)
   await page.unroute(`**/api/v1/instances/${instanceID}/actions/upgrade`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/backups`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`)
   await page.unroute('**/api/v1/tasks?resourceType=instance&resourceId=**')
   await page.unroute('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry')
   await page.unroute('**/api/v1/templates')

@@ -1,6 +1,71 @@
 package hostops
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/pika/db-mock/internal/domain"
+)
+
+type localShellRunner struct{}
+
+func (localShellRunner) Probe(context.Context, domain.Host) (ProbeResult, error) {
+	return ProbeResult{}, nil
+}
+
+func (localShellRunner) Run(ctx context.Context, _ domain.Host, command string, stdin io.Reader) (CommandResult, error) {
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Stdin = stdin
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	result := CommandResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		result.ExitCode = exitErr.ExitCode()
+	}
+	return result, err
+}
+
+func (localShellRunner) WriteFile(_ context.Context, _ domain.Host, target string, data []byte, mode os.FileMode) error {
+	return os.WriteFile(target, data, mode)
+}
+
+func (localShellRunner) UploadFile(context.Context, domain.Host, string, string, func(int64, int64)) error {
+	return nil
+}
+
+type recordingRunner struct {
+	commands  []string
+	failFirst bool
+}
+
+func (*recordingRunner) Probe(context.Context, domain.Host) (ProbeResult, error) {
+	return ProbeResult{}, nil
+}
+
+func (runner *recordingRunner) Run(_ context.Context, _ domain.Host, command string, _ io.Reader) (CommandResult, error) {
+	runner.commands = append(runner.commands, command)
+	if runner.failFirst && len(runner.commands) == 1 {
+		return CommandResult{}, errors.New("fixture failure")
+	}
+	return CommandResult{}, nil
+}
+
+func (*recordingRunner) WriteFile(context.Context, domain.Host, string, []byte, os.FileMode) error {
+	return nil
+}
+
+func (*recordingRunner) UploadFile(context.Context, domain.Host, string, string, func(int64, int64)) error {
+	return nil
+}
 
 func TestValidateManagedDirectory(t *testing.T) {
 	if err := validateManagedDirectory("/opt/dbmock", "/opt/dbmock/instances/123"); err != nil {
@@ -52,5 +117,228 @@ func TestParseListeningTCPPortsSupportsLinuxAndMacOSFormats(t *testing.T) {
 	}
 	if _, ok := ports[70000]; ok {
 		t.Fatal("expected an out-of-range port to be ignored")
+	}
+}
+
+func TestBackupArchivePathStaysInsideManagedBackupDirectory(t *testing.T) {
+	docker := &Docker{}
+	instanceID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	backupID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
+	host := domain.Host{DataRoot: "/opt/dbmock"}
+	instance := domain.Instance{ID: instanceID, RemoteDirectory: "/opt/dbmock/instances/" + instanceID.String()}
+	got, err := docker.BackupArchivePath(host, instance, backupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/opt/dbmock/backups/" + instanceID.String() + "/" + backupID.String() + ".tar.gz"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	instance.RemoteDirectory = "/opt/other/instances/" + instanceID.String()
+	if _, err = docker.BackupArchivePath(host, instance, backupID); err == nil {
+		t.Fatal("expected an instance outside the managed root to be rejected")
+	}
+}
+
+func TestParseBackupArchiveInfoValidatesSizeAndDigest(t *testing.T) {
+	digest := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	info, err := parseBackupArchiveInfo("diagnostic\n4096|"+digest+"\n", "/backup.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.SizeBytes != 4096 || info.SHA256 != digest || info.Path != "/backup.tar.gz" {
+		t.Fatalf("unexpected backup info: %#v", info)
+	}
+	for _, output := range []string{"0|" + digest, "4096|invalid", "missing"} {
+		if _, err = parseBackupArchiveInfo(output, "/backup.tar.gz"); err == nil {
+			t.Fatalf("expected %q to fail", output)
+		}
+	}
+}
+
+func TestDockerDataHelperUsesOnlyTheExistingIsolatedImage(t *testing.T) {
+	command, err := dockerDataHelperCommand("postgres:17", "/opt/dbmock/instances/id:/target", restoreStreamScript("/target"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"docker run", "--pull never", "--network none", "--read-only", "--user 0:0", "-i", "postgres:17", "/opt/dbmock/instances/id:/target"} {
+		if !strings.Contains(command, required) {
+			t.Fatalf("helper command does not contain %q: %s", required, command)
+		}
+	}
+	for _, image := range []string{"", "postgres:17\nmalicious"} {
+		if _, err = dockerDataHelperCommand(image, "/source:/source:ro", "true", false); err == nil {
+			t.Fatalf("expected helper image %q to be rejected", image)
+		}
+	}
+}
+
+func TestUpgradeSnapshotStreamsToProtectedExternalDirectory(t *testing.T) {
+	instanceID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	host := domain.Host{DataRoot: "/opt/dbmock"}
+	instance := domain.Instance{ID: instanceID, RemoteDirectory: "/opt/dbmock/instances/" + instanceID.String(), ComposeProject: "dbmock_fixture"}
+	runner := &recordingRunner{}
+	snapshot, err := NewDocker(runner).SnapshotForUpgrade(context.Background(), host, instance, "postgres:17")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/opt/dbmock/backups/.rollback/" + instanceID.String() + ".tar.gz"
+	if snapshot != want {
+		t.Fatalf("snapshot = %q, want %q", snapshot, want)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("commands = %#v", runner.commands)
+	}
+	for _, required := range []string{"docker run", "--pull never", instance.RemoteDirectory + ":/source:ro", want + ".tmp"} {
+		if !strings.Contains(runner.commands[0], required) {
+			t.Fatalf("snapshot command does not contain %q: %s", required, runner.commands[0])
+		}
+	}
+	if strings.Contains(runner.commands[0], instance.RemoteDirectory+"/upgrade-snapshot") {
+		t.Fatalf("snapshot must not be written inside the archived directory: %s", runner.commands[0])
+	}
+
+	failing := &recordingRunner{failFirst: true}
+	if snapshot, err = NewDocker(failing).SnapshotForUpgrade(context.Background(), host, instance, "postgres:17"); err == nil || snapshot != "" {
+		t.Fatalf("failed snapshot = %q, err = %v", snapshot, err)
+	}
+	if len(failing.commands) != 2 || !strings.Contains(failing.commands[1], ".tmp") {
+		t.Fatalf("failed snapshot did not clean its temporary archive: %#v", failing.commands)
+	}
+}
+
+func TestBackupArchiveLifecyclePreservesManagedInstanceFiles(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "managed root")
+	instanceID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	backupID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
+	instanceDirectory := filepath.Join(root, "instances", instanceID.String())
+	dataDirectory := filepath.Join(instanceDirectory, "data")
+	if err := os.MkdirAll(dataDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instanceDirectory, ".env"), []byte("DB_PASSWORD=protected\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataFile := filepath.Join(dataDirectory, "value.txt")
+	if err := os.WriteFile(dataFile, []byte("before backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := localShellRunner{}
+	docker := NewDocker(runner)
+	host := domain.Host{DataRoot: root}
+	instance := domain.Instance{ID: instanceID, RemoteDirectory: instanceDirectory}
+	archivePath, err := docker.BackupArchivePath(host, instance, backupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Dir(archivePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), host, `set -eu; umask 077; `+archiveStreamScript(instanceDirectory)+` > `+ShellQuote(archivePath)+`; chmod 0600 `+ShellQuote(archivePath)+`; `+backupDigestCommand(archivePath), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := parseBackupArchiveInfo(result.Stdout, archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.SizeBytes <= 0 || len(archive.SHA256) != 64 {
+		t.Fatalf("invalid archive metadata: %#v", archive)
+	}
+	info, err := os.Stat(archive.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("archive permissions = %o, want 600", info.Mode().Perm())
+	}
+	inspected, err := docker.InspectBackupArchive(context.Background(), host, instance, backupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspected.SizeBytes != archive.SizeBytes || inspected.SHA256 != archive.SHA256 {
+		t.Fatalf("inspected metadata = %#v, want %#v", inspected, archive)
+	}
+
+	if err = os.WriteFile(dataFile, []byte("after backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	extraFile := filepath.Join(instanceDirectory, "created-after-backup")
+	if err = os.WriteFile(extraFile, []byte("remove me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.Run(context.Background(), host, restoreStreamScript(instanceDirectory)+` < `+ShellQuote(archive.Path), nil); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := os.ReadFile(dataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored) != "before backup" {
+		t.Fatalf("restored content = %q", restored)
+	}
+	if _, err = os.Stat(extraFile); !os.IsNotExist(err) {
+		t.Fatalf("expected post-backup file to be removed, got %v", err)
+	}
+	if env, readErr := os.ReadFile(filepath.Join(instanceDirectory, ".env")); readErr != nil || string(env) != "DB_PASSWORD=protected\n" {
+		t.Fatalf("restored .env = %q, err = %v", env, readErr)
+	}
+	if err = docker.DeleteBackupArchive(context.Background(), host, instance, backupID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(archive.Path); !os.IsNotExist(err) {
+		t.Fatalf("expected archive deletion, got %v", err)
+	}
+}
+
+func TestDockerDataHelperArchivesContainerOwnedFiles(t *testing.T) {
+	if os.Getenv("DBMOCK_DOCKER_INTEGRATION") != "1" {
+		t.Skip("set DBMOCK_DOCKER_INTEGRATION=1 to exercise the local Docker engine")
+	}
+	image := os.Getenv("DBMOCK_DOCKER_TEST_IMAGE")
+	if image == "" {
+		image = "postgres:17-alpine"
+	}
+	root := filepath.Join(t.TempDir(), "managed root")
+	instanceID := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	backupID := uuid.MustParse("44444444-4444-4444-8444-444444444444")
+	instanceDirectory := filepath.Join(root, "instances", instanceID.String())
+	if err := os.MkdirAll(instanceDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := localShellRunner{}
+	initialize, err := dockerDataHelperCommand(image, instanceDirectory+":/target", `set -eu; mkdir -p /target/data; printf 'before backup' > /target/data/value.txt; chmod 0700 /target/data; chmod 0600 /target/data/value.txt`, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.Run(context.Background(), domain.Host{}, initialize, nil); err != nil {
+		t.Fatalf("initialize container-owned data: %v", err)
+	}
+
+	docker := NewDocker(runner)
+	host := domain.Host{DataRoot: root}
+	instance := domain.Instance{ID: instanceID, RemoteDirectory: instanceDirectory}
+	archive, err := docker.CreateBackupArchive(context.Background(), host, instance, backupID, image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate, _ := dockerDataHelperCommand(image, instanceDirectory+":/target", `set -eu; printf 'after backup' > /target/data/value.txt; printf 'remove me' > /target/extra.txt`, false)
+	if _, err = runner.Run(context.Background(), host, mutate, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = docker.RestoreBackupArchive(context.Background(), host, instance, backupID, image); err != nil {
+		t.Fatal(err)
+	}
+	verify, _ := dockerDataHelperCommand(image, instanceDirectory+":/target:ro", `set -eu; cat /target/data/value.txt; test ! -e /target/extra.txt`, false)
+	result, err := runner.Run(context.Background(), host, verify, nil)
+	if err != nil || result.Stdout != "before backup" {
+		t.Fatalf("verify restored container-owned data: stdout=%q stderr=%q err=%v", result.Stdout, result.Stderr, err)
+	}
+	if err = docker.DeleteBackupArchive(context.Background(), host, instance, backupID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(archive.Path); !os.IsNotExist(err) {
+		t.Fatalf("expected archive deletion, got %v", err)
 	}
 }

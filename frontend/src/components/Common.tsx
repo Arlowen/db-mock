@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 
 const colors: Record<string, string> = {
   online: 'green', running: 'green', succeeded: 'green', standard: 'blue',
-  pending: 'gold', queued: 'gold', retrying: 'gold', sending: 'processing', provisioning: 'processing', starting: 'processing', stopping: 'processing', restarting: 'processing', upgrading: 'processing', deleting: 'processing', experimental: 'orange',
+  pending: 'gold', queued: 'gold', retrying: 'gold', sending: 'processing', provisioning: 'processing', starting: 'processing', stopping: 'processing', restarting: 'processing', upgrading: 'processing', backing_up: 'processing', restoring: 'processing', creating: 'processing', ready: 'success', deleting: 'processing', experimental: 'orange',
   failed: 'red', offline: 'red', critical: 'red', degraded: 'orange', needs_docker: 'purple',
   stopped: 'default', canceled: 'default', disabled: 'default', custom: 'cyan', info: 'blue', delivered: 'green', enabled: 'green', warning: 'orange', acknowledged: 'blue', resolved: 'green',
 }

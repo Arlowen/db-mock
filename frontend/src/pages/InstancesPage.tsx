@@ -1,4 +1,4 @@
-import { CheckCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, WarningOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -15,7 +15,7 @@ import { instanceQuickAction } from '../lib/instance-actions'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { isRecoverableInstanceStatus, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
-import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Registry, Task } from '../lib/types'
+import type { DatabaseTemplate, Host, ImageArtifact, Instance, InstanceBackup, Project, Registry, Task } from '../lib/types'
 import { bytes } from '../lib/types'
 
 type ImageSource = 'public' | 'registry' | 'offline'
@@ -140,7 +140,7 @@ export function InstancesPage() {
   const emptyActionLabel = hasFilters ? t('clearFilters') : hasOnlineHost ? t('createInstance') : t('addHost')
   const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : t('instancesEmptyDescription')
   return <><PageHeader title={t('instances')} description={t('instancesDescription')} actions={<><Button icon={<ReloadOutlined />} onClick={() => void load()}>{t('refresh')}</Button><Button type="primary" loading={loading} icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button></>} />
-    <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('project')} value={projectFilter} onChange={(value) => { setProjectFilter(value); resetPage() }} className="instance-filter-project" options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('environment')} value={environmentFilter} onChange={(value) => { setEnvironmentFilter(value); resetPage() }} className="instance-filter-environment" options={[{ value: '', label: t('allEnvironments') }, ...['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text></div></Card><Card className="instance-table-card"><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} scroll={{ x: 968 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>
+    <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('project')} value={projectFilter} onChange={(value) => { setProjectFilter(value); resetPage() }} className="instance-filter-project" options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('environment')} value={environmentFilter} onChange={(value) => { setEnvironmentFilter(value); resetPage() }} className="instance-filter-environment" options={[{ value: '', label: t('allEnvironments') }, ...['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed', 'backing_up', 'restoring'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text></div></Card><Card className="instance-table-card"><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} scroll={{ x: 968 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>
     <Drawer title={t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateError(''); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0)} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}><Steps current={step} size="small" responsive={false} items={[{ title: t('template') }, { title: t('basicInfo') }, { title: t('resources') }, { title: t('options') }, { title: t('confirm') }]} /><Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
       {step === 0 && <><Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>{selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}<Tag>{selected.version.imageReference}</Tag></Space></div></Space></Card>}{selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}</>}
       {step === 1 && <><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input size="large" autoFocus /></Form.Item><div className="form-grid"><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((v) => ({ value: v, label: translateCode(t, v) }))} /></Form.Item></div><Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item><Form.Item name="hostId" label={t('host')} tooltip={t('autoHostTooltip')}><Select allowClear placeholder={t('autoSelect')} options={compatibleHosts.map((host) => ({ value: host.id, label: `${host.name} · ${host.architecture} · ${host.cpuCount} CPU / ${bytes(host.memoryBytes)} · ${bytes(host.diskFreeBytes)} ${t('available')}` }))} /></Form.Item><Alert type="info" showIcon message={selectedHost ? t('selectedHostReady', { name: selectedHost.name }) : t('automaticHostSelection', { count: compatibleHosts.length })} description={selectedHost ? `${selectedHost.connectionAddress || selectedHost.sshAddress} · ${selectedHost.portStart}–${selectedHost.portEnd}` : t('automaticHostSelectionHint')} /></>}
@@ -264,6 +264,7 @@ export function InstanceDetailPage() {
   const [hosts, setHosts] = useState<Host[]>([])
   const [images, setImages] = useState<ImageArtifact[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
+  const [backups, setBackups] = useState<InstanceBackup[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirm, setConfirm] = useState('')
@@ -272,21 +273,26 @@ export function InstanceDetailPage() {
   const [upgradeImageSource, setUpgradeImageSource] = useState<ImageSource>('public')
   const [upgradeImageArtifactID, setUpgradeImageArtifactID] = useState<string>()
   const [upgradeRegistryID, setUpgradeRegistryID] = useState<string>()
+  const [backupCreateOpen, setBackupCreateOpen] = useState(false)
+  const [backupName, setBackupName] = useState('')
+  const [backupAction, setBackupAction] = useState<{ type: 'restore' | 'delete'; backup: InstanceBackup }>()
+  const [backupConfirm, setBackupConfirm] = useState('')
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [actioning, setActioning] = useState('')
-  const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics'].includes(requestedTab || '') ? requestedTab! : 'overview')
+  const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab || '') ? requestedTab! : 'overview')
   const [editForm] = Form.useForm()
   const load = useCallback(async () => {
     try {
       const instance = await api<Instance>(`/instances/${id}`)
       setItem(instance)
-      const [catalog, projectList, hostList, imageList, registryList, taskList] = await Promise.allSettled([
+      const [catalog, projectList, hostList, imageList, registryList, backupList, taskList] = await Promise.allSettled([
         api<{ items: DatabaseTemplate[] }>('/templates'),
         api<{ items: Project[] }>('/projects'),
         api<{ items: Host[] }>('/hosts'),
         api<{ items: ImageArtifact[] }>('/images'),
         api<{ items: Registry[] }>('/registries'),
+        api<{ items: InstanceBackup[] }>(`/instances/${id}/backups`),
         api<{ items: Task[] }>(`/tasks?resourceType=instance&resourceId=${encodeURIComponent(id)}`),
       ])
       if (catalog.status === 'fulfilled') setTemplates(catalog.value.items)
@@ -294,17 +300,46 @@ export function InstanceDetailPage() {
       if (hostList.status === 'fulfilled') setHosts(hostList.value.items)
       if (imageList.status === 'fulfilled') setImages(imageList.value.items)
       if (registryList.status === 'fulfilled') setRegistries(registryList.value.items)
+      if (backupList.status === 'fulfilled') setBackups(backupList.value.items)
       if (taskList.status === 'fulfilled') setTasks(taskList.value.items)
-      const failedRequest = [catalog, projectList, hostList, imageList, registryList, taskList].find((result) => result.status === 'rejected')
+      const failedRequest = [catalog, projectList, hostList, imageList, registryList, backupList, taskList].find((result) => result.status === 'rejected')
       setPageError(failedRequest?.status === 'rejected' ? errorMessage(failedRequest.reason) : '')
     } catch (error) { setPageError(errorMessage(error)) } finally { setPageLoading(false) }
   }, [id])
   const hasActiveOperation = tasks.some((task) => ['queued', 'running', 'retrying'].includes(task.status))
   useEffect(() => { setItem(null); setPageLoading(true); void load() }, [load])
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
-  useEffect(() => { if (requestedTab && ['overview', 'connection', 'logs', 'metrics'].includes(requestedTab)) setActiveTab(requestedTab) }, [requestedTab])
+  useEffect(() => { if (requestedTab && ['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab)) setActiveTab(requestedTab) }, [requestedTab])
   const changeTab = (tab: string) => { const next = new URLSearchParams(detailParams); if (tab === 'overview') next.delete('tab'); else next.set('tab', tab); setActiveTab(tab); setDetailParams(next, { replace: true }) }
   const run = async (action: string, body: Record<string, unknown> = {}) => { try { setActioning(action); const task = await api<Task>(`/instances/${id}/actions/${action}`, { method: 'POST', body }); setTasks((current) => [task, ...current]); notifyTask(task); setDeleteOpen(false); setUpgradeOpen(false); if (action === 'delete') navigate('/instances'); else await load() } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') } }
+  const createBackup = async () => {
+    try {
+      setActioning('backup-create')
+      const result = await api<{ backup: InstanceBackup; task: Task }>(`/instances/${id}/backups`, { method: 'POST', body: { name: backupName } })
+      setBackups((current) => [result.backup, ...current.filter((backup) => backup.id !== result.backup.id)])
+      setTasks((current) => [result.task, ...current])
+      notifyTask(result.task)
+      setBackupCreateOpen(false)
+      setBackupName('')
+      await load()
+    } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+  }
+  const submitBackupAction = async () => {
+    if (!backupAction || !item) return
+    const expected = backupAction.type === 'restore' ? item.name : backupAction.backup.name
+    if (backupConfirm !== expected) return
+    const actionKey = `backup-${backupAction.type}`
+    try {
+      setActioning(actionKey)
+      const result = await api<{ backup: InstanceBackup; task: Task }>(`/instances/${id}/backups/${backupAction.backup.id}/${backupAction.type}`, { method: 'POST', body: { confirmName: backupConfirm } })
+      setBackups((current) => current.map((backup) => backup.id === result.backup.id ? result.backup : backup))
+      if (backupAction.type === 'restore') setTasks((current) => [result.task, ...current])
+      notifyTask(result.task)
+      setBackupAction(undefined)
+      setBackupConfirm('')
+      await load()
+    } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+  }
   const loadConnection = async () => { try { setConnectionLoading(true); setConnection(await api<Connection>(`/instances/${id}/connection`)) } catch (e) { message.error(errorMessage(e)) } finally { setConnectionLoading(false) } }
   const loadLogs = useCallback(async () => { try { setLogsLoading(true); setLogsError(''); const response = await fetch(`/api/v1/instances/${id}/logs?tail=${logTail}`, { credentials: 'same-origin' }); const text = await response.text(); if (!response.ok) throw responseError(text, response.status); setLogs(text); setLogsUpdatedAt(new Date()) } catch (error) { setLogsError(errorMessage(error)) } finally { setLogsLoading(false) } }, [id, logTail])
   const loadMetrics = useCallback(async () => { try { setMetricsLoading(true); setMetricsError(''); const response = await api<{ items: Metric[] }>(`/instances/${id}/metrics?hours=${metricHours}`); setMetrics(response.items) } catch (error) { setMetricsError(errorMessage(error)) } finally { setMetricsLoading(false) } }, [id, metricHours])
@@ -377,8 +412,23 @@ export function InstanceDetailPage() {
   const canStart = item.status === 'stopped' || (item.status === 'failed' && !failedTask && !activeTask)
   const canStopOrRestart = !operationTask && (item.status === 'running' || item.status === 'degraded')
   const canUpgrade = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
+  const canCreateBackup = !operationTask && ['running', 'stopped'].includes(item.status)
   const moreActions = [{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'delete', icon: <DeleteOutlined />, label: t('delete'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} actions={<><Button icon={<EditOutlined />} disabled={!!actioning} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'upgrade' ? showUpgrade() : showDelete() }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></>} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{operationPanel}<Tabs activeKey={activeTab} onChange={changeTab} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab }]} />
+  const backupColumns = [
+    { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => <><Typography.Text strong>{value}</Typography.Text>{backup.errorMessage && <><br /><Typography.Text type="danger">{backup.errorMessage}</Typography.Text></>}</> },
+    { title: t('status'), dataIndex: 'status', width: 110, render: (value: string) => <StatusTag value={value} /> },
+    { title: t('version'), dataIndex: 'templateVersion', width: 105 },
+    { title: t('size'), dataIndex: 'sizeBytes', width: 105, render: (value: number) => value > 0 ? bytes(value) : '—' },
+    { title: t('sha256'), dataIndex: 'sha256', width: 165, render: (value: string) => value ? <Typography.Text code copyable={{ text: value }}>{value.slice(0, 12)}…</Typography.Text> : '—' },
+    { title: t('createdBy'), dataIndex: 'createdByUsername', width: 130 },
+    { title: t('createdAt'), dataIndex: 'createdAt', width: 180, render: (value: string) => formatDateTime(value, i18n.language, timezone) },
+    { title: '', width: 180, align: 'right' as const, render: (_: unknown, backup: InstanceBackup) => <Space><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !!operationTask || backup.status !== 'ready' || backup.templateVersionId !== item.templateVersionId} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'restore', backup }) }}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'delete', backup }) }}>{t('delete')}</Button></Space> },
+  ]
+  const backupsTab = <Card title={t('backups')} extra={<Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={() => { setBackupName(''); setBackupCreateOpen(true) }}>{t('createBackup')}</Button>}>
+    <Alert className="backup-storage-alert" type="info" showIcon message={t('coldBackupNotice')} description={t('coldBackupNoticeHint')} />
+    <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1140 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
+  </Card>
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} actions={<><Button icon={<EditOutlined />} disabled={!!actioning} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'upgrade' ? showUpgrade() : showDelete() }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></>} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{operationPanel}<Tabs activeKey={activeTab} onChange={changeTab} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backups.length})`, children: backupsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')}><Form form={editForm} layout="vertical"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((project) => ({ value: project.id, label: project.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} /></Form.Item><Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item><Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item></Form></Modal>
     <Modal title={`${t('delete')} ${item.name}`} open={deleteOpen} onCancel={() => { if (!actioning) { setDeleteOpen(false); setConfirm('') } }} onOk={() => void run('delete', { confirmName: confirm })} confirmLoading={actioning === 'delete'} okButtonProps={{ danger: true, disabled: confirm !== item.name }}><Alert className="delete-instance-alert" type="error" showIcon message={t('deleteInstanceWarningTitle')} description={t('deleteInstanceWarningDescription')} /><Typography.Paragraph>{t('deleteInstanceConfirmHint', { name: item.name })}</Typography.Paragraph><Input autoFocus aria-label={t('deleteInstanceConfirmLabel', { name: item.name })} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={item.name} /></Modal>
     <Modal title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={submitUpgrade} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeReady }} destroyOnHidden>
@@ -401,6 +451,16 @@ export function InstanceDetailPage() {
           {upgradeCompatibleRegistries.length === 0 ? <Alert type="warning" showIcon message={t('noMatchingUpgradeRegistries')} description={t('noMatchingRegistriesHint', { host: imageRegistryHost(upgradeTarget.imageReference) })} action={<Button size="small" onClick={() => navigate('/images?tab=registries')}>{t('addRegistry')}</Button>} /> : upgradeRegistry && <Alert type={upgradeRegistry.status === 'online' ? 'success' : 'info'} showIcon message={t('registryMatchesImageSource', { host: imageRegistryHost(upgradeTarget.imageReference) })} description={upgradeRegistry.statusMessage ? t(upgradeRegistry.statusMessage) : t('registryWillBeVerifiedOnTarget')} />}
         </>}
       </div>}
+    </Modal>
+    <Modal title={t('createBackup')} open={backupCreateOpen} onCancel={() => { if (!actioning) { setBackupCreateOpen(false); setBackupName('') } }} onOk={() => void createBackup()} confirmLoading={actioning === 'backup-create'} okText={t('createBackup')}>
+      <Alert className="backup-modal-alert" type="warning" showIcon message={t('backupDowntimeWarning')} description={t('backupDowntimeWarningHint')} />
+      <Typography.Paragraph type="secondary">{t('backupNameHint')}</Typography.Paragraph>
+      <Input autoFocus aria-label={t('backupName')} value={backupName} maxLength={120} onChange={(event) => setBackupName(event.target.value)} placeholder={t('backupNamePlaceholder')} />
+    </Modal>
+    <Modal title={backupAction?.type === 'restore' ? t('restoreBackup') : t('deleteBackup')} open={!!backupAction} onCancel={() => { if (!actioning) { setBackupAction(undefined); setBackupConfirm('') } }} onOk={() => void submitBackupAction()} confirmLoading={actioning === `backup-${backupAction?.type}`} okText={backupAction?.type === 'restore' ? t('restore') : t('delete')} okButtonProps={{ danger: true, disabled: !backupAction || backupConfirm !== (backupAction.type === 'restore' ? item.name : backupAction.backup.name) }}>
+      {backupAction?.type === 'restore' ? <Alert className="backup-modal-alert" type="error" showIcon message={t('restoreBackupWarning')} description={t('restoreBackupWarningHint', { name: backupAction.backup.name })} /> : <Alert className="backup-modal-alert" type="warning" showIcon message={t('deleteBackupWarning')} description={t('deleteBackupWarningHint')} />}
+      {backupAction && <Typography.Paragraph>{backupAction.type === 'restore' ? t('restoreBackupConfirmHint', { name: item.name }) : t('deleteBackupConfirmHint', { name: backupAction.backup.name })}</Typography.Paragraph>}
+      <Input autoFocus aria-label={backupAction?.type === 'restore' ? t('restoreBackupConfirmLabel') : t('deleteBackupConfirmLabel')} value={backupConfirm} onChange={(event) => setBackupConfirm(event.target.value)} />
     </Modal>
   </>
 }

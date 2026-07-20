@@ -35,9 +35,10 @@ func taskScan(item *domain.Task) []any {
 type taskSourceReferences struct {
 	ImageArtifactID *uuid.UUID `json:"imageArtifactId"`
 	RegistryID      *uuid.UUID `json:"registryId"`
+	BackupID        *uuid.UUID `json:"backupId"`
 }
 
-func lockTaskSourceReferences(ctx context.Context, tx pgx.Tx, payload []byte) error {
+func lockTaskSourceReferences(ctx context.Context, tx pgx.Tx, kind string, payload []byte) error {
 	var references taskSourceReferences
 	if err := json.Unmarshal(payload, &references); err != nil {
 		return fmt.Errorf("%w: task payload is not valid JSON", domain.ErrInvalid)
@@ -57,6 +58,17 @@ func lockTaskSourceReferences(ctx context.Context, tx pgx.Tx, payload []byte) er
 			return translate(err)
 		}
 	}
+	if references.BackupID != nil {
+		var status string
+		if err := tx.QueryRow(ctx, "SELECT status FROM instance_backups WHERE id=$1 FOR KEY SHARE", *references.BackupID).Scan(&status); errors.Is(err, pgx.ErrNoRows) && kind == "instance.backup.delete" {
+			return nil
+		} else if err != nil {
+			return translate(err)
+		}
+		if status == "deleting" && kind != "instance.backup.delete" {
+			return fmt.Errorf("%w: backup is being deleted", domain.ErrConflict)
+		}
+	}
 	return nil
 }
 
@@ -70,7 +82,7 @@ func (s *Store) CreateTask(ctx context.Context, input TaskInput) (domain.Task, e
 		return domain.Task{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err = lockTaskSourceReferences(ctx, tx, payload); err != nil {
+	if err = lockTaskSourceReferences(ctx, tx, input.Kind, payload); err != nil {
 		return domain.Task{}, err
 	}
 	item := domain.Task{ID: uuid.New()}
@@ -103,7 +115,7 @@ func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, i
 	if currentStatus != expectedStatus {
 		return domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the operation", domain.ErrConflict)
 	}
-	if err = lockTaskSourceReferences(ctx, tx, payload); err != nil {
+	if err = lockTaskSourceReferences(ctx, tx, input.Kind, payload); err != nil {
 		return domain.Task{}, err
 	}
 	item := domain.Task{ID: uuid.New()}

@@ -21,10 +21,135 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.Post("/", s.createInstance)
 	r.Get("/{id}", s.getInstance)
 	r.Patch("/{id}", s.updateInstance)
+	r.Get("/{id}/backups", s.listInstanceBackups)
+	r.Post("/{id}/backups", s.createInstanceBackup)
+	r.Post("/{id}/backups/{backupId}/restore", s.restoreInstanceBackup)
+	r.Post("/{id}/backups/{backupId}/delete", s.deleteInstanceBackup)
 	r.Post("/{id}/actions/{action}", s.instanceAction)
 	r.Get("/{id}/connection", s.instanceConnection)
 	r.Get("/{id}/logs", s.instanceLogs)
 	r.Get("/{id}/metrics", s.instanceMetrics)
+}
+
+func (s *Server) listInstanceBackups(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if _, err = s.store.GetInstance(r.Context(), id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	items, err := s.store.ListInstanceBackups(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) createInstanceBackup(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err = httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	backup, task, err := s.instances.CreateBackup(r.Context(), actor.User.ID, id, input.Name)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.auditWithChanges(r, actor, "instance.backup.create", "backup", &backup.ID, backup.Name, &task.ID,
+		"success", "", map[string]any{"instanceId": id, "templateVersionId": backup.TemplateVersionID})
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"backup": backup, "task": task})
+}
+
+func (s *Server) restoreInstanceBackup(w http.ResponseWriter, r *http.Request) {
+	instanceID, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	backupID, err := httpx.UUIDParam(chi.URLParam(r, "backupId"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var input struct {
+		ConfirmName string `json:"confirmName"`
+	}
+	if err = httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	instance, err := s.store.GetInstance(r.Context(), instanceID)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if strings.TrimSpace(input.ConfirmName) != instance.Name {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	backup, task, err := s.instances.RestoreBackup(r.Context(), actor.User.ID, instanceID, backupID)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.auditWithChanges(r, actor, "instance.backup.restore", "backup", &backup.ID, backup.Name, &task.ID,
+		"success", "", map[string]any{"instanceId": instanceID, "templateVersionId": backup.TemplateVersionID})
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"backup": backup, "task": task})
+}
+
+func (s *Server) deleteInstanceBackup(w http.ResponseWriter, r *http.Request) {
+	instanceID, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	backupID, err := httpx.UUIDParam(chi.URLParam(r, "backupId"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var input struct {
+		ConfirmName string `json:"confirmName"`
+	}
+	if err = httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	backup, err := s.store.GetInstanceBackup(r.Context(), backupID)
+	if err != nil || backup.InstanceID != instanceID {
+		if err == nil {
+			err = domain.ErrNotFound
+		}
+		httpx.Error(w, r, err)
+		return
+	}
+	if strings.TrimSpace(input.ConfirmName) != backup.Name {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	backup, task, err := s.instances.DeleteBackup(r.Context(), actor.User.ID, instanceID, backupID)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.auditWithChanges(r, actor, "instance.backup.delete", "backup", &backup.ID, backup.Name, &task.ID,
+		"success", "", map[string]any{"instanceId": instanceID, "sizeBytes": backup.SizeBytes})
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"backup": backup, "task": task})
 }
 
 func optionalUUID(value string) (*uuid.UUID, error) {

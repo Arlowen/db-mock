@@ -72,6 +72,7 @@ erDiagram
     TEMPLATES ||--o{ TEMPLATE_VERSIONS : contains
     TEMPLATE_VERSIONS ||--o{ INSTANCES : pins
     INSTANCES ||--o{ METRIC_SAMPLES : emits
+    INSTANCES ||--o{ INSTANCE_BACKUPS : owns
     INSTANCES ||--o{ ALERTS : raises
     TASKS }o--|| USERS : requested_by
     WEBHOOKS ||--o{ WEBHOOK_DELIVERIES : receives
@@ -151,7 +152,10 @@ stateDiagram-v2
     config/
     data/
     runtime/
-    upgrade-snapshot/    # 仅升级期间存在
+  backups/<instance-uuid>/
+    <backup-uuid>.tar.gz  # 0600，主机本地冷备份
+  backups/.rollback/
+    <instance-uuid>.tar.gz  # 仅升级或恢复回滚期间存在
 ```
 
 Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.instance`、
@@ -163,11 +167,19 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 `DBMOCK_DB_PASSWORD`、`DBMOCK_DB_NAME`，健康检查只读取这些容器内变量。用户追加环境
 变量不能覆盖这三个保留名称，避免健康检查凭据和实际实例凭据发生漂移。
 
+手动备份是对整个受管实例目录的停机 tar/gzip 归档，因此包含数据、Compose 配置和
+`.env` 凭据。归档目录与文件分别限制为 `0700` 和 `0600`，API 不返回远程路径，任务和
+审计日志也不记录归档内容。归档流由实例当前镜像中的 `/bin/sh` 与 `tar` 生成或恢复，
+临时容器禁用网络、根文件系统只读并使用 `--pull never`，从而既能访问数据库 UID 持有的
+文件，也不会破坏离线语义。这种本地副本可防止误操作与升级回归，不能代替跨主机灾备。
+
 ## 8. 任务一致性
 
 - API 在数据库事务中创建资源意图和任务，HTTP 立即返回 `202 Accepted`。
 - 工作器使用 `FOR UPDATE SKIP LOCKED` 领取任务，保证单控制节点下仍具备清晰语义。
 - 同一主机的破坏性 Compose 任务串行执行；不同主机可以并行。
+- 备份创建、恢复和删除与实例生命周期任务共用同一主机串行约束。恢复入队时锁定
+  实例与备份记录，并在同一事务内进入 `restoring`，防止并发删除或其他实例操作。
 - 每个阶段设计为可重试或可检测已完成。进程重启后排队任务继续，运行中任务标记为
   `interrupted` 并允许用户重试。
 - 审计记录与任务 ID 关联。

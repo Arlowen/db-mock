@@ -62,6 +62,8 @@ type ActionRequest struct {
 type ActionPayload struct {
 	InstanceID           uuid.UUID  `json:"instanceId"`
 	NewTemplateVersionID *uuid.UUID `json:"newTemplateVersionId,omitempty"`
+	BackupID             *uuid.UUID `json:"backupId,omitempty"`
+	PreviousBackupStatus string     `json:"previousBackupStatus,omitempty"`
 	ImageSource          string     `json:"imageSource,omitempty"`
 	ImageArtifactID      *uuid.UUID `json:"imageArtifactId,omitempty"`
 	RegistryID           *uuid.UUID `json:"registryId,omitempty"`
@@ -89,6 +91,9 @@ func NewService(target *store.Store, vault *appcrypto.Vault, docker *hostops.Doc
 	manager.Register("instance.restart", service.handleRestart)
 	manager.Register("instance.delete", service.handleDelete)
 	manager.Register("instance.upgrade", service.handleUpgrade)
+	manager.Register("instance.backup", service.handleBackupCreate)
+	manager.Register("instance.restore", service.handleBackupRestore)
+	manager.Register("instance.backup.delete", service.handleBackupDelete)
 	return service
 }
 
@@ -210,6 +215,15 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 	if err = validateInstanceAction(instance.Status, action, request.NewTemplateVersionID); err != nil {
 		return domain.Task{}, err
 	}
+	if action == "delete" {
+		backups, backupErr := s.store.ListInstanceBackups(ctx, instance.ID)
+		if backupErr != nil {
+			return domain.Task{}, backupErr
+		}
+		if len(backups) > 0 {
+			return domain.Task{}, fmt.Errorf("%w: delete instance backups before deleting the instance", domain.ErrConflict)
+		}
+	}
 	payload := ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: request.NewTemplateVersionID,
 		PreviousStatus: instance.Status, PreviousDesiredState: instance.DesiredState}
 	if action == "upgrade" {
@@ -229,6 +243,115 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 		s.tasks.Wake()
 	}
 	return task, err
+}
+
+func normalizeBackupName(value string, now time.Time) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "Backup " + now.UTC().Format("2006-01-02 15:04:05 UTC")
+	}
+	if len([]rune(value)) > 120 || strings.ContainsAny(value, "\r\n\x00") {
+		return "", fmt.Errorf("%w: backup name must be at most 120 characters on one line", domain.ErrInvalid)
+	}
+	return value, nil
+}
+
+func validateBackupSourceStatus(status string) error {
+	if status != "running" && status != "stopped" {
+		return fmt.Errorf("%w: backups can only be created from a running or stopped instance", domain.ErrConflict)
+	}
+	return nil
+}
+
+func validateRestoreSourceStatus(status string) error {
+	if status != "running" && status != "stopped" && status != "degraded" && status != "failed" {
+		return fmt.Errorf("%w: backup restore is not allowed for the current instance status", domain.ErrConflict)
+	}
+	return nil
+}
+
+func (s *Service) CreateBackup(ctx context.Context, userID, instanceID uuid.UUID, name string) (domain.InstanceBackup, domain.Task, error) {
+	instance, err := s.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	if err = validateBackupSourceStatus(instance.Status); err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	name, err = normalizeBackupName(name, time.Now())
+	if err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	host, err := s.store.GetHost(ctx, instance.HostID)
+	if err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	backupID := uuid.New()
+	remotePath, err := s.docker.BackupArchivePath(host, instance, backupID)
+	if err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	payload := ActionPayload{InstanceID: instance.ID, BackupID: &backupID, PreviousStatus: instance.Status,
+		PreviousDesiredState: instance.DesiredState}
+	resourceID := instance.ID
+	backup, task, err := s.store.CreateInstanceBackupTask(ctx, store.TaskInput{Kind: "instance.backup",
+		ResourceType: "instance", ResourceID: &resourceID, RequestedBy: userID, HostID: &instance.HostID,
+		Payload: payload}, domain.InstanceBackup{ID: backupID, InstanceID: instance.ID, Name: name,
+		RemotePath: remotePath, CreatedBy: userID}, instance.Status)
+	if err != nil {
+		return backup, task, err
+	}
+	s.tasks.Wake()
+	if fresh, getErr := s.store.GetInstanceBackup(ctx, backup.ID); getErr == nil {
+		backup = fresh
+	}
+	return backup, task, nil
+}
+
+func (s *Service) RestoreBackup(ctx context.Context, userID, instanceID, backupID uuid.UUID) (domain.InstanceBackup, domain.Task, error) {
+	instance, err := s.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	if err = validateRestoreSourceStatus(instance.Status); err != nil {
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	backup, err := s.store.GetInstanceBackup(ctx, backupID)
+	if err != nil || backup.InstanceID != instance.ID {
+		if err == nil {
+			err = domain.ErrNotFound
+		}
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	payload := ActionPayload{InstanceID: instance.ID, BackupID: &backup.ID, PreviousBackupStatus: backup.Status,
+		PreviousStatus: instance.Status, PreviousDesiredState: instance.DesiredState}
+	resourceID := instance.ID
+	backup, task, err := s.store.CreateInstanceRestoreTask(ctx, store.TaskInput{Kind: "instance.restore",
+		ResourceType: "instance", ResourceID: &resourceID, RequestedBy: userID, HostID: &instance.HostID,
+		Payload: payload}, instance.ID, backup.ID, instance.Status)
+	if err == nil {
+		s.tasks.Wake()
+	}
+	return backup, task, err
+}
+
+func (s *Service) DeleteBackup(ctx context.Context, userID, instanceID, backupID uuid.UUID) (domain.InstanceBackup, domain.Task, error) {
+	backup, err := s.store.GetInstanceBackup(ctx, backupID)
+	if err != nil || backup.InstanceID != instanceID {
+		if err == nil {
+			err = domain.ErrNotFound
+		}
+		return domain.InstanceBackup{}, domain.Task{}, err
+	}
+	payload := ActionPayload{InstanceID: instanceID, BackupID: &backup.ID, PreviousBackupStatus: backup.Status}
+	resourceID := backup.ID
+	backup, task, err := s.store.CreateInstanceBackupDeleteTask(ctx, store.TaskInput{Kind: "instance.backup.delete",
+		ResourceType: "backup", ResourceID: &resourceID, RequestedBy: userID, HostID: &backup.HostID,
+		Payload: payload}, backup.ID)
+	if err == nil {
+		s.tasks.Wake()
+	}
+	return backup, task, err
 }
 
 func validateUpgradeImageSelection(source string, artifactID, registryID *uuid.UUID) error {
@@ -345,6 +468,10 @@ func instanceOperationStatus(action string) string {
 		return "deleting"
 	case "upgrade":
 		return "upgrading"
+	case "backup":
+		return "backing_up"
+	case "restore":
+		return "restoring"
 	default:
 		return ""
 	}
@@ -381,6 +508,15 @@ func previousInstanceState(payload ActionPayload, instance domain.Instance) (str
 		}
 	}
 	return status, desired
+}
+
+func currentOrPreviousInstanceState(payload ActionPayload, instance domain.Instance) (string, string) {
+	switch instance.Status {
+	case "running", "stopped", "degraded", "failed":
+		return instance.Status, instance.DesiredState
+	default:
+		return previousInstanceState(payload, instance)
+	}
 }
 
 func validateInstanceAction(status, action string, newVersion *uuid.UUID) error {
@@ -824,6 +960,9 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 	if err = runtime.Stage(ctx, 70, "files", "Removing managed instance data", false); err != nil {
 		return nil, err
 	}
+	if err = s.docker.DeleteUpgradeSnapshot(ctx, host, instance); err != nil {
+		return nil, err
+	}
 	if err = s.docker.RemoveProject(ctx, host, instance); err != nil {
 		return nil, err
 	}
@@ -871,7 +1010,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		return nil, err
 	}
 	operationStarted = true
-	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance)
+	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance, oldVersion.ImageReference)
 	if err != nil {
 		return nil, err
 	}
@@ -1027,7 +1166,7 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 		}
 	}
 	if snapshot != "" && stopped {
-		if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, snapshot); restoreErr != nil {
+		if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, snapshot, oldVersion.ImageReference); restoreErr != nil {
 			recoveryErrors = append(recoveryErrors, "snapshot")
 		}
 	}
@@ -1048,6 +1187,11 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 		if stateErr := s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, message); stateErr != nil {
 			recovered = false
 			recoveryErrors = append(recoveryErrors, "state")
+		}
+		if recovered && snapshot != "" {
+			if cleanupErr := s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance); cleanupErr != nil {
+				_ = runtime.Log(recoveryCtx, "warning", "Upgrade rollback succeeded, but the temporary snapshot could not be removed")
+			}
 		}
 	}
 	if !recovered {
@@ -1076,6 +1220,284 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "alert.created", alert)
 		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "instance.failed", alert)
 	}
+}
+
+func backupFailureMessage(err error) string {
+	message := strings.TrimSpace(err.Error())
+	characters := []rune(message)
+	if len(characters) > 2000 {
+		message = string(characters[:2000])
+	}
+	return message
+}
+
+func (s *Service) handleBackupCreate(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
+	payload, instance, host, _, version, err := s.load(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if payload.BackupID == nil {
+		return nil, domain.ErrInvalid
+	}
+	backup, err := s.store.GetInstanceBackup(ctx, *payload.BackupID)
+	if err != nil || backup.InstanceID != instance.ID {
+		if err == nil {
+			err = domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if backup.HostID != host.ID || backup.TemplateVersionID != version.ID {
+		return nil, fmt.Errorf("%w: backup source no longer matches the instance host or template version", domain.ErrConflict)
+	}
+	expectedPath, err := s.docker.BackupArchivePath(host, instance, backup.ID)
+	if err != nil || expectedPath != backup.RemotePath {
+		if err == nil {
+			err = errors.New("backup path is outside the managed backup directory")
+		}
+		return nil, err
+	}
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
+	stable := upgradeStableState(previousStatus, previousDesired)
+	operationStarted, backupReady := false, false
+	defer func() {
+		if err == nil {
+			return
+		}
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if !backupReady {
+			_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, "failed", backupFailureMessage(err))
+		}
+		recovered := true
+		if operationStarted && stable.Status == "running" {
+			if startErr := s.docker.ComposeStart(recoveryCtx, host, instance); startErr != nil {
+				recovered = false
+			}
+		}
+		if recovered {
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "Backup failed; original runtime state was restored")
+		} else {
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, "Backup failed and the original runtime state could not be restored")
+		}
+	}()
+	if err = s.store.SetInstanceBackupStatus(ctx, backup.ID, "creating", ""); err != nil {
+		return nil, err
+	}
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, "backing_up", previousDesired, ""); err != nil {
+		return nil, err
+	}
+	if stable.Status == "running" {
+		if err = runtime.Stage(ctx, 15, "compose", "Stopping instance for a consistent backup", false); err != nil {
+			return nil, err
+		}
+		operationStarted = true
+		if err = s.docker.ComposeStop(ctx, host, instance); err != nil {
+			return nil, err
+		}
+	}
+	if err = runtime.Stage(ctx, 40, "backup", "Creating protected backup archive", false); err != nil {
+		return nil, err
+	}
+	archive, err := s.docker.CreateBackupArchive(ctx, host, instance, backup.ID, version.ImageReference)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.store.CompleteInstanceBackup(ctx, backup.ID, archive.SizeBytes, archive.SHA256); err != nil {
+		return nil, err
+	}
+	backupReady = true
+	if stable.Status == "running" {
+		if err = runtime.Stage(ctx, 85, "compose", "Restarting instance after backup", false); err != nil {
+			return nil, err
+		}
+		if err = s.docker.ComposeStart(ctx, host, instance); err != nil {
+			return nil, err
+		}
+	}
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
+		return nil, err
+	}
+	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "sizeBytes": archive.SizeBytes, "sha256": archive.SHA256}, nil
+}
+
+func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
+	payload, instance, host, _, version, err := s.load(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if payload.BackupID == nil {
+		return nil, domain.ErrInvalid
+	}
+	backup, err := s.store.GetInstanceBackup(ctx, *payload.BackupID)
+	if err != nil || backup.InstanceID != instance.ID {
+		if err == nil {
+			err = domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if backup.HostID != host.ID || backup.TemplateVersionID != version.ID {
+		return nil, fmt.Errorf("%w: backup template version does not match the instance", domain.ErrConflict)
+	}
+	expectedPath, err := s.docker.BackupArchivePath(host, instance, backup.ID)
+	if err != nil || expectedPath != backup.RemotePath {
+		if err == nil {
+			err = errors.New("backup path is outside the managed backup directory")
+		}
+		return nil, err
+	}
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
+	stable := upgradeStableState(previousStatus, previousDesired)
+	operationStarted, snapshotReady, restoreStarted, backupUsable := false, false, false, true
+	snapshot := ""
+	defer func() {
+		if err == nil {
+			return
+		}
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if backupUsable {
+			_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, "ready", "")
+		} else {
+			_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, "failed", backupFailureMessage(err))
+		}
+		recovered := true
+		if operationStarted {
+			if stopErr := s.docker.ComposeStop(recoveryCtx, host, instance); stopErr != nil {
+				recovered = false
+			}
+			if recovered && restoreStarted && snapshotReady {
+				if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, snapshot, version.ImageReference); restoreErr != nil {
+					recovered = false
+				}
+			}
+			if recovered && stable.Status == "running" {
+				if startErr := s.docker.ComposeStart(recoveryCtx, host, instance); startErr != nil {
+					recovered = false
+				}
+			}
+		}
+		if recovered {
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "Restore failed; the pre-restore database state was recovered")
+			if snapshotReady {
+				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance)
+			}
+		} else {
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, "Restore failed and automatic rollback did not complete")
+		}
+	}()
+	if err = s.store.SetInstanceBackupStatus(ctx, backup.ID, "restoring", ""); err != nil {
+		return nil, err
+	}
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, "restoring", previousDesired, ""); err != nil {
+		return nil, err
+	}
+	if err = runtime.Stage(ctx, 10, "verify", "Verifying backup archive checksum", false); err != nil {
+		return nil, err
+	}
+	backupUsable = false
+	archive, inspectErr := s.docker.InspectBackupArchive(ctx, host, instance, backup.ID)
+	if inspectErr != nil {
+		return nil, inspectErr
+	}
+	if archive.Path != backup.RemotePath || archive.SizeBytes != backup.SizeBytes || !strings.EqualFold(archive.SHA256, backup.SHA256) {
+		return nil, fmt.Errorf("%w: backup archive checksum or size does not match its metadata", domain.ErrConflict)
+	}
+	backupUsable = true
+	if err = runtime.Stage(ctx, 25, "snapshot", "Creating pre-restore rollback snapshot", false); err != nil {
+		return nil, err
+	}
+	operationStarted = true
+	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance, version.ImageReference)
+	if err != nil {
+		return nil, err
+	}
+	snapshotReady = true
+	if err = runtime.Stage(ctx, 50, "restore", "Restoring database files from backup", false); err != nil {
+		return nil, err
+	}
+	restoreStarted = true
+	if err = s.docker.RestoreBackupArchive(ctx, host, instance, backup.ID, version.ImageReference); err != nil {
+		return nil, err
+	}
+	if err = runtime.Stage(ctx, 75, "compose", "Starting restored database and checking health", false); err != nil {
+		return nil, err
+	}
+	if err = s.docker.ComposeStart(ctx, host, instance); err != nil {
+		return nil, err
+	}
+	state, _, stateErr := s.docker.InstanceState(ctx, host, instance)
+	if stateErr != nil {
+		return nil, fmt.Errorf("restored instance did not become healthy: %w", stateErr)
+	}
+	if state != "running" {
+		return nil, fmt.Errorf("restored instance did not become healthy: state=%s", state)
+	}
+	if stable.Status == "stopped" {
+		if err = runtime.Stage(ctx, 90, "compose", "Restoring the requested stopped state", false); err != nil {
+			return nil, err
+		}
+		if err = s.docker.ComposeStop(ctx, host, instance); err != nil {
+			return nil, err
+		}
+	}
+	if err = s.store.SetInstanceBackupStatus(ctx, backup.ID, "ready", ""); err != nil {
+		return nil, err
+	}
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
+		return nil, err
+	}
+	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance); cleanupErr != nil {
+		_ = runtime.Log(ctx, "warning", "Restore succeeded, but the rollback snapshot could not be removed")
+	}
+	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "status": stable.Status}, nil
+}
+
+func (s *Service) handleBackupDelete(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
+	payload, instance, host, _, _, err := s.load(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if payload.BackupID == nil {
+		return nil, domain.ErrInvalid
+	}
+	backup, err := s.store.GetInstanceBackup(ctx, *payload.BackupID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return map[string]any{"instanceId": instance.ID, "backupId": *payload.BackupID, "deleted": true, "alreadyDeleted": true}, nil
+	}
+	if err != nil || backup.InstanceID != instance.ID {
+		if err == nil {
+			err = domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if backup.HostID != host.ID {
+		return nil, fmt.Errorf("%w: backup host does not match the instance", domain.ErrConflict)
+	}
+	previousStatus := payload.PreviousBackupStatus
+	if previousStatus != "ready" && previousStatus != "failed" {
+		previousStatus = "ready"
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, previousStatus, backupFailureMessage(err))
+	}()
+	if err = s.store.SetInstanceBackupStatus(ctx, backup.ID, "deleting", ""); err != nil {
+		return nil, err
+	}
+	if err = runtime.Stage(ctx, 40, "files", "Removing backup archive from host", false); err != nil {
+		return nil, err
+	}
+	if err = s.docker.DeleteBackupArchive(ctx, host, instance, backup.ID); err != nil {
+		return nil, err
+	}
+	if err = s.store.DeleteInstanceBackupRecord(ctx, backup.ID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "deleted": true}, nil
 }
 
 func generatePassword() string {

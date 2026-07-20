@@ -119,6 +119,7 @@ button { font: inherit; }
 .upgrade-source-options { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .upgrade-source-options .ant-radio-button-wrapper { padding-inline: 8px; text-align: center; }
 .upgrade-source-panel > .ant-select { width: 100%; }
+.backup-storage-alert, .backup-modal-alert { margin-bottom: 16px; }
 .description-link.ant-btn { height: auto; padding: 0; }
 .health-summary-card { height: 100%; }
 .health-summary-card .ant-card-body { min-height: 220px; display: grid; grid-template-columns: 50px minmax(0, 1fr); align-content: start; gap: 12px; }

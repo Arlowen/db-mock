@@ -78,6 +78,12 @@ per expanded file.
 DB Mock treats every custom template and script as trusted host-level code. Uploading a package produces
 a risk report but does not block privileged settings.
 
+Persistent files must be bind-mounted below `{{ .DataPath }}` to be included in instance backup,
+restore, deletion, and upgrade rollback. The image named by `spec.image` must provide `/bin/sh` and
+`tar`: DB Mock reuses that already-present image as a network-isolated, read-only helper container so
+it can safely read and restore files owned by the database container. The helper never pulls an image;
+this keeps the same behavior on online and offline hosts.
+
 ## Version lifecycle
 
 Template versions are append-only. A later package may reuse an existing custom `metadata.slug` only

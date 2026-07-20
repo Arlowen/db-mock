@@ -45,6 +45,26 @@ describe('API error messages', () => {
       .toBe('资源状态冲突: 所选离线镜像不包含目标版本镜像，或不支持实例主机架构。')
   })
 
+  it('blocks restore when backup integrity metadata does not match', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: backup archive checksum or size does not match its metadata')))
+      .toBe('资源状态冲突: 备份归档的大小或 SHA-256 与元数据不一致，已阻止恢复。')
+  })
+
+  it('explains backup and instance version mismatch', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: backup template version does not match the instance')))
+      .toBe('资源状态冲突: 备份与实例当前模板版本不一致，请先切换到备份对应版本。')
+  })
+
+  it('explains why a stale backup task cannot be retried after its source changes', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: backup source no longer matches the instance host or template version')))
+      .toBe('资源状态冲突: 备份来源与实例当前主机或模板版本不再一致，无法重试。')
+  })
+
+  it('protects a backup referenced by an active restore task', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: backup is referenced by an active instance operation')))
+      .toBe('资源状态冲突: 备份正被排队或执行中的实例操作引用，任务结束后才能删除。')
+  })
+
   it('does not expose an untranslated infrastructure error in place of the recovery hint', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the instance host over SSH')))
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')

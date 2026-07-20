@@ -38,7 +38,7 @@ describe('selectRecoveryTasks', () => {
 
 describe('instance task recovery', () => {
   it('keeps interrupted operation states recoverable after a control-service restart', () => {
-    for (const status of ['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'deleting', 'failed', 'degraded']) {
+    for (const status of ['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded']) {
       expect(isRecoverableInstanceStatus(status)).toBe(true)
     }
   })
