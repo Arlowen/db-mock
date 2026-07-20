@@ -231,8 +231,7 @@ func (s *Server) updateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "host.update", "host", &id, host.Name, nil, "success", "")
-	_ = existing
+	_ = s.auditWithChanges(r, actor, "host.update", "host", &id, host.Name, nil, "success", "", hostAuditChanges(existing, host, input))
 	httpx.JSON(w, http.StatusOK, host)
 }
 

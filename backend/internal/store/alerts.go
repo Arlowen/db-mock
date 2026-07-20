@@ -68,6 +68,12 @@ func (s *Store) ListAlerts(ctx context.Context, status string, limit int) ([]dom
 	return items, rows.Err()
 }
 
+func (s *Store) GetAlert(ctx context.Context, id uuid.UUID) (domain.Alert, error) {
+	var item domain.Alert
+	err := s.pool.QueryRow(ctx, "SELECT "+alertColumns+" FROM alerts WHERE id=$1", id).Scan(alertScan(&item)...)
+	return item, translate(err)
+}
+
 func (s *Store) SetAlertStatus(ctx context.Context, id uuid.UUID, status, actor string) error {
 	result, err := s.pool.Exec(ctx, `UPDATE alerts SET status=$2,
 		acknowledged_at=CASE WHEN $2='acknowledged' THEN now() ELSE acknowledged_at END,

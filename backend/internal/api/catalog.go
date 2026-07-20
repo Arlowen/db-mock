@@ -107,6 +107,11 @@ func (s *Server) updateRegistry(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	before, err := s.store.GetRegistry(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	input.Name = strings.TrimSpace(input.Name)
 	input.URL = normalizeRegistryURL(input.URL)
 	password, err := s.sealOptional(input.Password, "registry:"+id.String()+":password")
@@ -125,7 +130,7 @@ func (s *Server) updateRegistry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "registry.update", "registry", &id, item.Name, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "registry.update", "registry", &id, item.Name, nil, "success", "", registryAuditChanges(before, item, input))
 	httpx.JSON(w, http.StatusOK, item)
 }
 

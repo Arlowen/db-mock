@@ -102,6 +102,11 @@ func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	before, err := s.store.GetInstance(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	labels, _ := json.Marshal(input.Labels)
 	item, err := s.store.UpdateInstanceMetadata(r.Context(), id, input.Name, input.ProjectID, input.Environment, labels, input.AutoRestart)
 	if err != nil {
@@ -109,7 +114,7 @@ func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "instance.update", "instance", &id, item.Name, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "instance.update", "instance", &id, item.Name, nil, "success", "", instanceAuditChanges(before, item))
 	httpx.JSON(w, http.StatusOK, item)
 }
 

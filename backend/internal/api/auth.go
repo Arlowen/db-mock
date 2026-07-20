@@ -103,7 +103,9 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	_ = s.audit(r, actor, "user.locale_update", "user", &user.ID, user.Username, nil, "success", "")
+	changes := map[string]any{}
+	addAuditTransition(changes, "locale", actor.User.Locale, user.Locale)
+	_ = s.auditWithChanges(r, actor, "user.locale_update", "user", &user.ID, user.Username, nil, "success", "", changes)
 	httpx.JSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
@@ -120,5 +122,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) audit(r *http.Request, actor auth.Actor, action, resourceType string, resourceID *uuid.UUID, resourceName string, taskID *uuid.UUID, result, message string) error {
-	return s.store.AddAudit(r.Context(), store.AuditInput{UserID: &actor.User.ID, Username: actor.User.Username, Action: action, ResourceType: resourceType, ResourceID: resourceID, ResourceName: resourceName, IP: auth.ClientIP(r), RequestID: auth.RequestID(r.Context()), TaskID: taskID, Result: result, Message: message})
+	return s.auditWithChanges(r, actor, action, resourceType, resourceID, resourceName, taskID, result, message, nil)
+}
+
+func (s *Server) auditWithChanges(r *http.Request, actor auth.Actor, action, resourceType string, resourceID *uuid.UUID, resourceName string, taskID *uuid.UUID, result, message string, changes any) error {
+	return s.store.AddAudit(r.Context(), store.AuditInput{UserID: &actor.User.ID, Username: actor.User.Username, Action: action, ResourceType: resourceType, ResourceID: resourceID, ResourceName: resourceName, IP: auth.ClientIP(r), RequestID: auth.RequestID(r.Context()), TaskID: taskID, Result: result, Message: message, Changes: changes})
 }

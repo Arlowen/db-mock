@@ -43,12 +43,19 @@ func (s *Server) updateAlert(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
 	}
+	before, err := s.store.GetAlert(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	actor, _ := auth.ActorFrom(r.Context())
 	if err = s.store.SetAlertStatus(r.Context(), id, status, actor.User.Username); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	_ = s.audit(r, actor, "alert."+status, "alert", &id, "", nil, "success", "")
+	changes := map[string]any{}
+	addAuditTransition(changes, "status", before.Status, status)
+	_ = s.auditWithChanges(r, actor, "alert."+status, "alert", &id, "", nil, "success", "", changes)
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -160,6 +167,11 @@ func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	before, err := s.store.GetWebhook(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	secret, err := s.sealOptional(input.Secret, "webhook:"+id.String())
 	if err != nil {
 		httpx.Error(w, r, err)
@@ -172,7 +184,7 @@ func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "webhook.update", "webhook", &id, item.Name, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "webhook.update", "webhook", &id, item.Name, nil, "success", "", webhookAuditChanges(before, item, input))
 	httpx.JSON(w, http.StatusOK, item)
 }
 func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request) {
@@ -377,12 +389,17 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	settingsBefore, err := s.store.GetSettings(r.Context())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	if err = s.store.PutSetting(r.Context(), key, data); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "setting.update", "setting", nil, key, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "setting.update", "setting", nil, key, nil, "success", "", settingAuditChanges(key, settingsBefore[key], data))
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

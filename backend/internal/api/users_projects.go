@@ -197,13 +197,18 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	before, err := s.store.GetProject(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	item, err := s.store.UpdateProject(r.Context(), id, input.Name, input.Description, input.Color)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "project.update", "project", &id, item.Name, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "project.update", "project", &id, item.Name, nil, "success", "", projectAuditChanges(before, item))
 	httpx.JSON(w, http.StatusOK, item)
 }
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {

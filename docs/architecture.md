@@ -135,7 +135,9 @@ stateDiagram-v2
 - 主密钥来自环境变量或 Docker Secret，不进入数据库。
 - 命令参数使用严格校验及 POSIX/PowerShell 不相关的 Linux/macOS shell 转义。
 - Docker 安装/升级、CA 安装和宿主机调优必须是显式任务并完整审计。
-- 日志层统一脱敏密码、Token、私钥和带凭据 URI。
+- 更新操作的审计记录保存结构化前后差异；密码、Token、私钥、主机指纹、代理凭据和
+  Webhook 查询参数不写入差异，只记录是否配置或是否变更。日志层再统一执行递归脱敏，
+  前端展示时执行第二层脱敏。
 
 ## 7. Compose 项目布局
 
