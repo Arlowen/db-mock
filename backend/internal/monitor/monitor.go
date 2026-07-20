@@ -112,15 +112,11 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active platfo
 		}
 		return
 	}
-	status := "online"
-	message := ""
-	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
-		status = "needs_docker"
-		message = hostops.DockerUnavailableMessage
-	}
+	status, message := hostops.ProbeStatus(probe)
 	_ = m.store.UpdateHostProbe(ctx, host.ID, store.HostProbe{HostKey: probe.HostKey, OS: probe.OS, Distro: probe.Distro, Architecture: probe.Architecture,
 		DockerVersion: probe.DockerVersion, ComposeVersion: probe.ComposeVersion, CPUCount: probe.CPUCount, MemoryBytes: probe.MemoryBytes,
-		DiskTotalBytes: probe.DiskTotalBytes, DiskFreeBytes: probe.DiskFreeBytes, Status: status, StatusMessage: message})
+		DiskTotalBytes: probe.DiskTotalBytes, DiskFreeBytes: probe.DiskFreeBytes, DataRootWritable: probe.DataRootWritable,
+		PortProbeAvailable: probe.PortProbeAvailable, AvailablePort: probe.FirstAvailablePort, Status: status, StatusMessage: message})
 	_ = m.store.ResolveAlerts(ctx, "host", host.ID, "host_offline")
 	_ = m.store.ResolveAlerts(ctx, "host", host.ID, "ssh_credential_invalid")
 	if status != "online" {

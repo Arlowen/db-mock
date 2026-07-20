@@ -77,6 +77,9 @@ type Host struct {
 	MemoryBytes         int64           `json:"memoryBytes"`
 	DiskTotalBytes      int64           `json:"diskTotalBytes"`
 	DiskFreeBytes       int64           `json:"diskFreeBytes"`
+	DataRootWritable    bool            `json:"dataRootWritable"`
+	PortProbeAvailable  bool            `json:"portProbeAvailable"`
+	AvailablePort       int             `json:"availablePort"`
 	Status              string          `json:"status"`
 	StatusMessage       string          `json:"statusMessage,omitempty"`
 	Maintenance         bool            `json:"maintenance"`

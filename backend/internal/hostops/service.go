@@ -2,7 +2,6 @@ package hostops
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -19,6 +18,30 @@ type Service struct {
 
 type HostTaskPayload struct {
 	HostID uuid.UUID `json:"hostId"`
+}
+
+const (
+	DataRootUnavailableMessage  = "The managed data root is not writable by the SSH user"
+	PortProbeUnavailableMessage = "ss, lsof, or netstat is required to inspect the instance port pool"
+)
+
+func ProbeStatus(probe ProbeResult) (string, string) {
+	if probe.OS != "linux" && probe.OS != "darwin" {
+		return "unsupported", "Only Linux and macOS are supported"
+	}
+	if probe.Architecture != "amd64" && probe.Architecture != "arm64" {
+		return "unsupported", "Only amd64 and arm64 are supported"
+	}
+	if !probe.DataRootWritable {
+		return "degraded", DataRootUnavailableMessage
+	}
+	if !probe.PortProbeAvailable {
+		return "unsupported", PortProbeUnavailableMessage
+	}
+	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
+		return "needs_docker", DockerUnavailableMessage
+	}
+	return "online", ""
 }
 
 func NewService(target *store.Store, docker *Docker, manager *tasks.Manager) *Service {
@@ -78,27 +101,16 @@ func (s *Service) handleProbe(ctx context.Context, runtime *tasks.Runtime, task 
 		_ = s.store.SetHostStatus(context.Background(), host.ID, "offline", err.Error(), false)
 		return nil, err
 	}
-	status := "online"
-	message := ""
-	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
-		status = "needs_docker"
-		message = DockerUnavailableMessage
-	}
-	if probe.OS != "linux" && probe.OS != "darwin" {
-		status = "unsupported"
-		message = "Only Linux and macOS are supported"
-	}
-	if probe.Architecture != "amd64" && probe.Architecture != "arm64" {
-		status = "unsupported"
-		message = "Only amd64 and arm64 are supported"
-	}
+	status, message := ProbeStatus(probe)
 	if err = runtime.Stage(ctx, 80, "persist", "Saving detected host capabilities", false); err != nil {
 		return nil, err
 	}
 	err = s.store.UpdateHostProbe(ctx, host.ID, store.HostProbe{HostKey: probe.HostKey, OS: probe.OS, Distro: probe.Distro,
 		Architecture: probe.Architecture, DockerVersion: probe.DockerVersion, ComposeVersion: probe.ComposeVersion,
 		CPUCount: probe.CPUCount, MemoryBytes: probe.MemoryBytes, DiskTotalBytes: probe.DiskTotalBytes,
-		DiskFreeBytes: probe.DiskFreeBytes, Status: status, StatusMessage: message})
+		DiskFreeBytes: probe.DiskFreeBytes, DataRootWritable: probe.DataRootWritable,
+		PortProbeAvailable: probe.PortProbeAvailable, AvailablePort: probe.FirstAvailablePort,
+		Status: status, StatusMessage: message})
 	if err != nil {
 		return nil, err
 	}
@@ -156,12 +168,17 @@ func (s *Service) install(ctx context.Context, runtime *tasks.Runtime, task doma
 	if err != nil {
 		return nil, err
 	}
-	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
-		return nil, errors.New("Docker verification failed; reconnect the SSH user after docker group membership changes")
+	status, message := ProbeStatus(probe)
+	if status != "online" {
+		if message == DockerUnavailableMessage {
+			message = "Docker verification failed; reconnect the SSH user after docker group membership changes"
+		}
+		return nil, fmt.Errorf("%w: %s", domain.ErrUnavailable, message)
 	}
 	err = s.store.UpdateHostProbe(ctx, host.ID, store.HostProbe{HostKey: probe.HostKey, OS: probe.OS, Distro: probe.Distro,
 		Architecture: probe.Architecture, DockerVersion: probe.DockerVersion, ComposeVersion: probe.ComposeVersion,
 		CPUCount: probe.CPUCount, MemoryBytes: probe.MemoryBytes, DiskTotalBytes: probe.DiskTotalBytes,
-		DiskFreeBytes: probe.DiskFreeBytes, Status: "online"})
+		DiskFreeBytes: probe.DiskFreeBytes, DataRootWritable: probe.DataRootWritable,
+		PortProbeAvailable: probe.PortProbeAvailable, AvailablePort: probe.FirstAvailablePort, Status: status})
 	return map[string]any{"hostId": host.ID, "dockerVersion": probe.DockerVersion, "composeVersion": probe.ComposeVersion}, err
 }

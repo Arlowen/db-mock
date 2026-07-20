@@ -117,7 +117,7 @@ test('initializes the platform and switches the embedded interface language', as
   await hostDialog.getByRole('button', { name: '测试连接' }).click()
   await expect(hostDialog.getByLabel('SSH 地址')).toHaveAttribute('aria-invalid', 'true')
   await expect(page.locator('.ant-message-notice-content').filter({ hasText: '[object Object]' })).toHaveCount(0)
-  await page.route('**/api/v1/hosts/test', async (route) => route.fulfill({ json: { hostKey: 'SHA256:e2e-host-key AAAA', os: 'linux', distro: 'ubuntu:24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', passwordlessSudo: false, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920 } }))
+  await page.route('**/api/v1/hosts/test', async (route) => route.fulfill({ json: { hostKey: 'SHA256:e2e-host-key AAAA', os: 'linux', distro: 'ubuntu:24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', passwordlessSudo: false, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, dataRootWritable: true, portProbeAvailable: true, firstAvailablePort: 20000, verificationToken: 'e2e-verification-token', verificationExpiresAt: '2026-07-20T12:10:00Z' } }))
   await hostDialog.getByLabel('SSH 地址').fill('10.0.0.8')
   await hostDialog.getByLabel('SSH 用户').fill('e2e')
   await hostDialog.getByLabel('私钥', { exact: true }).fill('e2e-private-key')

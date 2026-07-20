@@ -56,17 +56,20 @@ type CommandResult struct {
 }
 
 type ProbeResult struct {
-	HostKey          string  `json:"hostKey"`
-	OS               string  `json:"os"`
-	Distro           string  `json:"distro"`
-	Architecture     string  `json:"architecture"`
-	DockerVersion    string  `json:"dockerVersion"`
-	ComposeVersion   string  `json:"composeVersion"`
-	PasswordlessSudo bool    `json:"passwordlessSudo"`
-	CPUCount         float64 `json:"cpuCount"`
-	MemoryBytes      int64   `json:"memoryBytes"`
-	DiskTotalBytes   int64   `json:"diskTotalBytes"`
-	DiskFreeBytes    int64   `json:"diskFreeBytes"`
+	HostKey            string  `json:"hostKey"`
+	OS                 string  `json:"os"`
+	Distro             string  `json:"distro"`
+	Architecture       string  `json:"architecture"`
+	DockerVersion      string  `json:"dockerVersion"`
+	ComposeVersion     string  `json:"composeVersion"`
+	PasswordlessSudo   bool    `json:"passwordlessSudo"`
+	CPUCount           float64 `json:"cpuCount"`
+	MemoryBytes        int64   `json:"memoryBytes"`
+	DiskTotalBytes     int64   `json:"diskTotalBytes"`
+	DiskFreeBytes      int64   `json:"diskFreeBytes"`
+	DataRootWritable   bool    `json:"dataRootWritable"`
+	PortProbeAvailable bool    `json:"portProbeAvailable"`
+	FirstAvailablePort int     `json:"firstAvailablePort"`
 }
 
 func NewManager(vault *crypto.Vault) *Manager {
@@ -186,8 +189,24 @@ func (m *Manager) Probe(ctx context.Context, host domain.Host) (ProbeResult, err
 		return ProbeResult{}, err
 	}
 	defer client.Close()
+	command := probeCommand(host)
+	session, err := client.NewSession()
+	if err != nil {
+		return ProbeResult{}, err
+	}
+	defer session.Close()
+	output, err := session.CombinedOutput(command)
+	if err != nil {
+		return ProbeResult{}, fmt.Errorf("probe host: %w: %s", err, output)
+	}
+	return parseProbeResult(ParseKeyValues(string(output)), captured, host.PortStart, host.PortEnd)
+}
+
+func probeCommand(host domain.Host) string {
 	root := ShellQuote(host.DataRoot)
-	command := `set -u
+	portStart := strconv.Itoa(host.PortStart)
+	portEnd := strconv.Itoa(host.PortEnd)
+	return `set -u
 os="$(uname -s 2>/dev/null || true)"
 arch="$(uname -m 2>/dev/null || true)"
 distro=""
@@ -203,27 +222,47 @@ if [ -z "$docker_resources" ] || [ "$docker_resources" = "$memory" ]; then
   else cpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0)"; memory="$(awk '/MemTotal/{printf "%.0f", $2*1024}' /proc/meminfo 2>/dev/null || echo 0)"; fi
 fi
 root=` + root + `
+data_root_writable=false
+if [ ! -L "$root" ] && mkdir -p "$root" 2>/dev/null; then
+  probe_file="$root/.dbmock-write-probe-$$"
+  if (umask 077; set -C; : > "$probe_file") 2>/dev/null; then
+    data_root_writable=true
+    rm -f -- "$probe_file"
+  fi
+fi
 probe="$root"; while [ ! -e "$probe" ] && [ "$probe" != / ] && [ "$probe" != . ]; do probe="$(dirname "$probe")"; done
 disk="$(df -Pk "$probe" 2>/dev/null | awk 'NR==2{printf "%.0f|%.0f", $2*1024, $4*1024}' || true)"
-printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\ncpu=%s\nmemory=%s\ndisk=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$passwordless_sudo" "$cpu" "$memory" "$disk"`
-	session, err := client.NewSession()
-	if err != nil {
-		return ProbeResult{}, err
-	}
-	defer session.Close()
-	output, err := session.CombinedOutput(command)
-	if err != nil {
-		return ProbeResult{}, fmt.Errorf("probe host: %w: %s", err, output)
-	}
-	values := ParseKeyValues(string(output))
+port_probe_available=false
+listeners=""
+if command -v ss >/dev/null 2>&1; then
+  port_probe_available=true; listeners="$(ss -H -ltn 2>/dev/null | awk '{print $4}')"
+elif command -v lsof >/dev/null 2>&1; then
+  port_probe_available=true; listeners="$(lsof -nP -a -iTCP -sTCP:LISTEN -F n 2>/dev/null | sed -n 's/^n//p')"
+elif command -v netstat >/dev/null 2>&1; then
+  port_probe_available=true; listeners="$(netstat -an 2>/dev/null | awk '/LISTEN/{print $4}')"
+fi
+first_available_port=0
+if [ "$port_probe_available" = true ]; then
+  first_available_port="$(printf '%s\n' "$listeners" | awk -v start=` + portStart + ` -v finish=` + portEnd + ` '
+    { value=$1; sub(/^n/, "", value); sub(/^.*[:.]/, "", value); if (value ~ /^[0-9]+$/) used[value]=1 }
+    END { for (port=start; port<=finish; port++) if (!used[port]) { print port; exit } }
+  ')"
+  [ -n "$first_available_port" ] || first_available_port=0
+fi
+printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\ncpu=%s\nmemory=%s\ndisk=%s\ndata_root_writable=%s\nport_probe_available=%s\nfirst_available_port=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$passwordless_sudo" "$cpu" "$memory" "$disk" "$data_root_writable" "$port_probe_available" "$first_available_port"`
+}
+
+func parseProbeResult(values map[string]string, captured string, portStart, portEnd int) (ProbeResult, error) {
 	result := ProbeResult{
-		HostKey:          captured,
-		OS:               normalizeOS(values["os"]),
-		Distro:           values["distro"],
-		Architecture:     normalizeArchitecture(values["arch"]),
-		DockerVersion:    values["docker"],
-		ComposeVersion:   values["compose"],
-		PasswordlessSudo: values["passwordless_sudo"] == "true",
+		HostKey:            captured,
+		OS:                 normalizeOS(values["os"]),
+		Distro:             values["distro"],
+		Architecture:       normalizeArchitecture(values["arch"]),
+		DockerVersion:      values["docker"],
+		ComposeVersion:     values["compose"],
+		PasswordlessSudo:   values["passwordless_sudo"] == "true",
+		DataRootWritable:   values["data_root_writable"] == "true",
+		PortProbeAvailable: values["port_probe_available"] == "true",
 	}
 	var cpuErr error
 	var memoryOK, diskTotalOK, diskFreeOK bool
@@ -234,8 +273,14 @@ printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\n
 		result.DiskTotalBytes, diskTotalOK = parseByteCount(disk[0])
 		result.DiskFreeBytes, diskFreeOK = parseByteCount(disk[1])
 	}
-	if cpuErr != nil || result.CPUCount <= 0 || math.IsNaN(result.CPUCount) || math.IsInf(result.CPUCount, 0) || !memoryOK || result.MemoryBytes <= 0 || !diskTotalOK || result.DiskTotalBytes <= 0 || !diskFreeOK || result.DiskFreeBytes < 0 {
-		return ProbeResult{}, fmt.Errorf("%w: unable to determine host CPU, memory, or disk capacity", domain.ErrUnavailable)
+	availablePort, portErr := strconv.Atoi(values["first_available_port"])
+	if portErr == nil && (availablePort == 0 || availablePort >= portStart && availablePort <= portEnd) {
+		result.FirstAvailablePort = availablePort
+	} else {
+		portErr = errors.New("invalid available port")
+	}
+	if cpuErr != nil || result.CPUCount <= 0 || math.IsNaN(result.CPUCount) || math.IsInf(result.CPUCount, 0) || !memoryOK || result.MemoryBytes <= 0 || !diskTotalOK || result.DiskTotalBytes <= 0 || !diskFreeOK || result.DiskFreeBytes < 0 || portErr != nil {
+		return ProbeResult{}, fmt.Errorf("%w: unable to determine host CPU, memory, disk, or port-pool capacity", domain.ErrUnavailable)
 	}
 	return result, nil
 }

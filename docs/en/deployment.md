@@ -6,6 +6,8 @@
 - Docker Engine 24+ and Docker Compose v2; at least 2 CPUs, 4 GiB RAM, and 20 GiB free disk.
 - The default listener is `0.0.0.0:8080`. The browser and control-plane container must be able to reach managed hosts over SSH.
 - Managed Linux hosts require direct SSH. Installing or upgrading Docker through DB Mock requires passwordless `sudo` for the SSH user.
+- The managed host's SSH user must be able to create the configured data root and read and write files inside it.
+- Managed hosts must provide at least one of `ss`, `lsof`, or `netstat` so DB Mock can validate the port pool and avoid active listeners.
 - Configure the Linux Docker daemon proxy from the host action menu. Configure macOS proxy settings in Docker Desktop first.
 
 ## Online installation

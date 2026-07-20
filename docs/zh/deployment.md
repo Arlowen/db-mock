@@ -6,6 +6,8 @@
 - Docker Engine 24+ 与 Docker Compose v2；至少 2 CPU、4 GB 内存、20 GB 可用磁盘。
 - 默认监听 `0.0.0.0:8080`。浏览器和控制平台容器需要能够访问被管理主机的 SSH 端口。
 - 被管理 Linux 主机需支持 SSH 直连；由平台安装/升级 Docker 时，SSH 用户必须具备免密 `sudo`。
+- 被管理主机的 SSH 用户必须能够创建配置的数据根目录并在其中读写文件。
+- 被管理主机需安装 `ss`、`lsof` 或 `netstat` 中至少一个工具，用于验证端口池并避开已有监听端口。
 - Linux Docker daemon 代理可在主机页面配置后点击“Apply Docker proxy”；macOS 代理需先在 Docker Desktop 中配置。
 
 ## 在线安装

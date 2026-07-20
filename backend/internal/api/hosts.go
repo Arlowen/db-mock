@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/auth"
 	"github.com/pika/db-mock/internal/domain"
+	"github.com/pika/db-mock/internal/hostops"
 	"github.com/pika/db-mock/internal/httpx"
 	"github.com/pika/db-mock/internal/store"
 )
@@ -26,6 +28,7 @@ func (s *Server) hostRoutes(r chi.Router) {
 }
 
 type hostRequest struct {
+	HostID             *uuid.UUID        `json:"hostId"`
 	ProjectID          *uuid.UUID        `json:"projectId"`
 	Name               string            `json:"name"`
 	SSHAddress         string            `json:"sshAddress"`
@@ -35,6 +38,7 @@ type hostRequest struct {
 	Credential         string            `json:"credential"`
 	Passphrase         string            `json:"passphrase"`
 	HostKey            string            `json:"hostKey"`
+	VerificationToken  string            `json:"verificationToken"`
 	ConnectionAddress  string            `json:"connectionAddress"`
 	DataRoot           string            `json:"dataRoot"`
 	PortStart          int               `json:"portStart"`
@@ -71,6 +75,11 @@ func (s *Server) getHost(w http.ResponseWriter, r *http.Request) {
 }
 
 func normalizeHostInput(input *hostRequest) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.SSHAddress = strings.TrimSpace(input.SSHAddress)
+	input.SSHUser = strings.TrimSpace(input.SSHUser)
+	input.AuthType = strings.TrimSpace(input.AuthType)
+	input.ConnectionAddress = strings.TrimSpace(input.ConnectionAddress)
 	if input.SSHPort == 0 {
 		input.SSHPort = 22
 	}
@@ -80,6 +89,7 @@ func normalizeHostInput(input *hostRequest) {
 	if input.DataRoot == "" {
 		input.DataRoot = "/opt/dbmock"
 	}
+	input.DataRoot = path.Clean(input.DataRoot)
 	if input.PortStart == 0 {
 		input.PortStart = 20000
 	}
@@ -138,19 +148,44 @@ func (s *Server) testHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.New()
+	storedHostKey := ""
+	if input.HostID != nil {
+		existing, getErr := s.store.GetHost(r.Context(), *input.HostID)
+		if getErr != nil {
+			httpx.Error(w, r, getErr)
+			return
+		}
+		id = existing.ID
+		storedHostKey = existing.HostKey
+	}
 	encrypted, err := s.encryptedHostCredential(id, input)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	host := domain.Host{ID: id, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser,
-		AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, DataRoot: input.DataRoot}
+		AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: storedHostKey, DataRoot: input.DataRoot,
+		PortStart: input.PortStart, PortEnd: input.PortEnd}
 	probe, err := s.docker.Probe(r.Context(), host)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, probe)
+	status, statusMessage := hostops.ProbeStatus(probe)
+	if status == "unsupported" || status == "degraded" {
+		httpx.Error(w, r, fmt.Errorf("%w: %s", domain.ErrUnavailable, statusMessage))
+		return
+	}
+	token, expiresAt, err := issueHostVerification(s.vault, input, input.HostID, probe, time.Now())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, struct {
+		hostops.ProbeResult
+		VerificationToken     string    `json:"verificationToken"`
+		VerificationExpiresAt time.Time `json:"verificationExpiresAt"`
+	}{ProbeResult: probe, VerificationToken: token, VerificationExpiresAt: expiresAt})
 }
 
 func (s *Server) createHost(w http.ResponseWriter, r *http.Request) {
@@ -169,17 +204,23 @@ func (s *Server) createHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.New()
-	if input.HostKey == "" {
-		httpx.Error(w, r, fmt.Errorf("%w: test the SSH connection and confirm its host key first", domain.ErrInvalid))
+	receipt, err := verifyHostVerification(s.vault, input.VerificationToken, input, nil, time.Now())
+	if err != nil {
+		httpx.Error(w, r, err)
 		return
 	}
+	if input.ManageDocker && !receipt.PasswordlessSudo {
+		httpx.Error(w, r, fmt.Errorf("%w: passwordless sudo is required when Docker management is enabled", domain.ErrConflict))
+		return
+	}
+	input.HostKey = receipt.HostKey
 	encrypted, err := s.encryptedHostCredential(id, input)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	labels, _ := json.Marshal(input.Labels)
-	host, err := s.store.CreateHost(r.Context(), store.HostInput{ID: id, ProjectID: input.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, ManageDocker: input.ManageDocker, ProxyHTTP: input.ProxyHTTP, ProxyHTTPS: input.ProxyHTTPS, ProxyNoProxy: input.ProxyNoProxy, Maintenance: input.Maintenance, AutoRestartDefault: hostAutoRestart(input), Labels: labels})
+	host, err := s.store.CreateHost(r.Context(), store.HostInput{ID: id, ProjectID: input.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, ManageDocker: input.ManageDocker, ProxyHTTP: input.ProxyHTTP, ProxyHTTPS: input.ProxyHTTPS, ProxyNoProxy: input.ProxyNoProxy, Maintenance: input.Maintenance, AutoRestartDefault: hostAutoRestart(input), Labels: labels, DataRootWritable: receipt.DataRootWritable, PortProbeAvailable: receipt.PortProbeAvailable, AvailablePort: receipt.FirstAvailablePort})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -216,6 +257,27 @@ func (s *Server) updateHost(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	requiresVerification := hostVerificationRequired(existing, input)
+	dataRootWritable, portProbeAvailable, availablePort := existing.DataRootWritable, existing.PortProbeAvailable, existing.AvailablePort
+	if requiresVerification {
+		if input.Credential == "" {
+			httpx.Error(w, r, fmt.Errorf("%w: enter the SSH credential and test the changed host settings", domain.ErrInvalid))
+			return
+		}
+		receipt, verifyErr := verifyHostVerification(s.vault, input.VerificationToken, input, &id, time.Now())
+		if verifyErr != nil {
+			httpx.Error(w, r, verifyErr)
+			return
+		}
+		if input.ManageDocker && !receipt.PasswordlessSudo {
+			httpx.Error(w, r, fmt.Errorf("%w: passwordless sudo is required when Docker management is enabled", domain.ErrConflict))
+			return
+		}
+		input.HostKey = receipt.HostKey
+		dataRootWritable, portProbeAvailable, availablePort = receipt.DataRootWritable, receipt.PortProbeAvailable, receipt.FirstAvailablePort
+	} else {
+		input.HostKey = existing.HostKey
+	}
 	encrypted := ""
 	if input.Credential != "" {
 		encrypted, err = s.encryptedHostCredential(id, input)
@@ -225,7 +287,7 @@ func (s *Server) updateHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	labels, _ := json.Marshal(input.Labels)
-	host, err := s.store.UpdateHost(r.Context(), id, store.HostInput{ProjectID: input.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, ManageDocker: input.ManageDocker, ProxyHTTP: input.ProxyHTTP, ProxyHTTPS: input.ProxyHTTPS, ProxyNoProxy: input.ProxyNoProxy, Maintenance: input.Maintenance, AutoRestartDefault: hostAutoRestart(input), Labels: labels})
+	host, err := s.store.UpdateHost(r.Context(), id, store.HostInput{ProjectID: input.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, ManageDocker: input.ManageDocker, ProxyHTTP: input.ProxyHTTP, ProxyHTTPS: input.ProxyHTTPS, ProxyNoProxy: input.ProxyNoProxy, Maintenance: input.Maintenance, AutoRestartDefault: hostAutoRestart(input), Labels: labels, DataRootWritable: dataRootWritable, PortProbeAvailable: portProbeAvailable, AvailablePort: availablePort})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
