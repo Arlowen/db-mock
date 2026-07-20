@@ -224,7 +224,6 @@ Use `docker compose -f deploy/compose.yaml` for startup, logs, and the
 - uses: golang/govulncheck-action@v1
   with:
     go-version-input: '1.25.12'
-    go-version-file: backend/go.mod
     cache-dependency-path: backend/go.sum
     work-dir: backend
     go-package: ./...
