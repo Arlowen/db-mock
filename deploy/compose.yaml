@@ -19,7 +19,8 @@ services:
   dbmock:
     image: ${DBMOCK_IMAGE:-ghcr.io/pika/db-mock:latest}
     build:
-      context: .
+      context: ..
+      dockerfile: deploy/docker/Dockerfile
       args:
         VERSION: ${DBMOCK_VERSION:-dev}
     restart: unless-stopped
@@ -41,7 +42,7 @@ services:
       - "${DBMOCK_BIND_ADDRESS:-0.0.0.0}:${DBMOCK_PORT:-8080}:8080"
     volumes:
       - dbmock_data:/var/lib/dbmock
-      - ${DBMOCK_TLS_DIR:-./deploy/tls}:/etc/dbmock/tls:ro
+      - ${DBMOCK_TLS_DIR:-./tls}:/etc/dbmock/tls:ro
     networks: [dbmock]
 
 volumes:

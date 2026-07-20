@@ -1,6 +1,6 @@
 .git
 .github
-.env
+deploy/.env
 data
 dist
 frontend/node_modules

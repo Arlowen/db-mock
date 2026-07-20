@@ -1,5 +1,5 @@
 .DS_Store
-.env
+deploy/.env
 data/
 /dist/
 frontend/node_modules/

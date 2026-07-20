@@ -13,12 +13,12 @@ FROM ${GOLANG_IMAGE} AS backend
 ARG VERSION=dev
 ARG TARGETOS=linux
 ARG TARGETARCH
-WORKDIR /src
+WORKDIR /src/backend
 RUN apk add --no-cache ca-certificates git
-COPY go.mod go.sum ./
+COPY backend/go.mod backend/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY . .
-COPY --from=frontend /src/web/dist ./web/dist
+COPY backend/ ./
+COPY --from=frontend /src/backend/web/dist ./web/dist
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/dbmock ./cmd/dbmock
 
 FROM ${ALPINE_IMAGE}

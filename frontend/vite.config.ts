@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: { '/api': 'http://localhost:8080' },
   },
   build: {
-    outDir: resolve(__dirname, '../web/dist'),
+    outDir: resolve(__dirname, '../backend/web/dist'),
     emptyOutDir: true,
     sourcemap: false,
   },
