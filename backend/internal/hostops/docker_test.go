@@ -19,10 +19,21 @@ func TestParseDockerSize(t *testing.T) {
 	}
 }
 
-func TestParseManagedStatesMarksMixedContainersDegraded(t *testing.T) {
-	states := parseManagedStates("one|running\none|exited\ntwo|running\ntwo|running\n")
-	if states["one"] != "degraded" || states["two"] != "running" {
-		t.Fatalf("unexpected states: %#v", states)
+func TestParseManagedStatesAggregatesProcessAndHealth(t *testing.T) {
+	states := parseManagedStates("one|running|healthy\none|running|unhealthy\n" +
+		"two|running|starting\ntwo|running|healthy\n" +
+		"three|exited|\nthree|dead|\n" +
+		"four|running|healthy\nfour|exited|unhealthy\n")
+	tests := map[string]ManagedState{
+		"one":   {State: "running", Health: "unhealthy"},
+		"two":   {State: "running", Health: "starting"},
+		"three": {State: "stopped", Health: ""},
+		"four":  {State: "degraded", Health: "unhealthy"},
+	}
+	for id, want := range tests {
+		if got := states[id]; got != want {
+			t.Errorf("state %s = %#v, want %#v", id, got, want)
+		}
 	}
 }
 

@@ -1,5 +1,6 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
+import { getStoredValue } from './lib/storage'
 
 export const zh: Record<string, string> = {
   app: 'DB Mock', appTagline: 'Docker Compose 数据库管理平台',
@@ -220,6 +221,9 @@ export const zh: Record<string, string> = {
   taskMessage_verifying_docker_installation: '正在验证 Docker 安装',
   statusMessage_docker_engine_or_compose_v2_is_not_available: 'Docker Engine 或 Compose v2 不可用', statusMessage_ssh_connection_timed_out: 'SSH 连接超时',
   statusMessage_only_linux_and_macos_are_supported: '仅支持 Linux 和 macOS', statusMessage_only_amd64_and_arm64_are_supported: '仅支持 amd64 和 arm64',
+  statusMessage_container_health_check_is_starting: '容器健康检查正在启动', statusMessage_container_health_check_is_failing: '容器健康检查失败',
+  statusMessage_container_is_not_running: '容器未运行', statusMessage_one_or_more_database_containers_are_not_running: '一个或多个数据库容器未运行',
+  statusMessage_container_is_running_while_desired_state_is_stopped: '容器仍在运行，但期望状态为已停止',
 
   acknowledge: '确认告警', resolve: '标记已解决', alertEvents: '告警', webhook: 'Webhook', addWebhook: '添加 Webhook', editWebhook: '编辑 Webhook', testWebhook: '测试 Webhook', webhookQueued: '测试请求已加入发送队列',
   hmacSigningEnabled: 'HMAC 签名已开启', noWebhooks: '尚未配置 Webhook。', hmacSecret: 'HMAC 密钥', webhookEvents: '订阅事件',
@@ -229,8 +233,9 @@ export const zh: Record<string, string> = {
   alertResourceStillUnhealthy: '受影响资源仍处于异常状态', alertResourceRecovered: '受影响资源当前已恢复', alertResourceUnhealthyHint: '{{name}} 当前状态为「{{status}}」。请先检查资源和最近任务，再决定是否关闭告警。', alertResourceRecoveredHint: '{{name}} 当前状态为「{{status}}」。确认业务已恢复后可以关闭告警。', alertResourceUnavailableHint: '资源可能已被删除，仍可根据技术详情和处理记录完成追踪。', inspectAffectedResource: '检查受影响资源',
   relatedActiveAlerts: '同一资源的其他未解决告警', alertDiagnostics: '故障上下文', alertResolveConfirmTitle: '确认将告警标记为已解决？', alertResolveConfirm: '确认问题已经恢复且不再需要继续跟踪。', alertResolveUnhealthyConfirm: '{{name}} 当前仍为「{{status}}」。仅在已通过外部方式处理或无需继续跟踪时标记已解决。',
   alertDetail_restartFailures: '自动重启失败次数', alertDetail_exitCode: '容器退出码', alertDetail_usagePercent: '磁盘使用率', alertDetail_path: '检测路径', alertDetail_consecutiveFailures: '连续检测失败',
+  alertDetail_containerState: '容器运行状态', alertDetail_healthStatus: 'Docker 健康状态',
   alertSummary_host_offline: '平台无法通过 SSH 连接主机。', alertSummary_disk_critical: '主机磁盘空间已达到严重阈值。', alertSummary_disk_warning: '主机磁盘空间接近告警阈值。',
-  alertSummary_container_exited: '数据库容器意外停止。', alertSummary_restart_failed: '平台尝试自动重启数据库，但未能恢复运行。',
+  alertSummary_container_exited: '一个或多个数据库容器意外停止。', alertSummary_container_unhealthy: '数据库容器仍在运行，但 Docker 健康检查失败。', alertSummary_restart_failed: '平台尝试自动重启数据库，但未能恢复运行。',
   webhookFormDescription: '事件会以 JSON POST 请求发送；业务事件失败后按退避策略最多尝试五次，测试请求只发送一次。', webhookNamePlaceholder: '例如：研发告警群', webhookURLHint: '控制服务会直接 POST 到此地址且不会跟随重定向，请填写接收端最终 URL。',
   webhookSecretCreateHint: '可选。配置后每次请求都会携带 X-DBMock-Signature。', webhookSecretEditHint: '已配置签名密钥；留空将保持现有密钥不变。', removeWebhookSecret: '移除已配置的 HMAC 密钥', webhookEventsHint: '只选择团队真正需要处理的事件；选择“全部事件”时会自动清除其他选项。',
   webhookAllEvents: '全部事件', webhookDeleteConfirm: '删除后将同时移除该 Webhook 的投递记录，且无法恢复。', deliveryHistory: '投递记录', deliveryHistoryDescription: '展示最近 50 次请求，包括自动重试和接收端响应。',
@@ -239,7 +244,7 @@ export const zh: Record<string, string> = {
   event_all: '全部事件', event_alert_created: '新告警', event_instance_failed: '数据库异常', event_instance_restart_failed: '自动重启失败', event_host_offline: '主机离线',
   event_host_disk_warning: '主机磁盘警告', event_host_disk_critical: '主机磁盘严重告警', event_task_finished: '任务结束', event_task_succeeded: '任务成功', event_task_failed: '任务失败', event_webhook_test: '测试请求',
   alertTitle_host_offline: '主机已离线', alertTitle_disk_critical: '磁盘使用率严重超限', alertTitle_disk_warning: '磁盘使用率较高',
-  alertTitle_container_exited: '数据库容器已停止', alertTitle_restart_failed: '自动重启失败',
+  alertTitle_container_exited: '数据库容器已停止', alertTitle_container_unhealthy: '数据库健康检查失败', alertTitle_restart_failed: '自动重启失败',
 
   deletedRecords: '已删除 {{count}} 条记录', auditDeleteWarning: '该时间点之前的审计记录将被永久删除。',
   deleteBefore: '删除此时间之前的记录', typeClearToConfirm: '输入 CLEAR 以确认',
@@ -486,6 +491,9 @@ export const en: Record<string, string> = {
   taskMessage_verifying_docker_installation: 'Verifying Docker installation',
   statusMessage_docker_engine_or_compose_v2_is_not_available: 'Docker Engine or Compose v2 is not available', statusMessage_ssh_connection_timed_out: 'SSH connection timed out',
   statusMessage_only_linux_and_macos_are_supported: 'Only Linux and macOS are supported', statusMessage_only_amd64_and_arm64_are_supported: 'Only amd64 and arm64 are supported',
+  statusMessage_container_health_check_is_starting: 'Container health check is starting', statusMessage_container_health_check_is_failing: 'Container health check is failing',
+  statusMessage_container_is_not_running: 'Container is not running', statusMessage_one_or_more_database_containers_are_not_running: 'One or more database containers are not running',
+  statusMessage_container_is_running_while_desired_state_is_stopped: 'Container is running while the desired state is stopped',
 
   acknowledge: 'Acknowledge', resolve: 'Mark resolved', alertEvents: 'Alerts', webhook: 'Webhook', addWebhook: 'Add webhook', editWebhook: 'Edit webhook', testWebhook: 'Test webhook', webhookQueued: 'Test request queued for delivery',
   hmacSigningEnabled: 'HMAC signing enabled', noWebhooks: 'No webhooks configured.', hmacSecret: 'HMAC secret', webhookEvents: 'Events',
@@ -495,8 +503,9 @@ export const en: Record<string, string> = {
   alertResourceStillUnhealthy: 'The affected resource is still unhealthy', alertResourceRecovered: 'The affected resource has recovered', alertResourceUnhealthyHint: '{{name}} is currently {{status}}. Inspect the resource and recent tasks before resolving this alert.', alertResourceRecoveredHint: '{{name}} is currently {{status}}. Resolve the alert after confirming the service has recovered.', alertResourceUnavailableHint: 'The resource may have been deleted. Use the technical details and lifecycle to complete the investigation.', inspectAffectedResource: 'Inspect affected resource',
   relatedActiveAlerts: 'Other unresolved alerts for this resource', alertDiagnostics: 'Incident context', alertResolveConfirmTitle: 'Mark this alert as resolved?', alertResolveConfirm: 'Confirm the issue has recovered and no longer needs tracking.', alertResolveUnhealthyConfirm: '{{name}} is still {{status}}. Resolve this alert only if the issue was handled externally or no longer needs tracking.',
   alertDetail_restartFailures: 'Automatic restart failures', alertDetail_exitCode: 'Container exit code', alertDetail_usagePercent: 'Disk usage', alertDetail_path: 'Observed path', alertDetail_consecutiveFailures: 'Consecutive probe failures',
+  alertDetail_containerState: 'Container state', alertDetail_healthStatus: 'Docker health status',
   alertSummary_host_offline: 'The platform cannot reach this host over SSH.', alertSummary_disk_critical: 'Host disk usage has reached the critical threshold.', alertSummary_disk_warning: 'Host disk usage is approaching its alert threshold.',
-  alertSummary_container_exited: 'The database container stopped unexpectedly.', alertSummary_restart_failed: 'The platform attempted to restart the database but could not restore it.',
+  alertSummary_container_exited: 'One or more database containers stopped unexpectedly.', alertSummary_container_unhealthy: 'The database container is running, but its Docker health check is failing.', alertSummary_restart_failed: 'The platform attempted to restart the database but could not restore it.',
   webhookFormDescription: 'Events are sent as JSON POST requests. Event deliveries retry with backoff up to five times; test requests send once.', webhookNamePlaceholder: 'For example: Engineering alerts', webhookURLHint: 'The control service posts directly to this address and does not follow redirects. Enter the receiver’s final URL.',
   webhookSecretCreateHint: 'Optional. When configured, every request includes X-DBMock-Signature.', webhookSecretEditHint: 'A signing secret is configured. Leave this blank to keep it unchanged.', removeWebhookSecret: 'Remove the configured HMAC secret', webhookEventsHint: 'Select only events your team needs. Choosing “All events” clears the other selections.',
   webhookAllEvents: 'All events', webhookDeleteConfirm: 'Deleting this webhook also removes its delivery history and cannot be undone.', deliveryHistory: 'Delivery history', deliveryHistoryDescription: 'The latest 50 requests, including automatic retries and receiver responses.',
@@ -505,7 +514,7 @@ export const en: Record<string, string> = {
   event_all: 'All events', event_alert_created: 'New alert', event_instance_failed: 'Database failure', event_instance_restart_failed: 'Automatic restart failure', event_host_offline: 'Host offline',
   event_host_disk_warning: 'Host disk warning', event_host_disk_critical: 'Host disk critical', event_task_finished: 'Task finished', event_task_succeeded: 'Task succeeded', event_task_failed: 'Task failed', event_webhook_test: 'Test request',
   alertTitle_host_offline: 'Host is offline', alertTitle_disk_critical: 'Disk usage is critical', alertTitle_disk_warning: 'Disk usage is high',
-  alertTitle_container_exited: 'Database container stopped', alertTitle_restart_failed: 'Automatic restart failed',
+  alertTitle_container_exited: 'Database container stopped', alertTitle_container_unhealthy: 'Database health check failed', alertTitle_restart_failed: 'Automatic restart failed',
 
   deletedRecords: 'Deleted {{count}} records', auditDeleteWarning: 'Audit records before this timestamp will be permanently deleted.',
   deleteBefore: 'Delete before', typeClearToConfirm: 'Type CLEAR to confirm',
@@ -541,7 +550,7 @@ if (zhKeys.join('\n') !== enKeys.join('\n')) {
 
 i18n.use(initReactI18next).init({
   resources: { 'zh-CN': { translation: zh }, 'en-US': { translation: en } },
-  lng: localStorage.getItem('dbmock-locale') || 'zh-CN',
+  lng: getStoredValue('dbmock-locale') || 'zh-CN',
   fallbackLng: 'zh-CN',
   interpolation: { escapeValue: false },
 })

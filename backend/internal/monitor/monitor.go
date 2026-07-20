@@ -181,25 +181,63 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active policy
 	}
 }
 
-func (m *Monitor) reconcileInstance(ctx context.Context, host domain.Host, instance domain.Instance, state string) {
+type instanceReconciliation struct {
+	Status  string
+	Message string
+	Failure string
+}
+
+func decideInstanceReconciliation(desired string, observed hostops.ManagedState) instanceReconciliation {
+	if desired == "stopped" {
+		if observed.State == "stopped" || observed.State == "" {
+			return instanceReconciliation{Status: "stopped"}
+		}
+		return instanceReconciliation{Status: "degraded", Message: "Container is running while desired state is stopped"}
+	}
+	if observed.State == "running" {
+		switch observed.Health {
+		case "", "healthy":
+			return instanceReconciliation{Status: "running"}
+		case "starting":
+			return instanceReconciliation{Status: "degraded", Message: "Container health check is starting"}
+		default:
+			return instanceReconciliation{Status: "degraded", Message: "Container health check is failing", Failure: "container_unhealthy"}
+		}
+	}
+	if observed.State == "degraded" {
+		return instanceReconciliation{Status: "degraded", Message: "One or more database containers are not running", Failure: "container_exited"}
+	}
+	return instanceReconciliation{Status: "degraded", Message: "Container is not running", Failure: "container_exited"}
+}
+
+func (m *Monitor) reconcileInstance(ctx context.Context, host domain.Host, instance domain.Instance, observed hostops.ManagedState) {
 	if taskOwnsInstanceState(instance.Status) {
 		return
 	}
+	decision := decideInstanceReconciliation(instance.DesiredState, observed)
+	_ = m.store.UpdateInstanceState(ctx, instance.ID, decision.Status, instance.DesiredState, decision.Message)
 	if instance.DesiredState == "stopped" {
-		if state == "running" {
-			_ = m.store.UpdateInstanceState(ctx, instance.ID, "degraded", "", "Container is running while desired state is stopped")
-		} else {
-			_ = m.store.UpdateInstanceState(ctx, instance.ID, "stopped", "", "")
+		m.resolveRuntimeAlerts(ctx, instance.ID, "container_exited", "container_unhealthy", "restart_failed")
+		return
+	}
+	switch decision.Failure {
+	case "":
+		_ = m.store.ResolveAlerts(ctx, "instance", instance.ID, "container_exited")
+		if decision.Status == "running" {
+			m.resolveRuntimeAlerts(ctx, instance.ID, "container_unhealthy", "restart_failed")
 		}
 		return
-	}
-	if state == "running" || state == "degraded" {
-		_ = m.store.UpdateInstanceState(ctx, instance.ID, state, "running", "")
+	case "container_unhealthy":
 		_ = m.store.ResolveAlerts(ctx, "instance", instance.ID, "container_exited")
+		m.raise(ctx, store.AlertInput{Severity: "warning", Type: "container_unhealthy", ResourceType: "instance", ResourceID: instance.ID,
+			Title: "Database health check failed", Message: "Docker reported that the database health check is " + observed.Health,
+			Details: map[string]string{"healthStatus": observed.Health}})
 		return
 	}
-	_ = m.store.UpdateInstanceState(ctx, instance.ID, "degraded", "running", "Container is not running")
-	m.raise(ctx, store.AlertInput{Severity: "warning", Type: "container_exited", ResourceType: "instance", ResourceID: instance.ID, Title: "Database container stopped", Message: "The database container exited unexpectedly"})
+	_ = m.store.ResolveAlerts(ctx, "instance", instance.ID, "container_unhealthy")
+	m.raise(ctx, store.AlertInput{Severity: "warning", Type: "container_exited", ResourceType: "instance", ResourceID: instance.ID,
+		Title: "Database container stopped", Message: "One or more database containers exited unexpectedly",
+		Details: map[string]string{"containerState": observed.State, "healthStatus": observed.Health}})
 	if !instance.AutoRestart || instance.RestartFailures >= 3 {
 		return
 	}
@@ -209,6 +247,12 @@ func (m *Monitor) reconcileInstance(ctx context.Context, host domain.Host, insta
 	cancel()
 	if err != nil && count >= 3 {
 		m.raise(ctx, store.AlertInput{Severity: "critical", Type: "restart_failed", ResourceType: "instance", ResourceID: instance.ID, Title: "Automatic restart failed", Message: err.Error()})
+	}
+}
+
+func (m *Monitor) resolveRuntimeAlerts(ctx context.Context, instanceID uuid.UUID, alertTypes ...string) {
+	for _, alertType := range alertTypes {
+		_ = m.store.ResolveAlerts(ctx, "instance", instanceID, alertType)
 	}
 }
 
@@ -229,13 +273,20 @@ func (m *Monitor) raise(ctx context.Context, input store.AlertInput) {
 	}
 	if created {
 		_ = m.store.EnqueueWebhookEvent(ctx, "alert.created", alert)
-		eventTypes := map[string]string{
-			"host_offline": "host.offline", "container_exited": "instance.failed",
-			"restart_failed": "instance.restart_failed", "disk_warning": "host.disk_warning",
-			"disk_critical": "host.disk_critical",
-		}
-		if eventType := eventTypes[input.Type]; eventType != "" {
+		if eventType := webhookEventForAlert(input.Type); eventType != "" {
 			_ = m.store.EnqueueWebhookEvent(ctx, eventType, alert)
 		}
 	}
+}
+
+func webhookEventForAlert(alertType string) string {
+	eventTypes := map[string]string{
+		"host_offline":        "host.offline",
+		"container_exited":    "instance.failed",
+		"container_unhealthy": "instance.failed",
+		"restart_failed":      "instance.restart_failed",
+		"disk_warning":        "host.disk_warning",
+		"disk_critical":       "host.disk_critical",
+	}
+	return eventTypes[alertType]
 }

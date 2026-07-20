@@ -27,6 +27,11 @@ type ContainerMetric struct {
 	MemoryPercent float64
 }
 
+type ManagedState struct {
+	State  string
+	Health string
+}
+
 func NewDocker(runner Runner) *Docker { return &Docker{runner: runner} }
 
 func (d *Docker) Probe(ctx context.Context, host domain.Host) (ProbeResult, error) {
@@ -375,30 +380,65 @@ func (d *Docker) InstanceState(ctx context.Context, host domain.Host, instance d
 	return "stopped", health, nil
 }
 
-func (d *Docker) ManagedStates(ctx context.Context, host domain.Host) (map[string]string, error) {
-	result, err := d.runner.Run(ctx, host, `docker ps -a --filter label=dbmock.instance --format '{{.Label "dbmock.instance"}}|{{.State}}'`, nil)
+func (d *Docker) ManagedStates(ctx context.Context, host domain.Host) (map[string]ManagedState, error) {
+	command := `containers="$(docker ps -aq --filter label=dbmock.instance)" || exit $?
+if [ -n "$containers" ]; then
+  docker inspect --format '{{index .Config.Labels "dbmock.instance"}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' $containers
+fi`
+	result, err := d.runner.Run(ctx, host, command, nil)
 	if err != nil {
 		return nil, err
 	}
 	return parseManagedStates(result.Stdout), nil
 }
 
-func parseManagedStates(output string) map[string]string {
-	states := make(map[string]string)
+func parseManagedStates(output string) map[string]ManagedState {
+	type summary struct {
+		total   int
+		running int
+		health  string
+	}
+	summaries := make(map[string]summary)
 	for _, line := range strings.Split(output, "\n") {
-		parts := strings.SplitN(strings.TrimSpace(line), "|", 2)
-		if len(parts) != 2 || parts[0] == "" {
+		parts := strings.SplitN(strings.TrimSpace(line), "|", 3)
+		if len(parts) != 3 || parts[0] == "" {
 			continue
 		}
-		state := strings.ToLower(parts[1])
-		current := states[parts[0]]
-		if current == "" {
-			states[parts[0]] = state
-		} else if current != state {
-			states[parts[0]] = "degraded"
+		item := summaries[parts[0]]
+		item.total++
+		if strings.EqualFold(parts[1], "running") {
+			item.running++
 		}
+		health := strings.ToLower(strings.TrimSpace(parts[2]))
+		if healthRank(health) > healthRank(item.health) {
+			item.health = health
+		}
+		summaries[parts[0]] = item
+	}
+	states := make(map[string]ManagedState, len(summaries))
+	for id, item := range summaries {
+		state := "degraded"
+		if item.running == item.total {
+			state = "running"
+		} else if item.running == 0 {
+			state = "stopped"
+		}
+		states[id] = ManagedState{State: state, Health: item.health}
 	}
 	return states
+}
+
+func healthRank(health string) int {
+	switch health {
+	case "":
+		return 0
+	case "healthy":
+		return 1
+	case "starting":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func composeCommand(instance domain.Instance) string {

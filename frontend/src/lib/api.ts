@@ -1,4 +1,5 @@
 import i18n from '../i18n'
+import { getStoredValue, removeStoredValue, setStoredValue } from './storage'
 import type { ImageArtifact } from './types'
 
 export class ApiError extends Error {
@@ -66,9 +67,9 @@ function imageUploadResumeKey(file: File): string {
 
 export async function discardImageUpload(file: File): Promise<void> {
   const resumeKey = imageUploadResumeKey(file)
-  const uploadID = localStorage.getItem(resumeKey)
+  const uploadID = getStoredValue(resumeKey)
   if (!uploadID) return
-  try { await api(`/images/uploads/${uploadID}`, { method: 'DELETE' }) } finally { localStorage.removeItem(resumeKey) }
+  try { await api(`/images/uploads/${uploadID}`, { method: 'DELETE' }) } finally { removeStoredValue(resumeKey) }
 }
 
 export async function uploadInChunks(
@@ -81,12 +82,12 @@ export async function uploadInChunks(
 ): Promise<ImageArtifact> {
   const resumeKey = imageUploadResumeKey(file)
   let upload: { id: string; receivedBytes: number; totalBytes?: number; status?: string } | undefined
-  const previousID = localStorage.getItem(resumeKey)
+  const previousID = getStoredValue(resumeKey)
   if (previousID) {
     try {
       const candidate = await api<typeof upload>(`/images/uploads/${previousID}`)
       if (candidate?.totalBytes === file.size && candidate.status === 'uploading') upload = candidate
-    } catch { localStorage.removeItem(resumeKey) }
+    } catch { removeStoredValue(resumeKey) }
   }
   if (!upload) {
     onPhase('uploading')
@@ -95,7 +96,7 @@ export async function uploadInChunks(
       body: { filename: file.name, totalBytes: file.size, sha256: expectedSha256 },
       signal,
     })
-    localStorage.setItem(resumeKey, upload.id)
+    setStoredValue(resumeKey, upload.id)
   } else {
     onPhase('resuming')
   }
@@ -112,11 +113,11 @@ export async function uploadInChunks(
   onPhase('verifying')
   try {
     const result = await api<ImageArtifact>(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName }, signal })
-    localStorage.removeItem(resumeKey)
+    removeStoredValue(resumeKey)
     return result
   } catch (error) {
     if (error instanceof ApiError && error.status === 400) {
-      await discardImageUpload(file).catch(() => localStorage.removeItem(resumeKey))
+      await discardImageUpload(file).catch(() => removeStoredValue(resumeKey))
     }
     throw error
   }

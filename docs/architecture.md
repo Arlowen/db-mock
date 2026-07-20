@@ -155,10 +155,14 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 ## 9. 监控与重启
 
 监控器每 30 秒按主机并发执行一次轻量 SSH 批处理，采集 Docker info、磁盘与所有受管
-Compose 容器状态，避免为每个容器单独建立连接。指标批量入库，7 天后清理。
+Compose 容器的进程状态及 Docker Health，避免为每个容器单独建立连接。一个实例包含
+多个容器时按最差状态聚合：部分容器退出或任一健康检查失败都会把实例标记为
+`degraded`。`starting` 仅作为启动过渡态，Docker 明确报告 `unhealthy` 后才创建健康告警。
+指标批量入库，7 天后清理。
 
 自动重启同时使用 Compose `restart: unless-stopped` 和控制面失败计数。用户手动停止会
 设置 `desired_state=stopped`；监控器只在 `desired_state=running` 且实例开关启用时补偿。
+容器重新健康后，退出、健康检查和重启失败告警由系统自动解决。
 
 告警状态转换保存确认人与解决人，自动恢复由 `system` 标识。Webhook 投递使用持久化
 队列和 `FOR UPDATE SKIP LOCKED` 领取：业务事件最多尝试 5 次，测试请求只尝试 1 次；

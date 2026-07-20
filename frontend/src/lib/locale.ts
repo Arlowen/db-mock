@@ -1,4 +1,5 @@
 import i18n from '../i18n'
+import { setStoredValue } from './storage'
 
 export type AppLocale = 'zh-CN' | 'en-US'
 
@@ -13,6 +14,6 @@ export function oppositeLocale(value: string): AppLocale {
 export async function applyLocale(value: string): Promise<AppLocale> {
   const locale = normalizeLocale(value)
   await i18n.changeLanguage(locale)
-  localStorage.setItem('dbmock-locale', locale)
+  setStoredValue('dbmock-locale', locale)
   return locale
 }
