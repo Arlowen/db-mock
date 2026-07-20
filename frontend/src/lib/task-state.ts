@@ -2,6 +2,11 @@ import type { Task } from './types'
 
 const activeStatuses = new Set(['queued', 'running'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
+const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'deleting', 'failed', 'degraded'])
+
+export function isRecoverableInstanceStatus(status: string) {
+  return recoverableInstanceStatuses.has(status)
+}
 
 export function selectRecoveryTasks(tasks: Task[], recoverable: boolean) {
   const activeTask = tasks.find((task) => activeStatuses.has(task.status))

@@ -12,7 +12,7 @@ import { hostCanAccept, hostHeadroomScore, remainingAfterDeployment, reservation
 import { imageRegistryHost, registryMatchesImage } from '../lib/image-source'
 import { instanceQuickAction } from '../lib/instance-actions'
 import { translateCode } from '../lib/localization'
-import { selectRecoveryTasks } from '../lib/task-state'
+import { isRecoverableInstanceStatus, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Registry, Task } from '../lib/types'
 import { bytes } from '../lib/types'
@@ -270,7 +270,7 @@ export function InstanceDetailPage() {
   if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
   const currentTemplate = templates.find((tpl) => tpl.slug === item.templateSlug); const upgradeOptions = currentTemplate?.versions.filter((v) => v.id !== item.templateVersionId).map((v) => ({ value: v.id, label: v.version })) ?? []
   const project = projects.find((candidate) => candidate.id === item.projectId)
-  const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, ['failed', 'degraded'].includes(item.status))
+  const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, isRecoverableInstanceStatus(item.status))
   const retryTask = async () => {
     if (!failedTask) return
     try {

@@ -41,11 +41,48 @@ func (s *Store) CreateTask(ctx context.Context, input TaskInput) (domain.Task, e
 	err = s.pool.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, item.ID, input.Kind, input.ResourceType,
 		input.ResourceID, input.RequestedBy, input.HostID, payload).Scan(taskScan(&item)...)
+	return item, taskInsertError(err)
+}
+
+func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, instanceID uuid.UUID, expectedStatus, operationStatus string) (domain.Task, error) {
+	payload, err := json.Marshal(input.Payload)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return domain.Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	var currentStatus string
+	if err = tx.QueryRow(ctx, "SELECT status FROM instances WHERE id=$1 FOR UPDATE", instanceID).Scan(&currentStatus); err != nil {
+		return domain.Task{}, translate(err)
+	}
+	if currentStatus != expectedStatus {
+		return domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the operation", domain.ErrConflict)
+	}
+	item := domain.Task{ID: uuid.New()}
+	err = tx.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, item.ID, input.Kind, input.ResourceType,
+		input.ResourceID, input.RequestedBy, input.HostID, payload).Scan(taskScan(&item)...)
+	if err != nil {
+		return domain.Task{}, taskInsertError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE instances SET status=$2,status_message='',updated_at=now() WHERE id=$1`, instanceID, operationStatus); err != nil {
+		return domain.Task{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Task{}, err
+	}
+	return item, nil
+}
+
+func taskInsertError(err error) error {
 	var databaseError *pgconn.PgError
 	if errors.As(err, &databaseError) && databaseError.ConstraintName == "tasks_active_resource_idx" {
-		return domain.Task{}, fmt.Errorf("%w: another operation is already queued or running for this resource", domain.ErrConflict)
+		return fmt.Errorf("%w: another operation is already queued or running for this resource", domain.ErrConflict)
 	}
-	return item, translate(err)
+	return translate(err)
 }
 
 func (s *Store) GetTask(ctx context.Context, id uuid.UUID) (domain.Task, error) {

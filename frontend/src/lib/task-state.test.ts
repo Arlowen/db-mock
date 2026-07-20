@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectRecoveryTasks } from './task-state'
+import { isRecoverableInstanceStatus, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -33,5 +33,19 @@ describe('selectRecoveryTasks', () => {
 
     expect(selectRecoveryTasks(tasks, true).failedTask?.id).toBe('latest')
     expect(selectRecoveryTasks(tasks, false).failedTask).toBeUndefined()
+  })
+})
+
+describe('instance task recovery', () => {
+  it('keeps interrupted operation states recoverable after a control-service restart', () => {
+    for (const status of ['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'deleting', 'failed', 'degraded']) {
+      expect(isRecoverableInstanceStatus(status)).toBe(true)
+    }
+  })
+
+  it('does not offer recovery for stable instance states', () => {
+    for (const status of ['running', 'stopped', 'deleted']) {
+      expect(isRecoverableInstanceStatus(status)).toBe(false)
+    }
   })
 })

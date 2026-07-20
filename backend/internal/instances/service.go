@@ -12,6 +12,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	appcrypto "github.com/pika/db-mock/internal/crypto"
@@ -53,6 +54,14 @@ type CreateRequest struct {
 type ActionPayload struct {
 	InstanceID           uuid.UUID  `json:"instanceId"`
 	NewTemplateVersionID *uuid.UUID `json:"newTemplateVersionId,omitempty"`
+	PreviousStatus       string     `json:"previousStatus,omitempty"`
+	PreviousDesiredState string     `json:"previousDesiredState,omitempty"`
+}
+
+type instanceStateTarget struct {
+	Status  string
+	Desired string
+	Message string
 }
 
 func NewService(target *store.Store, vault *appcrypto.Vault, docker *hostops.Docker, manager *tasks.Manager) *Service {
@@ -182,19 +191,64 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 	if err = validateInstanceAction(instance.Status, action, newVersion); err != nil {
 		return domain.Task{}, err
 	}
-	active, err := s.store.HasActiveResourceTask(ctx, "instance", instance.ID)
-	if err != nil {
-		return domain.Task{}, err
-	}
-	if active {
-		return domain.Task{}, fmt.Errorf("%w: another operation is already queued or running for this resource", domain.ErrConflict)
-	}
-	task, err := s.store.CreateTask(ctx, store.TaskInput{Kind: "instance." + action, ResourceType: "instance", ResourceID: &instance.ID,
-		RequestedBy: userID, HostID: &instance.HostID, Payload: ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: newVersion}})
+	operationStatus := instanceOperationStatus(action)
+	task, err := s.store.CreateInstanceActionTask(ctx, store.TaskInput{Kind: "instance." + action, ResourceType: "instance", ResourceID: &instance.ID,
+		RequestedBy: userID, HostID: &instance.HostID, Payload: ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: newVersion,
+			PreviousStatus: instance.Status, PreviousDesiredState: instance.DesiredState}}, instance.ID, instance.Status, operationStatus)
 	if err == nil {
 		s.tasks.Wake()
 	}
 	return task, err
+}
+
+func instanceOperationStatus(action string) string {
+	switch action {
+	case "start":
+		return "starting"
+	case "stop":
+		return "stopping"
+	case "restart":
+		return "restarting"
+	case "delete":
+		return "deleting"
+	case "upgrade":
+		return "upgrading"
+	default:
+		return ""
+	}
+}
+
+func instanceActionFailureState(action, previousStatus, previousDesired string) instanceStateTarget {
+	target := instanceStateTarget{Status: previousStatus, Desired: previousDesired, Message: "Instance operation failed; retry the operation or inspect its task log"}
+	switch action {
+	case "start", "delete":
+		target.Status = "failed"
+	case "stop", "restart":
+		target.Status = "degraded"
+	}
+	return target
+}
+
+func upgradeStableState(previousStatus, previousDesired string) instanceStateTarget {
+	if previousDesired == "stopped" || previousStatus == "stopped" {
+		return instanceStateTarget{Status: "stopped", Desired: "stopped"}
+	}
+	return instanceStateTarget{Status: "running", Desired: "running"}
+}
+
+func previousInstanceState(payload ActionPayload, instance domain.Instance) (string, string) {
+	status, desired := payload.PreviousStatus, payload.PreviousDesiredState
+	if desired == "" {
+		desired = instance.DesiredState
+	}
+	if status == "" {
+		if desired == "stopped" {
+			status = "stopped"
+		} else {
+			status = "running"
+		}
+	}
+	return status, desired
 }
 
 func validateInstanceAction(status, action string, newVersion *uuid.UUID) error {
@@ -496,9 +550,22 @@ func (s *Service) handleRestart(ctx context.Context, runtime *tasks.Runtime, tas
 	return s.simpleAction(ctx, runtime, task, "restart")
 }
 
-func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task domain.Task, action string) (any, error) {
-	_, instance, host, _, _, err := s.load(ctx, task)
+func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task domain.Task, action string) (result any, err error) {
+	payload, instance, host, _, _, err := s.load(ctx, task)
 	if err != nil {
+		return nil, err
+	}
+	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	defer func() {
+		if err == nil {
+			return
+		}
+		failure := instanceActionFailureState(action, previousStatus, previousDesired)
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, failure.Status, failure.Desired, failure.Message)
+	}()
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, instanceOperationStatus(action), previousDesired, ""); err != nil {
 		return nil, err
 	}
 	if err = runtime.Stage(ctx, 20, "compose", instanceActionProgressMessage(action), false); err != nil {
@@ -540,16 +607,29 @@ func instanceActionProgressMessage(action string) string {
 	}
 }
 
-func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (any, error) {
-	_, instance, host, _, _, err := s.load(ctx, task)
+func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
+	payload, instance, host, _, _, err := s.load(ctx, task)
 	if err != nil {
+		return nil, err
+	}
+	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	defer func() {
+		if err == nil {
+			return
+		}
+		failure := instanceActionFailureState("delete", previousStatus, previousDesired)
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, failure.Status, failure.Desired, failure.Message)
+	}()
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, instanceOperationStatus("delete"), previousDesired, ""); err != nil {
 		return nil, err
 	}
 	if err = runtime.Stage(ctx, 10, "compose", "Stopping and removing Compose project", false); err != nil {
 		return nil, err
 	}
 	if err = s.docker.ComposeDown(ctx, host, instance); err != nil {
-		_ = runtime.Log(ctx, "warning", "Compose project was already absent or could not be stopped: "+err.Error())
+		return nil, fmt.Errorf("stop Compose project before deleting managed data: %w", err)
 	}
 	if err = runtime.Stage(ctx, 70, "files", "Removing managed instance data", false); err != nil {
 		return nil, err
@@ -563,9 +643,20 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 	return map[string]any{"instanceId": instance.ID, "status": "deleted"}, nil
 }
 
-func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (any, error) {
+func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
 	payload, instance, host, template, oldVersion, err := s.load(ctx, task)
 	if err != nil {
+		return nil, err
+	}
+	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	var snapshot, targetVersion string
+	operationStarted, templateUpdated := false, false
+	defer func() {
+		if err != nil {
+			s.recoverUpgradeFailure(runtime, task, instance, host, oldVersion, previousStatus, previousDesired, snapshot, targetVersion, operationStarted, templateUpdated)
+		}
+	}()
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, instanceOperationStatus("upgrade"), previousDesired, ""); err != nil {
 		return nil, err
 	}
 	if payload.NewTemplateVersionID == nil {
@@ -575,6 +666,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if err != nil {
 		return nil, err
 	}
+	targetVersion = newVersion.Version
 	if newTemplate.ID != template.ID {
 		return nil, errors.New("upgrade version belongs to a different database template")
 	}
@@ -588,15 +680,10 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if err = runtime.Stage(ctx, 10, "snapshot", "Stopping instance and creating temporary upgrade snapshot", false); err != nil {
 		return nil, err
 	}
-	snapshot, err := s.docker.SnapshotForUpgrade(ctx, host, instance)
+	operationStarted = true
+	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance)
 	if err != nil {
 		return nil, err
-	}
-	rollback := func(cause error) error {
-		_ = runtime.Log(ctx, "warning", "Upgrade failed; restoring temporary snapshot")
-		_ = s.docker.RestoreUpgradeSnapshot(context.Background(), host, instance, snapshot)
-		_ = s.docker.ComposeStart(context.Background(), host, instance)
-		return cause
 	}
 	var configuration struct {
 		ExtraEnvironment map[string]string `json:"extraEnvironment"`
@@ -605,79 +692,156 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	_ = json.Unmarshal(instance.Configuration, &configuration)
 	plain, err := s.vault.Open(instance.EncryptedPassword, "instance:"+instance.ID.String())
 	if err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	compose, err := templates.RenderCompose(newTemplate, newVersion, instance, configuration.ExtraEnvironment)
 	if err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	env, _ := templates.EnvFile(instance.DatabaseUsername, string(plain), instance.DatabaseName)
 	if err = runtime.Stage(ctx, 35, "image", "Pulling upgraded image", false); err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	if configuration.RegistryID != nil {
 		registry, getErr := s.store.GetRegistry(ctx, *configuration.RegistryID)
 		if getErr != nil {
-			return nil, rollback(getErr)
+			return nil, getErr
 		}
 		if getErr = validateRegistryImageSource(registry, newVersion.ImageReference); getErr != nil {
-			return nil, rollback(getErr)
+			return nil, getErr
 		}
 		password := ""
 		if registry.EncryptedPassword != "" {
 			secret, openErr := s.vault.Open(registry.EncryptedPassword, "registry:"+registry.ID.String()+":password")
 			if openErr != nil {
-				return nil, rollback(openErr)
+				return nil, openErr
 			}
 			password = string(secret)
 		}
 		if registry.EncryptedCACertificate != "" {
 			certificate, openErr := s.vault.Open(registry.EncryptedCACertificate, "registry:"+registry.ID.String()+":ca")
 			if openErr != nil {
-				return nil, rollback(openErr)
+				return nil, openErr
 			}
 			if err = s.docker.InstallRegistryCA(ctx, host, registry.URL, string(certificate)); err != nil {
-				return nil, rollback(err)
+				return nil, err
 			}
 		}
 		if err = s.docker.LoginRegistry(ctx, host, registry.URL, registry.Username, password); err != nil {
-			return nil, rollback(err)
+			return nil, err
 		}
 	}
 	if err = s.docker.PullImage(ctx, host, newVersion.ImageReference); err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	projectFiles, filesErr := templates.PackageProjectFiles(newVersion.PackagePath)
 	if filesErr != nil {
-		return nil, rollback(filesErr)
+		return nil, filesErr
 	}
 	if err = s.docker.WriteProject(ctx, host, instance, compose, env, projectFiles); err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	if err = runtime.Stage(ctx, 65, "compose", "Starting upgraded database", false); err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	if err = s.docker.ComposeUp(ctx, host, instance, false); err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
 	if newManifest.UpgradeScript != "" {
 		if err = runtime.Stage(ctx, 80, "migration", "Running template upgrade script", false); err != nil {
-			return nil, rollback(err)
+			return nil, err
 		}
 		if err = s.docker.RunProjectScript(ctx, host, instance, newManifest.UpgradeScript); err != nil {
-			return nil, rollback(err)
+			return nil, err
 		}
 	}
 	state, _, err := s.docker.InstanceState(ctx, host, instance)
-	if err != nil || state != "running" {
-		return nil, rollback(fmt.Errorf("upgraded instance did not become healthy: %w", err))
+	if err != nil {
+		return nil, fmt.Errorf("upgraded instance did not become healthy: %w", err)
+	}
+	if state != "running" {
+		return nil, fmt.Errorf("upgraded instance did not become healthy: state=%s", state)
+	}
+	stable := upgradeStableState(previousStatus, previousDesired)
+	if stable.Status == "stopped" {
+		if err = runtime.Stage(ctx, 92, "compose", "Restoring the requested stopped state", false); err != nil {
+			return nil, err
+		}
+		if err = s.docker.ComposeStop(ctx, host, instance); err != nil {
+			return nil, err
+		}
 	}
 	if err = s.store.UpdateInstanceTemplateVersion(ctx, instance.ID, newVersion.ID); err != nil {
-		return nil, rollback(err)
+		return nil, err
 	}
-	_ = s.docker.DeleteUpgradeSnapshot(ctx, host, instance)
-	_ = s.store.UpdateInstanceState(ctx, instance.ID, "running", "running", "")
+	templateUpdated = true
+	if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
+		return nil, err
+	}
+	_ = s.store.ResolveAlerts(ctx, "instance", instance.ID, "upgrade_failed")
+	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance); cleanupErr != nil {
+		_ = runtime.Log(ctx, "warning", "Upgrade succeeded, but the temporary snapshot could not be removed")
+	}
 	return map[string]any{"instanceId": instance.ID, "version": newVersion.Version}, nil
+}
+
+func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task, instance domain.Instance, host domain.Host, oldVersion domain.TemplateVersion,
+	previousStatus, previousDesired, snapshot, targetVersion string, operationStarted, templateUpdated bool) {
+	recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	_ = runtime.Log(recoveryCtx, "warning", "Upgrade failed; attempting to restore the previous database state")
+
+	stable := upgradeStableState(previousStatus, previousDesired)
+	recoveryErrors := make([]string, 0, 3)
+	stopped := !operationStarted
+	if operationStarted {
+		if stopErr := s.docker.ComposeStop(recoveryCtx, host, instance); stopErr != nil {
+			recoveryErrors = append(recoveryErrors, "stop")
+		} else {
+			stopped = true
+		}
+	}
+	if snapshot != "" && stopped {
+		if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, snapshot); restoreErr != nil {
+			recoveryErrors = append(recoveryErrors, "snapshot")
+		}
+	}
+	if stable.Status == "running" && len(recoveryErrors) == 0 && operationStarted {
+		if startErr := s.docker.ComposeStart(recoveryCtx, host, instance); startErr != nil {
+			recoveryErrors = append(recoveryErrors, "start")
+		}
+	}
+	if templateUpdated {
+		if versionErr := s.store.UpdateInstanceTemplateVersion(recoveryCtx, instance.ID, oldVersion.ID); versionErr != nil {
+			recoveryErrors = append(recoveryErrors, "version")
+		}
+	}
+
+	recovered := len(recoveryErrors) == 0
+	message := "Upgrade failed; previous database state was restored"
+	if recovered {
+		if stateErr := s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, message); stateErr != nil {
+			recovered = false
+			recoveryErrors = append(recoveryErrors, "state")
+		}
+	}
+	if !recovered {
+		message = "Upgrade failed and automatic recovery did not complete"
+		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, message)
+	}
+
+	severity, recoveryStatus := "warning", "restored"
+	if !recovered {
+		severity, recoveryStatus = "critical", "incomplete"
+	}
+	alert, created, alertErr := s.store.CreateAlert(recoveryCtx, store.AlertInput{Severity: severity, Type: "upgrade_failed", ResourceType: "instance",
+		ResourceID: instance.ID, Title: "Database upgrade failed", Message: message, Details: map[string]string{
+			"taskId": task.ID.String(), "fromVersion": oldVersion.Version, "toVersion": targetVersion, "recoveryStatus": recoveryStatus,
+		}})
+	if alertErr == nil && created {
+		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "alert.created", alert)
+		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "instance.failed", alert)
+	}
 }
 
 func generatePassword() string {

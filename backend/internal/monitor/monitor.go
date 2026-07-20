@@ -258,7 +258,7 @@ func (m *Monitor) resolveRuntimeAlerts(ctx context.Context, instanceID uuid.UUID
 
 func taskOwnsInstanceState(status string) bool {
 	switch status {
-	case "provisioning", "upgrading", "deleting", "failed":
+	case "provisioning", "starting", "stopping", "restarting", "upgrading", "deleting", "failed":
 		return true
 	default:
 		return false
@@ -284,6 +284,7 @@ func webhookEventForAlert(alertType string) string {
 		"host_offline":        "host.offline",
 		"container_exited":    "instance.failed",
 		"container_unhealthy": "instance.failed",
+		"upgrade_failed":      "instance.failed",
 		"restart_failed":      "instance.restart_failed",
 		"disk_warning":        "host.disk_warning",
 		"disk_critical":       "host.disk_critical",

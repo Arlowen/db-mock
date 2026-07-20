@@ -63,6 +63,66 @@ func TestInstanceActionProgressMessage(t *testing.T) {
 	}
 }
 
+func TestInstanceOperationStatus(t *testing.T) {
+	tests := map[string]string{
+		"start":   "starting",
+		"stop":    "stopping",
+		"restart": "restarting",
+		"delete":  "deleting",
+		"upgrade": "upgrading",
+	}
+	for action, want := range tests {
+		if got := instanceOperationStatus(action); got != want {
+			t.Errorf("operation status for %s = %q, want %q", action, got, want)
+		}
+	}
+	if got := instanceOperationStatus("unknown"); got != "" {
+		t.Fatalf("unknown operation status = %q, want empty", got)
+	}
+}
+
+func TestInstanceActionFailureState(t *testing.T) {
+	tests := []struct {
+		action          string
+		previousStatus  string
+		previousDesired string
+		wantStatus      string
+		wantDesired     string
+	}{
+		{action: "start", previousStatus: "stopped", previousDesired: "stopped", wantStatus: "failed", wantDesired: "stopped"},
+		{action: "stop", previousStatus: "running", previousDesired: "running", wantStatus: "degraded", wantDesired: "running"},
+		{action: "restart", previousStatus: "degraded", previousDesired: "running", wantStatus: "degraded", wantDesired: "running"},
+		{action: "delete", previousStatus: "running", previousDesired: "running", wantStatus: "failed", wantDesired: "running"},
+	}
+	for _, test := range tests {
+		t.Run(test.action, func(t *testing.T) {
+			got := instanceActionFailureState(test.action, test.previousStatus, test.previousDesired)
+			if got.Status != test.wantStatus || got.Desired != test.wantDesired || got.Message == "" {
+				t.Fatalf("failure state = %#v, want status=%q desired=%q and a message", got, test.wantStatus, test.wantDesired)
+			}
+		})
+	}
+}
+
+func TestUpgradeStableStatePreservesDesiredStop(t *testing.T) {
+	tests := []struct {
+		previousStatus  string
+		previousDesired string
+		wantStatus      string
+		wantDesired     string
+	}{
+		{previousStatus: "running", previousDesired: "running", wantStatus: "running", wantDesired: "running"},
+		{previousStatus: "degraded", previousDesired: "running", wantStatus: "running", wantDesired: "running"},
+		{previousStatus: "stopped", previousDesired: "stopped", wantStatus: "stopped", wantDesired: "stopped"},
+	}
+	for _, test := range tests {
+		got := upgradeStableState(test.previousStatus, test.previousDesired)
+		if got.Status != test.wantStatus || got.Desired != test.wantDesired {
+			t.Errorf("stable state for %s/%s = %#v, want %s/%s", test.previousStatus, test.previousDesired, got, test.wantStatus, test.wantDesired)
+		}
+	}
+}
+
 func TestFitsHostHonorsDeploymentHeadroom(t *testing.T) {
 	host := domain.Host{CPUCount: 10, MemoryBytes: 1000, DiskFreeBytes: 1000}
 	reservation := store.HostReservation{CPU: 4, Memory: 300, Disk: 300}

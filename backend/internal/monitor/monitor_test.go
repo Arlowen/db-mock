@@ -7,7 +7,7 @@ import (
 )
 
 func TestTaskOwnedInstanceStatesAreNotOverwrittenByMonitoring(t *testing.T) {
-	for _, status := range []string{"provisioning", "upgrading", "deleting", "failed"} {
+	for _, status := range []string{"provisioning", "starting", "stopping", "restarting", "upgrading", "deleting", "failed"} {
 		if !taskOwnsInstanceState(status) {
 			t.Fatalf("expected %q to remain owned by its task", status)
 		}
@@ -55,6 +55,7 @@ func TestWebhookEventForRuntimeAlerts(t *testing.T) {
 		"container_exited":    "instance.failed",
 		"container_unhealthy": "instance.failed",
 		"restart_failed":      "instance.restart_failed",
+		"upgrade_failed":      "instance.failed",
 	} {
 		if got := webhookEventForAlert(alertType); got != want {
 			t.Errorf("event for %s = %q, want %q", alertType, got, want)
