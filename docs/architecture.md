@@ -138,6 +138,11 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 `dbmock.template`、`dbmock.project` 标签。平台删除时只清理这一受管目录；自定义模板中
 指向目录外的绑定挂载仅停止使用，不删除源文件。
 
+实例目录中的 `.env` 仅供 Compose 插值，不会自动成为容器环境。内置单容器模板会把
+连接账号、密码和数据库名分别注入保留变量 `DBMOCK_DB_USERNAME`、
+`DBMOCK_DB_PASSWORD`、`DBMOCK_DB_NAME`，健康检查只读取这些容器内变量。用户追加环境
+变量不能覆盖这三个保留名称，避免健康检查凭据和实际实例凭据发生漂移。
+
 ## 8. 任务一致性
 
 - API 在数据库事务中创建资源意图和任务，HTTP 立即返回 `202 Accepted`。

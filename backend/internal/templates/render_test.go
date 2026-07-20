@@ -7,7 +7,96 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
+	"gopkg.in/yaml.v3"
 )
+
+func TestBuiltinsExposeHealthcheckCredentialsInsideContainers(t *testing.T) {
+	type service struct {
+		Environment map[string]string `yaml:"environment"`
+		Healthcheck struct {
+			Test []string `yaml:"test"`
+		} `yaml:"healthcheck"`
+	}
+	type composeDocument struct {
+		Services map[string]service `yaml:"services"`
+	}
+
+	instance := domain.Instance{
+		ID:              uuid.New(),
+		HostPort:        25432,
+		BindAddress:     "0.0.0.0",
+		CPU:             4,
+		MemoryBytes:     8 * GiB,
+		RemoteDirectory: "/opt/dbmock/instances/test",
+	}
+	for _, definition := range Builtins() {
+		t.Run(definition.Slug, func(t *testing.T) {
+			composeTemplate := definition.Compose
+			if composeTemplate == "" {
+				composeTemplate = singleServiceCompose(definition)
+			}
+			output, err := RenderCompose(
+				domain.Template{Slug: definition.Slug},
+				domain.TemplateVersion{ImageReference: definition.Image, ComposeTemplate: composeTemplate},
+				instance,
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var document composeDocument
+			if err := yaml.Unmarshal(output, &document); err != nil {
+				t.Fatalf("rendered Compose is invalid YAML: %v\n%s", err, output)
+			}
+			if definition.Compose == "" {
+				database, ok := document.Services["database"]
+				if !ok {
+					t.Fatalf("rendered Compose has no database service: %s", output)
+				}
+				wantEnvironment := map[string]string{
+					"DBMOCK_DB_USERNAME": "${DB_USERNAME}",
+					"DBMOCK_DB_PASSWORD": "${DB_PASSWORD}",
+					"DBMOCK_DB_NAME":     "${DB_NAME}",
+				}
+				for key, want := range wantEnvironment {
+					if got := database.Environment[key]; got != want {
+						t.Errorf("environment %s = %q, want %q", key, got, want)
+					}
+				}
+			}
+			for name, service := range document.Services {
+				if healthcheck := strings.Join(service.Healthcheck.Test, " "); strings.Contains(healthcheck, "$${DB_") {
+					t.Errorf("service %s healthcheck still references a Compose-only DB_* variable: %s", name, healthcheck)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderComposeRejectsReservedEnvironmentOverrides(t *testing.T) {
+	instance := domain.Instance{
+		ID:              uuid.New(),
+		HostPort:        23306,
+		BindAddress:     "0.0.0.0",
+		CPU:             1,
+		MemoryBytes:     1024,
+		RemoteDirectory: "/opt/dbmock/instances/id",
+	}
+	version := domain.TemplateVersion{ImageReference: "image:1", ComposeTemplate: `services:
+  db:
+    image: "{{ .Image }}"
+    environment:
+{{ .ExtraEnvironment }}`}
+	for _, key := range []string{"DBMOCK_DB_USERNAME", "DBMOCK_DB_PASSWORD", "DBMOCK_DB_NAME"} {
+		t.Run(key, func(t *testing.T) {
+			_, err := RenderCompose(domain.Template{Slug: "test"}, version, instance, map[string]string{key: "override"})
+			if err == nil || !strings.Contains(err.Error(), "reserved") {
+				t.Fatalf("expected reserved environment error, got %v", err)
+			}
+		})
+	}
+}
 
 func TestRenderComposeEscapesEnvironment(t *testing.T) {
 	instance := domain.Instance{ID: uuid.New(), HostPort: 23306, BindAddress: "0.0.0.0", CPU: 1, MemoryBytes: 1024,

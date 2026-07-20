@@ -63,6 +63,9 @@ func RenderCompose(template domain.Template, version domain.TemplateVersion, ins
 		if !validEnvironmentKey(key) {
 			return nil, fmt.Errorf("invalid environment key %q", key)
 		}
+		if reservedEnvironmentKey(key) {
+			return nil, fmt.Errorf("environment key %q is reserved", key)
+		}
 		extra.WriteString("      " + key + ": " + strconv.Quote(extraEnvironment[key]) + "\n")
 	}
 	short := strings.ReplaceAll(instance.ID.String(), "-", "")[:12]
@@ -135,4 +138,13 @@ func validEnvironmentKey(key string) bool {
 		}
 	}
 	return true
+}
+
+func reservedEnvironmentKey(key string) bool {
+	switch key {
+	case "DBMOCK_DB_USERNAME", "DBMOCK_DB_PASSWORD", "DBMOCK_DB_NAME":
+		return true
+	default:
+		return false
+	}
 }
