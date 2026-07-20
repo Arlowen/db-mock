@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
@@ -19,10 +20,11 @@ import (
 )
 
 type Service struct {
-	store     *store.Store
-	directory string
-	maxBytes  int64
-	locks     sync.Map
+	store         *store.Store
+	directory     string
+	maxBytes      int64
+	locks         sync.Map
+	artifactLocks [64]sync.Mutex
 }
 
 func New(target *store.Store, directory string, maxBytes int64) *Service {
@@ -140,6 +142,9 @@ func (s *Service) Complete(ctx context.Context, userID, id uuid.UUID, name strin
 	if upload.ExpectedSHA256 != "" && upload.ExpectedSHA256 != digest {
 		return domain.ImageArtifact{}, fmt.Errorf("%w: SHA-256 checksum does not match", domain.ErrInvalid)
 	}
+	artifactLock := s.artifactLock(digest)
+	artifactLock.Lock()
+	defer artifactLock.Unlock()
 	refs, architectures, format, err := inspectArchive(upload.TemporaryPath)
 	if err != nil {
 		return domain.ImageArtifact{}, fmt.Errorf("%w: %v", domain.ErrInvalid, err)
@@ -195,17 +200,53 @@ func (s *Service) Cancel(ctx context.Context, userID, id uuid.UUID) error {
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	path, err := s.store.DeleteImageArtifact(ctx, id)
+	return s.delete(ctx, id, nil)
+}
+
+func (s *Service) DeleteUnused(ctx context.Context, id uuid.UUID, before time.Time) error {
+	return s.delete(ctx, id, &before)
+}
+
+func (s *Service) delete(ctx context.Context, id uuid.UUID, before *time.Time) error {
+	item, err := s.store.GetImageArtifact(ctx, id)
 	if err != nil {
 		return err
 	}
-	if path != "" {
-		return os.Remove(path)
+	lock := s.artifactLock(item.SHA256)
+	lock.Lock()
+	defer lock.Unlock()
+	if before == nil {
+		item, err = s.store.BeginDeleteImageArtifact(ctx, id)
+	} else {
+		item, err = s.store.BeginDeleteUnusedImageArtifact(ctx, id, *before)
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	if item.Path != "" {
+		if err = os.Remove(item.Path); err != nil && !os.IsNotExist(err) {
+			s.restoreArtifact(id)
+			return err
+		}
+	}
+	return s.store.CompleteDeleteImageArtifact(ctx, id)
 }
 
 func (s *Service) lock(id uuid.UUID) *sync.Mutex {
 	value, _ := s.locks.LoadOrStore(id, &sync.Mutex{})
 	return value.(*sync.Mutex)
+}
+
+func (s *Service) artifactLock(digest string) *sync.Mutex {
+	index := 0
+	for _, value := range digest {
+		index = (index*33 + int(value)) % len(s.artifactLocks)
+	}
+	return &s.artifactLocks[index]
+}
+
+func (s *Service) restoreArtifact(id uuid.UUID) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.store.RestoreImageArtifact(ctx, id)
 }

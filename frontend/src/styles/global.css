@@ -254,6 +254,10 @@ button { font: inherit; }
 .image-status-cell { display: grid; justify-items: start; gap: 4px; }
 .image-status-cell .ant-typography-secondary { font-size: 11px; white-space: nowrap; }
 .image-row-actions { white-space: nowrap; }
+.image-cleanup-controls { margin: 16px 0 12px; display: flex; align-items: center; gap: 10px; }
+.image-cleanup-controls .ant-select { width: 150px; }
+.image-cleanup-summary { margin-bottom: 12px; }
+.image-cleanup-table .ant-table-cell { vertical-align: middle; }
 .image-upload-intro, .registry-form-intro { margin-bottom: 18px !important; }
 .registry-secret-field > .ant-form-item:last-child { margin-top: -12px; }
 .image-upload-form { margin-top: 18px; }
@@ -455,6 +459,8 @@ button { font: inherit; }
   .image-toolbar { flex-wrap: wrap; }
   .image-toolbar > .ant-input-affix-wrapper { flex-basis: 100%; }
   .image-toolbar > .ant-select { flex: 1; }
+  .image-cleanup-controls { align-items: stretch; flex-direction: column; }
+  .image-cleanup-controls .ant-select { width: 100%; }
   .alert-toolbar .ant-input-search { flex-basis: calc(100% - 172px); }
   .alert-toolbar .ant-segmented { order: 3; width: 100%; }
   .host-capacity-grid { grid-template-columns: 1fr; }

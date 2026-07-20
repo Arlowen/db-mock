@@ -1,5 +1,6 @@
 import {
   CheckCircleOutlined,
+  ClearOutlined,
   CloudServerOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
@@ -70,6 +71,20 @@ interface RegistryTestResult {
   checkedAt: string
 }
 
+interface ImageCleanupPreview {
+  items: ImageArtifact[]
+  totalBytes: number
+  olderThanDays: number
+  cutoff: string
+}
+
+interface ImageCleanupResult {
+  deletedCount: number
+  skippedCount: number
+  failedCount: number
+  freedBytes: number
+}
+
 function archiveName(filename: string): string {
   return filename.replace(/\.(?:tar\.gz|tgz|tar)$/i, '')
 }
@@ -108,11 +123,18 @@ export function ImagesPage() {
   const [registryDraftDirty, setRegistryDraftDirty] = useState(false)
   const [selectedImage, setSelectedImage] = useState<ImageArtifact | null>(null)
   const [editingRegistry, setEditingRegistry] = useState<Registry | null>(null)
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleanupDays, setCleanupDays] = useState(30)
+  const [cleanupPreview, setCleanupPreview] = useState<ImageCleanupPreview | null>(null)
+  const [selectedCleanupIDs, setSelectedCleanupIDs] = useState<string[]>([])
+  const [scanningCleanup, setScanningCleanup] = useState(false)
+  const [cleaningImages, setCleaningImages] = useState(false)
   const [file, setFile] = useState<UploadFile | null>(null)
   const [progress, setProgress] = useState(0)
   const [uploadForm] = Form.useForm<UploadValues>()
   const [registryForm] = Form.useForm<RegistryValues>()
   const uploadAbort = useRef<AbortController | null>(null)
+  const cleanupScanRequest = useRef(0)
 
   const load = useCallback(async () => {
     try {
@@ -158,6 +180,8 @@ export function ImagesPage() {
   }, [architecture, images, search, status])
   const hasImageFilters = !!(search || architecture || status)
   const fileTooLarge = !!file?.originFileObj && file.originFileObj.size > uploadSettings.maxBytes
+  const selectedCleanupItems = cleanupPreview?.items.filter((item) => selectedCleanupIDs.includes(item.id)) ?? []
+  const selectedCleanupBytes = selectedCleanupItems.reduce((total, item) => total + item.sizeBytes, 0)
 
   const resetImageFilters = () => {
     setSearch('')
@@ -334,6 +358,52 @@ export function ImagesPage() {
     }
   }
 
+  const scanUnusedImages = async (days = cleanupDays) => {
+    const requestID = ++cleanupScanRequest.current
+    try {
+      setScanningCleanup(true)
+      const result = await api<ImageCleanupPreview>(`/images/unused?olderThanDays=${days}`)
+      if (cleanupScanRequest.current !== requestID) return
+      setCleanupPreview(result)
+      setSelectedCleanupIDs(result.items.slice(0, 200).map((item) => item.id))
+    } catch (error) {
+      if (cleanupScanRequest.current !== requestID) return
+      message.error(errorMessage(error))
+      setCleanupPreview(null)
+      setSelectedCleanupIDs([])
+    } finally {
+      if (cleanupScanRequest.current === requestID) setScanningCleanup(false)
+    }
+  }
+
+  const showImageCleanup = () => {
+    setCleanupDays(30)
+    setCleanupPreview(null)
+    setSelectedCleanupIDs([])
+    setCleanupOpen(true)
+    void scanUnusedImages(30)
+  }
+
+  const cleanupUnusedImages = async () => {
+    if (!selectedCleanupIDs.length) return
+    try {
+      setCleaningImages(true)
+      const result = await api<ImageCleanupResult>('/images/cleanup', { method: 'POST', body: { imageIds: selectedCleanupIDs, olderThanDays: cleanupDays, confirm: 'DELETE' } })
+      if (result.failedCount > 0) {
+        message.warning(t('imageCleanupPartial', { deleted: result.deletedCount, failed: result.failedCount }))
+      } else if (result.skippedCount > 0) {
+        message.warning(t('imageCleanupSkipped', { deleted: result.deletedCount, skipped: result.skippedCount }))
+      } else {
+        message.success(t('imageCleanupSuccess', { count: result.deletedCount, size: bytes(result.freedBytes) }))
+      }
+      await Promise.all([load(), scanUnusedImages(cleanupDays)])
+    } catch (error) {
+      message.error(errorMessage(error))
+    } finally {
+      setCleaningImages(false)
+    }
+  }
+
   const removeRegistry = async (item: Registry) => {
     try {
       await api(`/registries/${item.id}`, { method: 'DELETE' })
@@ -476,7 +546,7 @@ export function ImagesPage() {
     <PageHeader
       title={t('images')}
       description={t('imagesDescription')}
-      actions={<><Button icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}
+      actions={<><Button icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     <Tabs activeKey={activeTab} onChange={changeTab} items={[
@@ -540,6 +610,53 @@ export function ImagesPage() {
         <Form.Item name="caCertificate" label={t('selfSignedCA')} extra={editingRegistry?.hasCaCertificate ? t('registryCAKeepHint') : t('registryCAHint')}><Input.TextArea aria-label={t('selfSignedCA')} rows={5} placeholder={t('certificatePlaceholder')} /></Form.Item>
         {editingRegistry?.hasCaCertificate && <Form.Item name="clearCaCertificate" valuePropName="checked"><Checkbox onChange={(event) => { if (event.target.checked) registryForm.setFieldValue('caCertificate', '') }}>{t('removeRegistryCA')}</Checkbox></Form.Item>}
       </Form>
+    </Modal>
+
+    <Modal
+      title={t('unusedImageCleanup')}
+      open={cleanupOpen}
+      onCancel={() => { cleanupScanRequest.current += 1; setScanningCleanup(false); setCleanupOpen(false) }}
+      onOk={() => void cleanupUnusedImages()}
+      okText={t('cleanupSelectedImages')}
+      okButtonProps={{ danger: true, disabled: scanningCleanup || !selectedCleanupIDs.length }}
+      confirmLoading={cleaningImages}
+      cancelButtonProps={{ disabled: cleaningImages }}
+      width={760}
+      styles={{ body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } }}
+    >
+      <Alert type="warning" showIcon message={t('unusedImageCleanupWarning')} description={t('unusedImageCleanupHint')} />
+      <div className="image-cleanup-controls">
+        <Typography.Text strong>{t('unusedForAtLeast')}</Typography.Text>
+        <Select
+          aria-label={t('unusedForAtLeast')}
+          value={cleanupDays}
+          onChange={(value) => { setCleanupDays(value); setCleanupPreview(null); setSelectedCleanupIDs([]); void scanUnusedImages(value) }}
+          options={[7, 30, 90, 180, 365].map((value) => ({ value, label: t('dayCount', { count: value }) }))}
+        />
+        <Button icon={<ReloadOutlined />} loading={scanningCleanup} onClick={() => void scanUnusedImages()}>{t('scanAgain')}</Button>
+      </div>
+      {cleanupPreview && <Alert
+        className="image-cleanup-summary"
+        type={cleanupPreview.items.length ? 'info' : 'success'}
+        showIcon
+        message={cleanupPreview.items.length ? t('unusedImageScanResult', { count: cleanupPreview.items.length, size: bytes(cleanupPreview.totalBytes) }) : t('noUnusedImages')}
+        description={cleanupPreview.items.length ? t('unusedImageSelectionSummary', { count: selectedCleanupItems.length, size: bytes(selectedCleanupBytes) }) : t('noUnusedImagesHint')}
+      />}
+      <Table
+        className="image-cleanup-table"
+        size="small"
+        rowKey="id"
+        loading={scanningCleanup}
+        dataSource={cleanupPreview?.items ?? []}
+        pagination={false}
+        locale={{ emptyText: cleanupPreview ? t('noUnusedImages') : t('scanningUnusedImages') }}
+        rowSelection={{ selectedRowKeys: selectedCleanupIDs, onChange: (keys) => setSelectedCleanupIDs(keys.slice(0, 200).map(String)) }}
+        columns={[
+          { title: t('offlineImage'), dataIndex: 'name', render: (value: string, item: ImageArtifact) => <div><Typography.Text strong>{value}</Typography.Text><br /><Typography.Text type="secondary">{item.filename}</Typography.Text></div> },
+          { title: t('lastActivity'), width: 190, render: (_: unknown, item: ImageArtifact) => formatDateTime(item.lastUsedAt ?? item.createdAt, i18n.language, timezone) },
+          { title: t('size'), dataIndex: 'sizeBytes', width: 110, render: bytes },
+        ]}
+      />
     </Modal>
 
     <Drawer

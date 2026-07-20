@@ -87,6 +87,11 @@ Settings also controls the runtime file limit and browser chunk size for offline
 upload sessions use the policy immediately. `DBMOCK_MAX_UPLOAD_BYTES` remains the deployment hard
 ceiling, and an upload already in progress may finish with the file size accepted when it started.
 
+The Images page can scan offline archives unused for 7 to 365 days, preview the candidates and
+recoverable space, and clean a selected set manually. Only controller-side files with no active
+instance reference and no actual distribution during the selected period are eligible. DB Mock never
+automatically removes images that Docker has already loaded on target hosts.
+
 PostgreSQL data, the credential master key, and uploaded images live in named Compose volumes. DB Mock
 does not provide built-in metadata backup. Do not manually delete `dbmock_postgres_data` or
 `dbmock_dbmock_data`; losing the master key makes stored SSH, registry, and database credentials

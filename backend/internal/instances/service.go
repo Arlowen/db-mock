@@ -552,6 +552,11 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 				_ = s.store.UpdateTask(context.Background(), task.ID, 30+int(done*20/total), "image", "Transferring offline image", true)
 			}
 		})
+		if err == nil {
+			markContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err = s.store.MarkImageArtifactUsed(markContext, artifact.ID)
+			cancel()
+		}
 	} else {
 		err = s.docker.PullImage(ctx, host, version.ImageReference)
 	}

@@ -70,6 +70,12 @@ func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain
 	if len(input.Configuration) == 0 {
 		input.Configuration = json.RawMessage(`{}`)
 	}
+	var configuration struct {
+		ImageArtifactID *uuid.UUID `json:"imageArtifactId"`
+	}
+	if err := json.Unmarshal(input.Configuration, &configuration); err != nil {
+		return domain.Instance{}, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return domain.Instance{}, err
@@ -82,6 +88,15 @@ func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain
 	}
 	if host.Status != "online" || host.Maintenance {
 		return domain.Instance{}, fmt.Errorf("%w: selected host is not available", domain.ErrConflict)
+	}
+	if configuration.ImageArtifactID != nil {
+		var artifactStatus string
+		if err = tx.QueryRow(ctx, "SELECT status FROM image_artifacts WHERE id=$1 FOR KEY SHARE", *configuration.ImageArtifactID).Scan(&artifactStatus); err != nil {
+			return domain.Instance{}, translate(err)
+		}
+		if artifactStatus != "ready" {
+			return domain.Instance{}, fmt.Errorf("%w: offline image is not available", domain.ErrConflict)
+		}
 	}
 	var usedCPU float64
 	var usedMemory, usedDisk int64

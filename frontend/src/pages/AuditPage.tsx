@@ -9,7 +9,7 @@ import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { auditChangeEntries, auditResourcePath, auditValueText, isRedactedAuditValue } from '../lib/audit'
 import { formatDateTime, translateCode } from '../lib/localization'
-import type { Audit } from '../lib/types'
+import { bytes, type Audit } from '../lib/types'
 
 export function AuditPage() {
   const { t, i18n } = useTranslation()
@@ -57,6 +57,7 @@ export function AuditPage() {
   const changeValue = (key: string, value: unknown) => {
     if (isRedactedAuditValue(value)) return t('redacted')
     if (typeof value === 'boolean') return t(value ? 'yes' : 'no')
+    if (key === 'freedBytes' && typeof value === 'number') return bytes(value)
     if (key === 'status' && typeof value === 'string') return translateCode(t, value)
     if (key === 'locale' && value === 'zh-CN') return t('languageChinese')
     if (key === 'locale' && value === 'en-US') return t('languageEnglish')

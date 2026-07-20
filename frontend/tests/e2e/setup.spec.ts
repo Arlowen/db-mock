@@ -366,6 +366,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(addRegistryDialog).not.toBeVisible()
 
   const imageID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const unusedImageID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   const registryID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   let registryName = 'Engineering Harbor'
   let registryStatus = 'unknown'
@@ -373,8 +374,18 @@ test('initializes the platform and switches the embedded interface language', as
   let registryStatusCode: number | undefined
   let registryLastTestedAt: string | undefined
   const imageCreatedAt = new Date(Date.now() - 86400000).toISOString()
+  const unusedImageCreatedAt = new Date(Date.now() - 60 * 86400000).toISOString()
   const registryUpdatedAt = new Date().toISOString()
-  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['amd64'], status: 'ready', usedByCount: 2, createdAt: imageCreatedAt }] } }))
+  const unusedImage = { id: unusedImageID, name: 'Legacy Redis offline', filename: 'redis-6.tar', sizeBytes: 67108864, sha256: 'c'.repeat(64), format: 'docker-archive', imageRefs: ['redis:6'], architectures: ['amd64'], status: 'ready', usedByCount: 0, createdAt: unusedImageCreatedAt }
+  let unusedImageDeleted = false
+  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['amd64'], status: 'ready', usedByCount: 2, createdAt: imageCreatedAt }, ...(unusedImageDeleted ? [] : [unusedImage])] } }))
+  await page.route('**/api/v1/images/unused?olderThanDays=*', async (route) => route.fulfill({ json: { items: unusedImageDeleted ? [] : [unusedImage], totalBytes: unusedImageDeleted ? 0 : unusedImage.sizeBytes, olderThanDays: 30, cutoff: new Date(Date.now() - 30 * 86400000).toISOString() } }))
+  await page.route('**/api/v1/images/cleanup', async (route) => {
+    const body = route.request().postDataJSON()
+    expect(body).toMatchObject({ imageIds: [unusedImageID], olderThanDays: 30, confirm: 'DELETE' })
+    unusedImageDeleted = true
+    await route.fulfill({ json: { deletedCount: 1, skippedCount: 0, failedCount: 0, freedBytes: unusedImage.sizeBytes } })
+  })
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000, maintenance: false }] } }))
   await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: registryID, name: registryName, url: 'https://harbor.example.test', username: 'robot$dbmock', hasPassword: true, hasCaCertificate: true, status: registryStatus, statusMessage: registryStatusMessage, statusCode: registryStatusCode, lastTestedAt: registryLastTestedAt, createdAt: registryUpdatedAt, updatedAt: registryUpdatedAt }] } }))
   await page.route(`**/api/v1/registries/${registryID}/test`, async (route) => {
@@ -426,6 +437,14 @@ test('initializes the platform and switches the embedded interface language', as
   await createFromImageDrawer.getByRole('button', { name: /取\s*消/ }).click()
   await page.getByRole('dialog', { name: '放弃未保存的数据库配置？' }).getByRole('button', { name: '放弃更改' }).click()
   await page.goto('/images')
+  await page.getByRole('button', { name: '扫描未使用镜像' }).click()
+  const cleanupImagesDialog = page.getByRole('dialog', { name: '清理未使用镜像' })
+  await expect(cleanupImagesDialog.getByText('Legacy Redis offline')).toBeVisible()
+  await expect(cleanupImagesDialog.getByText('发现 1 个候选镜像，共 64 MiB')).toBeVisible()
+  await cleanupImagesDialog.getByRole('button', { name: '清理选中镜像' }).click()
+  await expect(page.getByText('已清理 1 个镜像，释放 64 MiB')).toBeVisible()
+  await expect(cleanupImagesDialog.getByText('没有可清理的镜像').first()).toBeVisible()
+  await cleanupImagesDialog.getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('tab', { name: /镜像仓库/ }).click()
   await expect(page.getByText('从控制服务验证仓库')).toBeVisible()
   await page.getByRole('button', { name: '测试连通性' }).click()
@@ -446,6 +465,8 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
   await page.unroute(`**/api/v1/registries/${registryID}`)
   await page.unroute(`**/api/v1/registries/${registryID}/test`)
+  await page.unroute('**/api/v1/images/cleanup')
+  await page.unroute('**/api/v1/images/unused?olderThanDays=*')
   await page.unroute('**/api/v1/registries')
   await page.unroute('**/api/v1/images')
   await page.unroute('**/api/v1/hosts')
