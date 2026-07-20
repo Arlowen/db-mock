@@ -8,6 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pika/db-mock/internal/domain"
 )
@@ -36,6 +37,47 @@ func NewDocker(runner Runner) *Docker { return &Docker{runner: runner} }
 
 func (d *Docker) Probe(ctx context.Context, host domain.Host) (ProbeResult, error) {
 	return d.runner.Probe(ctx, host)
+}
+
+func (d *Docker) ListeningTCPPorts(ctx context.Context, host domain.Host) (map[int]struct{}, error) {
+	const command = `set -eu
+if command -v ss >/dev/null 2>&1; then
+  ss -H -ltn 2>/dev/null | awk '{print $4}'
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -nP -a -iTCP -sTCP:LISTEN -F n 2>/dev/null | sed -n 's/^n//p'
+elif command -v netstat >/dev/null 2>&1; then
+  netstat -an 2>/dev/null | awk '/LISTEN/{print $4}'
+else
+  echo 'ss, lsof, or netstat is required to inspect listening TCP ports' >&2
+  exit 69
+fi`
+	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	result, err := d.runner.Run(probeCtx, host, command, nil)
+	if err != nil {
+		return nil, fmt.Errorf("inspect listening TCP ports: %w", err)
+	}
+	return parseListeningTCPPorts(result.Stdout), nil
+}
+
+func parseListeningTCPPorts(output string) map[int]struct{} {
+	ports := make(map[int]struct{})
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 {
+			continue
+		}
+		endpoint := fields[0]
+		separator := strings.LastIndexAny(endpoint, ":.")
+		if separator < 0 || separator == len(endpoint)-1 {
+			continue
+		}
+		port, err := strconv.Atoi(endpoint[separator+1:])
+		if err == nil && port >= 1 && port <= 65535 {
+			ports[port] = struct{}{}
+		}
+	}
+	return ports
 }
 
 func (d *Docker) InstallOrUpgrade(ctx context.Context, host domain.Host, upgrade bool) (CommandResult, error) {

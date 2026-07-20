@@ -108,10 +108,11 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if request.CPU < version.MinCPU || request.MemoryBytes < version.MinMemoryBytes || request.DiskBytes < version.MinDiskBytes {
 		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: resources are below template minimum", domain.ErrInvalid)
 	}
-	host, err := s.selectHost(ctx, request.HostID, version, request.CPU, request.MemoryBytes, request.DiskBytes, request.HostPort)
+	host, hostPort, err := s.selectHost(ctx, request.HostID, version, request.CPU, request.MemoryBytes, request.DiskBytes, request.HostPort)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
+	request.HostPort = hostPort
 	if request.ImageArtifactID != nil {
 		artifact, getErr := s.store.GetImageArtifact(ctx, *request.ImageArtifactID)
 		if getErr != nil {
@@ -289,37 +290,42 @@ func (s *Service) Connection(ctx context.Context, id uuid.UUID) (domain.Instance
 	return templates.Connection(template, version, instance, instance.ConnectionAddress, string(plain)), nil
 }
 
-func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version domain.TemplateVersion, cpu float64, memory, disk int64, port int) (domain.Host, error) {
+func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version domain.TemplateVersion, cpu float64, memory, disk int64, port int) (domain.Host, int, error) {
 	if requested != nil {
 		host, err := s.store.GetHost(ctx, *requested)
 		if err != nil {
-			return domain.Host{}, err
+			return domain.Host{}, 0, err
 		}
 		if host.Status != "online" || host.Maintenance {
-			return domain.Host{}, fmt.Errorf("%w: host is not available for deployments", domain.ErrConflict)
+			return domain.Host{}, 0, fmt.Errorf("%w: host is not available for deployments", domain.ErrConflict)
 		}
 		if !supports(version.Architectures, host.Architecture) {
-			return domain.Host{}, fmt.Errorf("%w: host architecture is incompatible", domain.ErrConflict)
+			return domain.Host{}, 0, fmt.Errorf("%w: host architecture is incompatible", domain.ErrConflict)
 		}
 		reservation, err := s.store.HostReservations(ctx, host.ID)
 		if err != nil {
-			return domain.Host{}, err
+			return domain.Host{}, 0, err
 		}
 		if !fitsHost(host, reservation, cpu, memory, disk) {
-			return domain.Host{}, fmt.Errorf("%w: host does not have enough available resources", domain.ErrConflict)
+			return domain.Host{}, 0, fmt.Errorf("%w: host does not have enough available resources", domain.ErrConflict)
 		}
 		if !portAvailable(host, reservation, port) {
-			return domain.Host{}, fmt.Errorf("%w: requested port is not available on the selected host", domain.ErrConflict)
+			return domain.Host{}, 0, fmt.Errorf("%w: requested port is not available on the selected host", domain.ErrConflict)
 		}
-		return host, nil
+		selectedPort, err := s.selectAvailablePort(ctx, host, reservation, port)
+		if err != nil {
+			return domain.Host{}, 0, err
+		}
+		return host, selectedPort, nil
 	}
 	hosts, err := s.store.ListHosts(ctx)
 	if err != nil {
-		return domain.Host{}, err
+		return domain.Host{}, 0, err
 	}
 	type candidate struct {
-		host  domain.Host
-		score float64
+		host        domain.Host
+		reservation store.HostReservation
+		score       float64
 	}
 	var candidates []candidate
 	for _, host := range hosts {
@@ -337,13 +343,26 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 			continue
 		}
 		score := (host.CPUCount-reservation.CPU)/max(host.CPUCount, 1) + float64(host.MemoryBytes-reservation.Memory)/float64(maxInt(host.MemoryBytes, 1))
-		candidates = append(candidates, candidate{host, score})
+		candidates = append(candidates, candidate{host: host, reservation: reservation, score: score})
 	}
 	if len(candidates) == 0 {
-		return domain.Host{}, fmt.Errorf("%w: no compatible host has enough resources or the requested port is unavailable", domain.ErrConflict)
+		return domain.Host{}, 0, fmt.Errorf("%w: no compatible host has enough resources or the requested port is unavailable", domain.ErrConflict)
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
-	return candidates[0].host, nil
+	var inspectErr error
+	for _, candidate := range candidates {
+		selectedPort, portErr := s.selectAvailablePort(ctx, candidate.host, candidate.reservation, port)
+		if portErr == nil {
+			return candidate.host, selectedPort, nil
+		}
+		if errors.Is(portErr, domain.ErrUnavailable) {
+			inspectErr = portErr
+		}
+	}
+	if inspectErr != nil {
+		return domain.Host{}, 0, inspectErr
+	}
+	return domain.Host{}, 0, fmt.Errorf("%w: every compatible host has a conflicting TCP listener in its port pool", domain.ErrConflict)
 }
 
 func fitsHost(host domain.Host, reservation store.HostReservation, cpu float64, memory, disk int64) bool {
@@ -354,13 +373,52 @@ func fitsHost(host domain.Host, reservation store.HostReservation, cpu float64, 
 
 func portAvailable(host domain.Host, reservation store.HostReservation, port int) bool {
 	if port == 0 {
-		return true
+		for candidate := host.PortStart; candidate <= host.PortEnd; candidate++ {
+			if _, used := reservation.Ports[candidate]; !used {
+				return true
+			}
+		}
+		return false
 	}
 	if port < host.PortStart || port > host.PortEnd {
 		return false
 	}
 	_, used := reservation.Ports[port]
 	return !used
+}
+
+func (s *Service) selectAvailablePort(ctx context.Context, host domain.Host, reservation store.HostReservation, requested int) (int, error) {
+	listening, err := s.docker.ListeningTCPPorts(ctx, host)
+	if err != nil {
+		return 0, fmt.Errorf("%w: cannot inspect listening ports on host %q: %v", domain.ErrUnavailable, host.Name, err)
+	}
+	if selected, ok := chooseAvailablePort(host, reservation, listening, requested); ok {
+		return selected, nil
+	}
+	if requested != 0 {
+		return 0, fmt.Errorf("%w: port %d is outside the host pool, reserved, or already listening on host %q", domain.ErrConflict, requested, host.Name)
+	}
+	return 0, fmt.Errorf("%w: no unused TCP port remains in host %q pool %d-%d", domain.ErrConflict, host.Name, host.PortStart, host.PortEnd)
+}
+
+func chooseAvailablePort(host domain.Host, reservation store.HostReservation, listening map[int]struct{}, requested int) (int, bool) {
+	if requested != 0 {
+		if !portAvailable(host, reservation, requested) {
+			return 0, false
+		}
+		_, used := listening[requested]
+		return requested, !used
+	}
+	for candidate := host.PortStart; candidate <= host.PortEnd; candidate++ {
+		if _, reserved := reservation.Ports[candidate]; reserved {
+			continue
+		}
+		if _, used := listening[candidate]; used {
+			continue
+		}
+		return candidate, true
+	}
+	return 0, false
 }
 
 func contains(values []string, target string) bool {

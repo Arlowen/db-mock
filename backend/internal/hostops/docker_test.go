@@ -42,3 +42,15 @@ func TestRegistryServerStripsURLScheme(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestParseListeningTCPPortsSupportsLinuxAndMacOSFormats(t *testing.T) {
+	ports := parseListeningTCPPorts("0.0.0.0:22\n[::]:5432\n*:8080\n*.6379\n127.0.0.1.27017\ninvalid\n*:70000\n")
+	for _, port := range []int{22, 5432, 8080, 6379, 27017} {
+		if _, ok := ports[port]; !ok {
+			t.Errorf("expected port %d to be detected", port)
+		}
+	}
+	if _, ok := ports[70000]; ok {
+		t.Fatal("expected an out-of-range port to be ignored")
+	}
+}

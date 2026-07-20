@@ -142,7 +142,7 @@ func TestFitsHostHonorsDeploymentHeadroom(t *testing.T) {
 }
 
 func TestPortAvailableHonorsPoolAndReservations(t *testing.T) {
-	host := domain.Host{PortStart: 20000, PortEnd: 20010}
+	host := domain.Host{PortStart: 20000, PortEnd: 20002}
 	reservation := store.HostReservation{Ports: map[int]struct{}{20001: {}}}
 
 	if !portAvailable(host, reservation, 0) {
@@ -156,6 +156,31 @@ func TestPortAvailableHonorsPoolAndReservations(t *testing.T) {
 	}
 	if portAvailable(host, reservation, 19999) {
 		t.Fatal("expected a port outside the host pool to be rejected")
+	}
+	reservation.Ports[20000] = struct{}{}
+	reservation.Ports[20002] = struct{}{}
+	if portAvailable(host, reservation, 0) {
+		t.Fatal("expected automatic allocation to reject a fully reserved pool")
+	}
+}
+
+func TestChooseAvailablePortSkipsReservationsAndRealListeners(t *testing.T) {
+	host := domain.Host{PortStart: 20000, PortEnd: 20003}
+	reservation := store.HostReservation{Ports: map[int]struct{}{20000: {}}}
+	listening := map[int]struct{}{20001: {}, 20003: {}}
+
+	if got, ok := chooseAvailablePort(host, reservation, listening, 0); !ok || got != 20002 {
+		t.Fatalf("automatic port = %d, %v; want 20002, true", got, ok)
+	}
+	if _, ok := chooseAvailablePort(host, reservation, listening, 20001); ok {
+		t.Fatal("expected a listening requested port to be rejected")
+	}
+	if got, ok := chooseAvailablePort(host, reservation, listening, 20002); !ok || got != 20002 {
+		t.Fatalf("requested port = %d, %v; want 20002, true", got, ok)
+	}
+	listening[20002] = struct{}{}
+	if _, ok := chooseAvailablePort(host, reservation, listening, 0); ok {
+		t.Fatal("expected a pool without a free real TCP port to be rejected")
 	}
 }
 
