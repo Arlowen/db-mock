@@ -10,12 +10,12 @@
 
 ## 在线安装
 
+在源码仓库根目录执行：
+
 ```bash
-cp .env.example .env
-# 编辑 .env，必须更换 DBMOCK_POSTGRES_PASSWORD 和公开访问地址
-docker compose pull
-docker compose up -d
-docker compose ps
+cp deploy/.env.example deploy/.env
+# 编辑 deploy/.env，必须更换 DBMOCK_POSTGRES_PASSWORD 和公开访问地址
+make up
 ```
 
 也可运行 `./scripts/install.sh` 自动生成 PostgreSQL 随机密码并启动。首次打开
@@ -40,13 +40,16 @@ cd dbmock-offline
 ./offline-install.sh
 ```
 
+离线包是独立的扁平目录，包内的 `compose.yaml`、`.env.example` 和安装脚本都位于
+解压目录根部，不使用源码仓库的 `deploy/` 路径。
+
 离线包只包含控制平台和 PostgreSQL 镜像。数据库镜像通过平台的“镜像与仓库”页面上传
 `docker save` 生成的 `.tar`、`.tar.gz` 或 `.tgz` 文件。
 
 ## HTTPS
 
 默认由 Go 服务直接提供 HTTP。若启用 HTTPS，把证书与私钥放入 `deploy/tls/`，并在
-`.env` 中配置容器内路径：
+`deploy/.env` 中配置容器内路径：
 
 ```dotenv
 DBMOCK_PUBLIC_URL=https://dbmock.example.com:8080
@@ -54,13 +57,13 @@ DBMOCK_TLS_CERT_FILE=/etc/dbmock/tls/server.crt
 DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
 ```
 
-重新执行 `docker compose up -d`。证书和私钥必须同时配置。
+重新执行 `make up`。证书和私钥必须同时配置。
 
 ## 升级和运维
 
 ```bash
 ./scripts/upgrade.sh
-docker compose logs -f dbmock
+make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 

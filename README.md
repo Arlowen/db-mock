@@ -26,23 +26,40 @@ DB Mock 是一个基于 Web 和 Docker Compose 的开源数据库实例管理平
 20 GB 磁盘：
 
 ```bash
-cp .env.example .env
-# 修改 .env 中的数据库密码和访问地址
-docker compose up -d --build
+cp deploy/.env.example deploy/.env
+# 修改 deploy/.env 中的数据库密码和访问地址
+make up
 ```
 
 访问 `http://localhost:8080` 创建首个账号。生产环境、内置 HTTPS 与离线安装步骤见
 [中文部署文档](docs/zh/deployment.md) 或 [English deployment guide](docs/en/deployment.md)。
 
-## 本地开发
+## 仓库结构
 
-```bash
-docker compose up -d postgres
-cd frontend && npm ci && npm run build
-cd .. && go run ./cmd/dbmock
+```text
+backend/            Go 服务、数据库迁移和内嵌页面产物
+frontend/           React/Vite 页面、单元测试和 Playwright 测试
+deploy/             Compose、Dockerfile、环境模板和 TLS 文件
+scripts/            在线安装、升级、离线打包和 CI 辅助脚本
+docs/               需求、架构与中英文部署文档
+Makefile            仓库级开发、构建和部署入口
 ```
 
-后端测试使用 `go test ./...`，前端使用 `npm test` 和 `npm run build`。
+真实部署配置位于 `deploy/.env`，不会提交到 Git；可提交的配置模板位于
+`deploy/.env.example`。
+
+## 本地开发
+
+需要 Go 1.25.12+ 和 Node.js 22：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres
+cd frontend && npm ci && npm run build
+cd ../backend && go run ./cmd/dbmock
+```
+
+从仓库根目录运行 `make test` 执行后端和前端测试，`make build` 生成单文件服务，
+`make docker` 构建容器镜像。前端检查包含 TypeScript 类型检查和 Vitest 测试。
 
 ## 许可证
 

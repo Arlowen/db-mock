@@ -10,12 +10,12 @@
 
 ## Online installation
 
+Run these commands from the source repository root:
+
 ```bash
-cp .env.example .env
-# Edit .env and replace DBMOCK_POSTGRES_PASSWORD and the public URL.
-docker compose pull
-docker compose up -d
-docker compose ps
+cp deploy/.env.example deploy/.env
+# Edit deploy/.env and replace DBMOCK_POSTGRES_PASSWORD and the public URL.
+make up
 ```
 
 Alternatively, run `./scripts/install.sh` to generate a PostgreSQL password and start the stack.
@@ -40,13 +40,17 @@ cd dbmock-offline
 ./offline-install.sh
 ```
 
+The offline bundle is a standalone flattened directory. Its `compose.yaml`,
+`.env.example`, and install script live at the extracted bundle root and do not
+use the source repository's `deploy/` paths.
+
 The bundle contains only the control-plane and PostgreSQL images. Upload database images from
 `docker save` as `.tar`, `.tar.gz`, or `.tgz` in the Images & registries page.
 
 ## HTTPS
 
 The Go service provides HTTP by default. Put a certificate and private key under `deploy/tls/` and
-configure their container paths in `.env`:
+configure their container paths in `deploy/.env`:
 
 ```dotenv
 DBMOCK_PUBLIC_URL=https://dbmock.example.com:8080
@@ -54,13 +58,13 @@ DBMOCK_TLS_CERT_FILE=/etc/dbmock/tls/server.crt
 DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
 ```
 
-Run `docker compose up -d` again. The certificate and key must be configured together.
+Run `make up` again. The certificate and key must be configured together.
 
 ## Upgrade and operations
 
 ```bash
 ./scripts/upgrade.sh
-docker compose logs -f dbmock
+make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
