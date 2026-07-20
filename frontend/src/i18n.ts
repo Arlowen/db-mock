@@ -52,6 +52,7 @@ export const zh: Record<string, string> = {
   auditDetails: '审计详情', auditTraceDescription: '{{user}} 于 {{time}} 发起了这次操作。', requestId: '请求标识', relatedTask: '关联任务',
   recordedChanges: '记录的变更', noRecordedChanges: '该操作没有记录字段级变更。',
   settingsDescription: '运行策略保存在 PostgreSQL 中；网络和 TLS 等进程级配置仍由环境变量控制。',
+  timezoneSettings: '时间与时区', timezoneSettingsHint: '所有账号、审计记录、任务、告警和监控图表统一按该时区展示；保存后立即生效。', saveTimezone: '保存时区', timezoneSaved: '系统时区已保存', timezone: '系统时区', timezoneHint: '输入 IANA 时区名称，例如 Asia/Shanghai、UTC 或 America/New_York。', timezoneRequired: '请输入系统时区', timezoneInvalid: '请输入有效的 IANA 时区名称',
   monitoringSettings: '监控与告警策略', monitoringSettingsHint: '配置保存后会在下一轮监控开始时生效，不需要重启服务。', monitoringSettingsSaved: '监控与告警策略已保存', saveMonitoringSettings: '保存监控策略',
   collectionPolicy: '采集与保留', monitoringInterval: '采集间隔', monitoringIntervalHint: '允许 5–3600 秒', metricRetention: '指标保留时间', metricRetentionHint: '允许 1–365 天', seconds: '秒', days: '天',
   diskWarningThreshold: '磁盘警告阈值', diskWarningThresholdHint: '达到该使用率后产生警告', diskWarningThresholdRange: '警告阈值必须在 1%–99% 之间', diskCriticalThreshold: '磁盘严重阈值', diskCriticalThresholdHint: '必须高于警告阈值', diskCriticalThresholdRange: '严重阈值必须在 2%–100% 之间', diskCriticalAboveWarning: '严重阈值必须高于警告阈值',
@@ -281,7 +282,7 @@ export const zh: Record<string, string> = {
   auditAction_webhook_create: '创建 Webhook', auditAction_webhook_update: '更新 Webhook', auditAction_webhook_delete: '删除 Webhook',
   auditAction_webhook_test: '测试 Webhook', auditAction_webhook_delivery_retry: '重试 Webhook 投递', auditAction_audit_clear: '清理审计日志', auditAction_setting_update: '更新系统设置',
   lastLogin: '最后登录时间',
-  deploymentEnvironment: '部署环境', deploymentEnvironmentHint: '监听地址、PostgreSQL URL、主密钥、制品目录、公开访问地址、可选 TLS 证书与私钥、会话时长和上传硬上限均通过 DBMOCK_* 环境变量配置；实际上传策略可在上方运行时调整。',
+  deploymentEnvironment: '部署环境', deploymentEnvironmentHint: '监听地址、PostgreSQL URL、主密钥、制品目录、公开访问地址、可选 TLS 证书与私钥、会话时长和上传硬上限均通过 DBMOCK_* 环境变量配置；DBMOCK_TIMEZONE 仅提供首次初始化默认值，之后由上方系统时区控制。',
 }
 
 export const en: Record<string, string> = {
@@ -334,6 +335,7 @@ export const en: Record<string, string> = {
   auditDetails: 'Audit details', auditTraceDescription: '{{user}} initiated this operation at {{time}}.', requestId: 'Request ID', relatedTask: 'Related task',
   recordedChanges: 'Recorded changes', noRecordedChanges: 'This operation did not record field-level changes.',
   settingsDescription: 'Runtime policies are stored in PostgreSQL. Process-level networking and TLS remain environment variables.',
+  timezoneSettings: 'Time and timezone', timezoneSettingsHint: 'All accounts see audit records, tasks, alerts, and monitoring charts in this timezone. Saved changes take effect immediately.', saveTimezone: 'Save timezone', timezoneSaved: 'System timezone saved', timezone: 'System timezone', timezoneHint: 'Enter an IANA timezone name such as Asia/Shanghai, UTC, or America/New_York.', timezoneRequired: 'Enter the system timezone', timezoneInvalid: 'Enter a valid IANA timezone name',
   monitoringSettings: 'Monitoring and alert policy', monitoringSettingsHint: 'Saved changes take effect on the next monitoring cycle without restarting the service.', monitoringSettingsSaved: 'Monitoring and alert policy saved', saveMonitoringSettings: 'Save monitoring policy',
   collectionPolicy: 'Collection and retention', monitoringInterval: 'Collection interval', monitoringIntervalHint: 'Allowed range: 5–3600 seconds', metricRetention: 'Metric retention', metricRetentionHint: 'Allowed range: 1–365 days', seconds: 'sec', days: 'days',
   diskWarningThreshold: 'Disk warning threshold', diskWarningThresholdHint: 'Raise a warning at this usage', diskWarningThresholdRange: 'The warning threshold must be between 1% and 99%', diskCriticalThreshold: 'Disk critical threshold', diskCriticalThresholdHint: 'Must be above the warning threshold', diskCriticalThresholdRange: 'The critical threshold must be between 2% and 100%', diskCriticalAboveWarning: 'The critical threshold must be above the warning threshold',
@@ -563,7 +565,7 @@ export const en: Record<string, string> = {
   auditAction_webhook_create: 'Create webhook', auditAction_webhook_update: 'Update webhook', auditAction_webhook_delete: 'Delete webhook',
   auditAction_webhook_test: 'Test webhook', auditAction_webhook_delivery_retry: 'Retry webhook delivery', auditAction_audit_clear: 'Clear audit log', auditAction_setting_update: 'Update setting',
   lastLogin: 'Last login',
-  deploymentEnvironment: 'Deployment environment', deploymentEnvironmentHint: 'Listen address, PostgreSQL URL, master key, artifact directory, public URL, optional TLS certificate/key, session duration, and the hard upload ceiling use DBMOCK_* variables. Tune the active upload policy above.',
+  deploymentEnvironment: 'Deployment environment', deploymentEnvironmentHint: 'Listen address, PostgreSQL URL, master key, artifact directory, public URL, optional TLS certificate/key, session duration, and the hard upload ceiling use DBMOCK_* variables. DBMOCK_TIMEZONE only supplies the first-run default; the system timezone above is authoritative afterward.',
 }
 
 const zhKeys = Object.keys(zh).sort()

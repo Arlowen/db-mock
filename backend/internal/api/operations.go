@@ -357,6 +357,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items["uploads"] = uploadSettingView(items["uploads"], s.config.MaxUploadBytes)
+	items["timezone"] = timezoneSettingView(items["timezone"], s.config.Timezone)
 	httpx.JSON(w, http.StatusOK, items)
 }
 func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
@@ -371,7 +372,7 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
 	}
-	data, err = normalizeSettingValue(key, data, s.config.MaxUploadBytes)
+	data, err = normalizeSettingValue(key, data, s.config.MaxUploadBytes, s.config.Timezone)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -385,14 +386,21 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func normalizeSettingValue(key string, value json.RawMessage, maxUploadBytes int64) (json.RawMessage, error) {
+func normalizeSettingValue(key string, value json.RawMessage, maxUploadBytes int64, defaultTimezone string) (json.RawMessage, error) {
 	switch key {
 	case "monitoring":
 		return platformsettings.NormalizeMonitoringPolicy(value)
 	case "uploads":
 		return platformsettings.NormalizeUploadPolicy(value, maxUploadBytes)
+	case "timezone":
+		return platformsettings.NormalizeTimezone(value)
 	}
 	return value, nil
+}
+
+func timezoneSettingView(value json.RawMessage, fallback string) json.RawMessage {
+	result, _ := json.Marshal(platformsettings.EffectiveTimezone(value, fallback))
+	return result
 }
 
 func uploadSettingView(value json.RawMessage, maxAllowedBytes int64) json.RawMessage {

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { formatDateTime, translateCode } from '../lib/localization'
 import type { Alert as AlertItem, Host, Instance, Webhook, WebhookDelivery } from '../lib/types'
@@ -34,6 +35,7 @@ interface WebhookValues {
 
 export function AlertsPage() {
   const { t, i18n } = useTranslation()
+  const { timezone } = useSystemSettings()
   const { message } = App.useApp()
   const location = useLocation()
   const navigate = useNavigate()
@@ -298,7 +300,7 @@ export function AlertsPage() {
         return <div className="alert-resource"><Tag>{translateCode(t, item.resourceType, 'resourceType')}</Tag>{resource.path ? <Button type="link" icon={<LinkOutlined />} onClick={() => navigate(resource.path)}>{resource.name}</Button> : <Typography.Text type="secondary">{resource.name}</Typography.Text>}</div>
       },
     },
-    { title: t('alertFirstSeen'), dataIndex: 'createdAt', width: 150, render: (value: string) => formatDateTime(value, i18n.language) },
+    { title: t('alertFirstSeen'), dataIndex: 'createdAt', width: 150, render: (value: string) => formatDateTime(value, i18n.language, timezone) },
     {
       title: t('actions'), width: 220,
       render: (_: unknown, item: AlertItem) => <Space className="alert-table-actions">
@@ -327,11 +329,11 @@ export function AlertsPage() {
 
   const webhookTab = loading ? <Card loading /> : <Row gutter={[16, 16]} className="webhook-grid">
     {webhooks.map((item) => <Col xs={24} lg={12} xl={8} key={item.id}><Card className="webhook-card">
-      <div className="webhook-card-header"><div><Typography.Title level={4}>{item.name}</Typography.Title><Typography.Text type="secondary">{formatDateTime(item.updatedAt, i18n.language)}</Typography.Text></div><Switch aria-label={`${item.name} ${t('enabled')}`} checked={item.enabled} loading={actioning === `toggle:${item.id}`} onChange={(value) => void updateWebhookEnabled(item, value)} /></div>
+      <div className="webhook-card-header"><div><Typography.Title level={4}>{item.name}</Typography.Title><Typography.Text type="secondary">{formatDateTime(item.updatedAt, i18n.language, timezone)}</Typography.Text></div><Switch aria-label={`${item.name} ${t('enabled')}`} checked={item.enabled} loading={actioning === `toggle:${item.id}`} onChange={(value) => void updateWebhookEnabled(item, value)} /></div>
       <Typography.Text className="webhook-url" copyable ellipsis={{ tooltip: item.url }}>{item.url}</Typography.Text>
       <div className="webhook-event-list">{item.events.map((event) => <Tag key={event}>{t(eventKey(event), { defaultValue: event })}</Tag>)}</div>
       <div className="webhook-security"><StatusTag value={item.enabled ? 'enabled' : 'disabled'} />{item.hasSecret && <Typography.Text type="secondary">{t('hmacSigningEnabled')}</Typography.Text>}</div>
-      <div className="webhook-delivery-facts"><div><Typography.Text type="secondary">{t('lastDelivery')}</Typography.Text><Space size={6}>{item.lastDeliveryStatus ? <StatusTag value={item.lastDeliveryStatus} /> : <Typography.Text>{t('notTested')}</Typography.Text>}{item.lastDeliveryAt && <Typography.Text type="secondary">{formatDateTime(item.lastDeliveryAt, i18n.language)}</Typography.Text>}</Space></div><div><Typography.Text type="secondary">{t('deliveryQueue')}</Typography.Text><Space size={6}>{item.failedDeliveries > 0 && <Tag color="red">{t('failedDeliveryCount', { count: item.failedDeliveries })}</Tag>}{item.queuedDeliveries > 0 && <Tag color="gold">{t('queuedDeliveryCount', { count: item.queuedDeliveries })}</Tag>}{!item.failedDeliveries && !item.queuedDeliveries && <Typography.Text>{t('queueClear')}</Typography.Text>}</Space></div></div>
+      <div className="webhook-delivery-facts"><div><Typography.Text type="secondary">{t('lastDelivery')}</Typography.Text><Space size={6}>{item.lastDeliveryStatus ? <StatusTag value={item.lastDeliveryStatus} /> : <Typography.Text>{t('notTested')}</Typography.Text>}{item.lastDeliveryAt && <Typography.Text type="secondary">{formatDateTime(item.lastDeliveryAt, i18n.language, timezone)}</Typography.Text>}</Space></div><div><Typography.Text type="secondary">{t('deliveryQueue')}</Typography.Text><Space size={6}>{item.failedDeliveries > 0 && <Tag color="red">{t('failedDeliveryCount', { count: item.failedDeliveries })}</Tag>}{item.queuedDeliveries > 0 && <Tag color="gold">{t('queuedDeliveryCount', { count: item.queuedDeliveries })}</Tag>}{!item.failedDeliveries && !item.queuedDeliveries && <Typography.Text>{t('queueClear')}</Typography.Text>}</Space></div></div>
       <div className="webhook-card-footer"><Button icon={<HistoryOutlined />} onClick={() => setQuery({ tab: 'webhooks', webhook: item.id, alert: undefined })}>{t('deliveryHistory')}</Button><Space><Button icon={<EditOutlined />} onClick={() => showEditWebhook(item)}>{t('edit')}</Button><Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${item.id}`} disabled={!item.enabled || (!!actioning && actioning !== `test:${item.id}`)} onClick={() => void testWebhook(item)}>{t('testWebhook')}</Button><Popconfirm title={t('delete')} description={t('webhookDeleteConfirm')} okButtonProps={{ danger: true }} onConfirm={() => void deleteWebhook(item)}><Button danger aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} loading={actioning === `delete:${item.id}`} /></Popconfirm></Space></div>
     </Card></Col>)}
     {webhooks.length === 0 && <Col span={24}><Card><EmptyState action={showCreateWebhook} actionLabel={t('addWebhook')} description={t('webhooksEmptyDescription')} /></Card></Col>}
@@ -347,10 +349,10 @@ export function AlertsPage() {
 
     <Drawer title={t('alertDetails')} width={620} open={!!selectedAlertID} onClose={() => setQuery({ alert: undefined })} footer={selectedAlert ? <div className="alert-drawer-footer"><Button icon={<LinkOutlined />} disabled={!resourceFor(selectedAlert).path} onClick={() => openResource(selectedAlert)}>{t('viewResource')}</Button><Space>{selectedAlert.status === 'open' && <Button loading={actioning === `${selectedAlert.id}:acknowledged`} onClick={() => void setAlertStatus(selectedAlert, 'acknowledged')}>{t('acknowledge')}</Button>}{selectedAlert.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(selectedAlert)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(selectedAlert, 'resolved')}><Button type="primary" loading={actioning === `${selectedAlert.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}</Space></div> : undefined}>
       {selectedAlert ? <div className="alert-detail"><div className={`alert-detail-summary severity-${selectedAlert.severity}`}><div className="alert-detail-icon"><BellOutlined /></div><div><Space wrap><StatusTag value={selectedAlert.severity} /><StatusTag value={selectedAlert.status} /></Space><Typography.Title level={4}>{t(`alertTitle_${selectedAlert.type}`, { defaultValue: selectedAlert.title })}</Typography.Title><Typography.Paragraph>{summaryFor(selectedAlert)}</Typography.Paragraph></div></div>{selectedResourceState ? <InlineAlert className="alert-resource-health" type={selectedResourceState.healthy ? 'success' : 'warning'} showIcon message={t(selectedResourceState.healthy ? 'alertResourceRecovered' : 'alertResourceStillUnhealthy')} description={t(selectedResourceState.healthy ? 'alertResourceRecoveredHint' : 'alertResourceUnhealthyHint', { name: selectedResourceState.name, status: translateCode(t, selectedResourceState.status) })} action={<Button size="small" icon={<LinkOutlined />} onClick={() => openResource(selectedAlert)}>{t('inspectAffectedResource')}</Button>} /> : <InlineAlert type="warning" showIcon message={t('resourceUnavailable')} description={t('alertResourceUnavailableHint')} />}{relatedActiveAlerts.length > 0 && <Card size="small" title={t('relatedActiveAlerts')}><div className="related-alert-list">{relatedActiveAlerts.map((item) => <div className="related-alert-item" key={item.id}><StatusTag value={item.severity} /><div><Button type="link" onClick={() => setQuery({ tab: 'alerts', alert: item.id, webhook: undefined })}>{t(`alertTitle_${item.type}`, { defaultValue: item.title })}</Button><Typography.Text type="secondary">{summaryFor(item)}</Typography.Text></div><StatusTag value={item.status} /></div>)}</div></Card>}{selectedDiagnosticEntries.length > 0 && <Card size="small" title={t('alertDiagnostics')}><Descriptions className="alert-diagnostic-details" size="small" column={1} items={selectedDiagnosticEntries.map(([key, value]) => ({ key, label: t(`alertDetail_${key}`, { defaultValue: key }), children: typeof value === 'string' ? <Typography.Text code>{value}</Typography.Text> : typeof value === 'object' ? <Typography.Text code>{JSON.stringify(value)}</Typography.Text> : String(value) }))} /></Card>}<InlineAlert type="info" showIcon message={t('technicalDetails')} description={<Typography.Text code copyable>{selectedAlert.message}</Typography.Text>} /><Card size="small" title={t('alertLifecycle')}><Descriptions size="small" column={1} items={[
-        { key: 'created', label: t('alertFirstSeen'), children: formatDateTime(selectedAlert.createdAt, i18n.language) },
-        { key: 'acknowledged', label: t('alertAcknowledgedAt'), children: formatDateTime(selectedAlert.acknowledgedAt, i18n.language) },
+        { key: 'created', label: t('alertFirstSeen'), children: formatDateTime(selectedAlert.createdAt, i18n.language, timezone) },
+        { key: 'acknowledged', label: t('alertAcknowledgedAt'), children: formatDateTime(selectedAlert.acknowledgedAt, i18n.language, timezone) },
         { key: 'acknowledgedBy', label: t('alertAcknowledgedBy'), children: alertActor(selectedAlert.acknowledgedBy) },
-        { key: 'resolved', label: t('alertResolvedAt'), children: formatDateTime(selectedAlert.resolvedAt, i18n.language) },
+        { key: 'resolved', label: t('alertResolvedAt'), children: formatDateTime(selectedAlert.resolvedAt, i18n.language, timezone) },
         { key: 'resolvedBy', label: t('alertResolvedBy'), children: alertActor(selectedAlert.resolvedBy) },
         { key: 'id', label: t('identifier'), children: <Typography.Text code copyable>{selectedAlert.id}</Typography.Text> },
       ]} /></Card></div> : !loading && <EmptyState compact description={t('resourceUnavailable')} />}
@@ -379,7 +381,7 @@ export function AlertsPage() {
         { title: t('status'), dataIndex: 'status', width: 95, render: (value: string) => <StatusTag value={value} /> },
         { title: t('attempts'), dataIndex: 'attempts', width: 100, render: (value: number) => value ? t('attemptCount', { count: value }) : '—' },
         { title: t('httpStatus'), dataIndex: 'responseStatus', width: 85, render: (value?: number) => value ? <Tag color={value >= 200 && value < 300 ? 'green' : 'red'}>{value}</Tag> : '—' },
-        { title: t('lastUpdated'), dataIndex: 'updatedAt', width: 150, render: (value: string, item: WebhookDelivery) => <div className="delivery-time"><Typography.Text>{formatDateTime(value, i18n.language)}</Typography.Text>{item.status === 'retrying' && <Typography.Text type="secondary">{t('nextRetry')}: {formatDateTime(item.nextAttemptAt, i18n.language)}</Typography.Text>}</div> },
+        { title: t('lastUpdated'), dataIndex: 'updatedAt', width: 150, render: (value: string, item: WebhookDelivery) => <div className="delivery-time"><Typography.Text>{formatDateTime(value, i18n.language, timezone)}</Typography.Text>{item.status === 'retrying' && <Typography.Text type="secondary">{t('nextRetry')}: {formatDateTime(item.nextAttemptAt, i18n.language, timezone)}</Typography.Text>}</div> },
         { title: t('actions'), width: 95, render: (_: unknown, item: WebhookDelivery) => item.status === 'failed' ? <Button size="small" type="link" loading={actioning === `retry:${item.id}`} onClick={() => void retryDelivery(item)}>{t('retryDelivery')}</Button> : null },
       ]} scroll={{ x: 680 }} />
     </Drawer>

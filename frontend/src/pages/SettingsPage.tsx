@@ -1,8 +1,9 @@
-import { BellOutlined, CloudUploadOutlined, CodeOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
-import { App, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Space, Switch, Typography } from 'antd'
+import { BellOutlined, CloudUploadOutlined, CodeOutlined, EditOutlined, GlobalOutlined, SaveOutlined } from '@ant-design/icons'
+import { App, AutoComplete, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Space, Switch, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PageHeader } from '../components/Common'
+import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { monitoringAlertKeys, normalizeMonitoringSettings, type MonitoringSettings } from '../lib/monitoring-settings'
 import {
@@ -16,30 +17,36 @@ import {
   type UploadSettingsForm,
 } from '../lib/upload-settings'
 import { bytes } from '../lib/types'
+import { commonTimezones, defaultTimezone, isValidTimezone, normalizeTimezone } from '../lib/timezone'
 
 type Settings = Record<string, unknown>
+interface TimezoneForm { timezone: string }
 
 export function SettingsPage() {
   const { t } = useTranslation()
   const { message } = App.useApp()
+  const { reload: reloadSystemSettings } = useSystemSettings()
   const [items, setItems] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [monitoringSaving, setMonitoringSaving] = useState(false)
   const [uploadSaving, setUploadSaving] = useState(false)
+  const [timezoneSaving, setTimezoneSaving] = useState(false)
   const [uploadSettings, setUploadSettings] = useState<UploadSettings>(defaultUploadSettings)
   const [editing, setEditing] = useState<string | null>(null)
   const [raw, setRaw] = useState('')
   const [monitoringForm] = Form.useForm<MonitoringSettings>()
   const [uploadForm] = Form.useForm<UploadSettingsForm>()
+  const [timezoneForm] = Form.useForm<TimezoneForm>()
 
   const load = useCallback(() => api<Settings>('/settings').then((response) => {
     setItems(response)
+    timezoneForm.setFieldsValue({ timezone: normalizeTimezone(response.timezone) })
     monitoringForm.setFieldsValue(normalizeMonitoringSettings(response.monitoring))
     const uploads = normalizeUploadSettings(response.uploads)
     setUploadSettings(uploads)
     uploadForm.setFieldsValue(uploadSettingsToForm(uploads))
-  }).catch((error) => message.error(errorMessage(error))).finally(() => setLoading(false)), [message, monitoringForm, uploadForm])
+  }).catch((error) => message.error(errorMessage(error))).finally(() => setLoading(false)), [message, monitoringForm, timezoneForm, uploadForm])
 
   useEffect(() => { void load() }, [load])
 
@@ -79,13 +86,34 @@ export function SettingsPage() {
     } finally { setUploadSaving(false) }
   }
 
-  const advancedItems = Object.entries(items).filter(([key]) => key !== 'monitoring' && key !== 'uploads')
+  const saveTimezone = async () => {
+    try {
+      const values = await timezoneForm.validateFields()
+      setTimezoneSaving(true)
+      await api('/settings/timezone', { method: 'PUT', body: JSON.stringify(values.timezone.trim()) })
+      await reloadSystemSettings()
+      message.success(t('timezoneSaved'))
+      await load()
+    } catch (error) {
+      if (error instanceof Error) message.error(errorMessage(error))
+    } finally { setTimezoneSaving(false) }
+  }
+
+  const advancedItems = Object.entries(items).filter(([key]) => key !== 'monitoring' && key !== 'uploads' && key !== 'timezone')
   const maxAllowedGiB = uploadSettings.maxAllowedBytes / GiB
   const maxAllowedMiB = uploadSettings.maxAllowedBytes / MiB
 
   return <>
     <PageHeader title={t('settings')} description={t('settingsDescription')} />
     {loading ? <Card loading /> : <Space direction="vertical" size={16} className="settings-stack">
+      <Card title={<Space><GlobalOutlined />{t('timezoneSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={timezoneSaving} onClick={() => void saveTimezone()}>{t('saveTimezone')}</Button>}>
+        <Typography.Paragraph type="secondary">{t('timezoneSettingsHint')}</Typography.Paragraph>
+        <Form form={timezoneForm} layout="vertical" requiredMark={false} initialValues={{ timezone: defaultTimezone }}>
+          <Form.Item name="timezone" label={t('timezone')} extra={t('timezoneHint')} rules={[{ required: true, message: t('timezoneRequired') }, { validator: (_, value) => isValidTimezone(value) ? Promise.resolve() : Promise.reject(new Error(t('timezoneInvalid'))) }]}>
+            <AutoComplete className="settings-timezone-input" options={commonTimezones.map((value) => ({ value }))} filterOption={(input, option) => (option?.value ?? '').toLowerCase().includes(input.toLowerCase())} placeholder={defaultTimezone} />
+          </Form.Item>
+        </Form>
+      </Card>
       <Card title={<Space><BellOutlined />{t('monitoringSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={monitoringSaving} onClick={() => void saveMonitoring()}>{t('saveMonitoringSettings')}</Button>}>
         <Typography.Paragraph type="secondary">{t('monitoringSettingsHint')}</Typography.Paragraph>
         <Form form={monitoringForm} layout="vertical" requiredMark={false}>

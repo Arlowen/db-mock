@@ -51,34 +51,47 @@ func TestNormalizeWebhook(t *testing.T) {
 }
 
 func TestNormalizeSettingValueValidatesMonitoringPolicy(t *testing.T) {
-	normalized, err := normalizeSettingValue("monitoring", json.RawMessage(`{"alerts":{"hostOffline":false}}`), 50*1024*1024*1024)
+	normalized, err := normalizeSettingValue("monitoring", json.RawMessage(`{"alerts":{"hostOffline":false}}`), 50*1024*1024*1024, "Asia/Shanghai")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !json.Valid(normalized) || !strings.Contains(string(normalized), `"intervalSeconds":30`) || !strings.Contains(string(normalized), `"hostOffline":false`) {
 		t.Fatalf("unexpected normalized monitoring setting: %s", normalized)
 	}
-	if _, err = normalizeSettingValue("monitoring", json.RawMessage(`{"diskWarningPercent":95,"diskCriticalPercent":90}`), 50*1024*1024*1024); err == nil {
+	if _, err = normalizeSettingValue("monitoring", json.RawMessage(`{"diskWarningPercent":95,"diskCriticalPercent":90}`), 50*1024*1024*1024, "Asia/Shanghai"); err == nil {
 		t.Fatal("expected invalid thresholds to be rejected")
 	}
 }
 
 func TestNormalizeSettingValueValidatesUploadPolicyAgainstDeploymentCeiling(t *testing.T) {
 	const gib = int64(1024 * 1024 * 1024)
-	normalized, err := normalizeSettingValue("uploads", json.RawMessage(`{"maxBytes":10737418240,"chunkBytes":4194304}`), 20*gib)
+	normalized, err := normalizeSettingValue("uploads", json.RawMessage(`{"maxBytes":10737418240,"chunkBytes":4194304}`), 20*gib, "Asia/Shanghai")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(normalized), `"maxBytes":10737418240`) || !strings.Contains(string(normalized), `"chunkBytes":4194304`) {
 		t.Fatalf("unexpected normalized upload policy: %s", normalized)
 	}
-	if _, err = normalizeSettingValue("uploads", json.RawMessage(`{"maxBytes":21474836480,"chunkBytes":4194304}`), 10*gib); err == nil {
+	if _, err = normalizeSettingValue("uploads", json.RawMessage(`{"maxBytes":21474836480,"chunkBytes":4194304}`), 10*gib, "Asia/Shanghai"); err == nil {
 		t.Fatal("expected deployment ceiling to be enforced")
 	}
 
 	view := string(uploadSettingView(json.RawMessage(`{"maxBytes":53687091200,"chunkBytes":8388608}`), 10*gib))
 	if !strings.Contains(view, `"maxBytes":10737418240`) || !strings.Contains(view, `"maxAllowedBytes":10737418240`) {
 		t.Fatalf("invalid stored policy should fall back to the effective deployment ceiling: %s", view)
+	}
+}
+
+func TestNormalizeSettingValueValidatesTimezone(t *testing.T) {
+	normalized, err := normalizeSettingValue("timezone", json.RawMessage(`" America/New_York "`), 50*1024*1024*1024, "Asia/Shanghai")
+	if err != nil || string(normalized) != `"America/New_York"` {
+		t.Fatalf("unexpected normalized timezone: %s, %v", normalized, err)
+	}
+	if _, err = normalizeSettingValue("timezone", json.RawMessage(`"browser-local"`), 50*1024*1024*1024, "Asia/Shanghai"); err == nil {
+		t.Fatal("expected invalid timezone to be rejected")
+	}
+	if got := string(timezoneSettingView(json.RawMessage(`"invalid"`), "UTC")); got != `"UTC"` {
+		t.Fatalf("invalid stored timezone should use the deployment fallback: %s", got)
 	}
 }
 

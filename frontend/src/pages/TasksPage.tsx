@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
-import { formatDateTime, translateCode } from '../lib/localization'
+import { formatCompactDateTime, formatDateTime, translateCode } from '../lib/localization'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Host, Instance, Task } from '../lib/types'
 
@@ -15,6 +16,7 @@ const safeCreateReturnPath = (value: string | null) => value?.startsWith('/insta
 
 export function TasksPage() {
   const { t, i18n } = useTranslation()
+  const { timezone } = useSystemSettings()
   const { message } = App.useApp()
   const navigate = useNavigate()
   const notifyTask = useTaskNotification()
@@ -135,7 +137,7 @@ export function TasksPage() {
     if (seconds < 3600) return t('durationMinutes', { count: Math.round(seconds / 60) })
     return t('durationHours', { count: Math.round(seconds / 360) / 10 })
   }
-  const compactTime = (value: string) => new Intl.DateTimeFormat(i18n.language, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+  const compactTime = (value: string) => formatCompactDateTime(value, i18n.language, timezone)
   const taskSummary = (task: Task) => task.errorCode ? t(`taskError_${task.errorCode}`, { defaultValue: i18n.language.startsWith('zh') ? t('taskError_task_failed') : task.errorMessage || task.errorCode }) : task.errorMessage || translateCode(t, task.message, 'taskMessage')
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -179,13 +181,13 @@ export function TasksPage() {
         <Descriptions className="task-detail-meta" bordered size="small" column={2} items={[
           { key: 'resource', label: t('resource'), children: selectedResource?.path ? <Button type="link" icon={selectedResource.icon} onClick={() => goToResource(selected)}>{selectedResource.label}</Button> : selectedResource?.label || '—' },
           { key: 'attempts', label: t('attempts'), children: selected.attempts },
-          { key: 'created', label: t('createdAt'), children: formatDateTime(selected.createdAt, i18n.language) },
-          { key: 'started', label: t('startedAt'), children: formatDateTime(selected.startedAt, i18n.language) },
-          { key: 'finished', label: t('finishedAt'), children: formatDateTime(selected.finishedAt, i18n.language) },
+          { key: 'created', label: t('createdAt'), children: formatDateTime(selected.createdAt, i18n.language, timezone) },
+          { key: 'started', label: t('startedAt'), children: formatDateTime(selected.startedAt, i18n.language, timezone) },
+          { key: 'finished', label: t('finishedAt'), children: formatDateTime(selected.finishedAt, i18n.language, timezone) },
           { key: 'duration', label: t('duration'), children: duration(selected) },
         ]} />
         <Card className="task-log-card" size="small" title={t('executionLog')}>
-          {logs.length ? <Timeline items={logs.map((log) => ({ color: log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : selected.status === 'succeeded' ? 'green' : 'blue', children: <div className="task-log-entry"><Typography.Text type="secondary">{formatDateTime(log.createdAt, i18n.language)}</Typography.Text><Typography.Text>{translateCode(t, log.message, 'taskMessage')}</Typography.Text></div> }))} /> : <EmptyState compact description={t('noTaskLogs')} />}
+          {logs.length ? <Timeline items={logs.map((log) => ({ color: log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : selected.status === 'succeeded' ? 'green' : 'blue', children: <div className="task-log-entry"><Typography.Text type="secondary">{formatDateTime(log.createdAt, i18n.language, timezone)}</Typography.Text><Typography.Text>{translateCode(t, log.message, 'taskMessage')}</Typography.Text></div> }))} /> : <EmptyState compact description={t('noTaskLogs')} />}
         </Card>
       </div>}
     </Drawer>

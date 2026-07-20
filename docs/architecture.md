@@ -78,7 +78,8 @@ erDiagram
     IMAGE_ARTIFACTS ||--o{ UPLOAD_PARTS : consists_of
 ```
 
-所有资源使用 UUID。数据库时间统一存 UTC，页面按 `Asia/Shanghai` 或系统设置展示。
+所有资源使用 UUID。数据库时间统一存 UTC，页面按系统设置中的 IANA 时区展示；
+`DBMOCK_TIMEZONE` 只在首次创建平台账号前提供默认值，初始化后由 PostgreSQL 中的系统设置统一控制。
 软状态（容器状态、资源）由监控协调；用户意图（手动停止、自动重启开关）单独持久化，
 避免监控错误拉起手动停止的实例。
 

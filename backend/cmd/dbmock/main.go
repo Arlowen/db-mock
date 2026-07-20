@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -44,6 +45,22 @@ func main() {
 	}
 	defer pool.Close()
 	target := store.New(pool)
+	initialized, err := target.IsInitialized(root)
+	if err != nil {
+		logger.Error("read initialization status", "error", err)
+		os.Exit(1)
+	}
+	if !initialized {
+		timezone, marshalErr := json.Marshal(cfg.Timezone)
+		if marshalErr != nil {
+			logger.Error("encode timezone setting", "error", marshalErr)
+			os.Exit(1)
+		}
+		if err := target.PutSetting(root, "timezone", timezone); err != nil {
+			logger.Error("initialize timezone setting", "error", err)
+			os.Exit(1)
+		}
+	}
 	if err := templates.Seed(root, target); err != nil {
 		logger.Error("seed built-in templates", "error", err)
 		os.Exit(1)

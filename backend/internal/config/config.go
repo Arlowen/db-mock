@@ -45,7 +45,7 @@ func Load() (Config, error) {
 		MetricsRetention:    envDuration("DBMOCK_METRICS_RETENTION", 7*24*time.Hour),
 		MaxUploadBytes:      envInt64("DBMOCK_MAX_UPLOAD_BYTES", 50*1024*1024*1024),
 		TaskWorkers:         int(envInt64("DBMOCK_TASK_WORKERS", 4)),
-		Timezone:            env("DBMOCK_TIMEZONE", "Asia/Shanghai"),
+		Timezone:            strings.TrimSpace(env("DBMOCK_TIMEZONE", "Asia/Shanghai")),
 		Development:         envBool("DBMOCK_DEVELOPMENT", false),
 		AutoGenerateKeyFile: env("DBMOCK_MASTER_KEY_FILE", "./data/master.key"),
 	}
@@ -58,6 +58,9 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxUploadBytes < platformsettings.MinUploadBytes || cfg.MaxUploadBytes > platformsettings.MaxUploadBytes {
 		return Config{}, fmt.Errorf("DBMOCK_MAX_UPLOAD_BYTES must be between %d and %d bytes", platformsettings.MinUploadBytes, platformsettings.MaxUploadBytes)
+	}
+	if err := platformsettings.ValidateTimezone(cfg.Timezone); err != nil {
+		return Config{}, errors.New("DBMOCK_TIMEZONE must be a valid IANA timezone name")
 	}
 
 	key, err := loadMasterKey(os.Getenv("DBMOCK_MASTER_KEY"), cfg.AutoGenerateKeyFile)

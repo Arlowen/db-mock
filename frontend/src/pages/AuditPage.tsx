@@ -5,6 +5,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'rea
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader } from '../components/Common'
+import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { auditChangeEntries, auditResourcePath, auditValueText, isRedactedAuditValue } from '../lib/audit'
 import { formatDateTime, translateCode } from '../lib/localization'
@@ -12,6 +13,7 @@ import type { Audit } from '../lib/types'
 
 export function AuditPage() {
   const { t, i18n } = useTranslation()
+  const { timezone } = useSystemSettings()
   const { message } = App.useApp()
   const navigate = useNavigate()
   const [items, setItems] = useState<Audit[]>([])
@@ -63,7 +65,7 @@ export function AuditPage() {
   const openPath = (path: string) => { setSelected(null); navigate(path) }
 
   const columns = [
-    { title: t('time'), dataIndex: 'createdAt', width: 175, render: (value: string) => formatDateTime(value, i18n.language) },
+    { title: t('time'), dataIndex: 'createdAt', width: 175, render: (value: string) => formatDateTime(value, i18n.language, timezone) },
     { title: t('user'), dataIndex: 'username', width: 130, render: (value: string) => value || '—' },
     { title: t('action'), width: 190, render: (_: unknown, item: Audit) => <Button className="audit-action-link" type="link" onClick={() => setSelected(item)}>{translateCode(t, item.action, 'auditAction')}</Button> },
     { title: t('resources'), width: 210, render: (_: unknown, item: Audit) => <div className="audit-resource-cell"><Tag>{translateCode(t, item.resourceType, 'resourceType')}</Tag><Typography.Text ellipsis={{ tooltip: item.resourceName }}>{item.resourceName || '—'}</Typography.Text></div> },
@@ -82,7 +84,7 @@ export function AuditPage() {
 
     <Drawer title={selected ? <div className="audit-detail-title"><Typography.Text strong>{translateCode(t, selected.action, 'auditAction')}</Typography.Text><Typography.Text code copyable={{ text: String(selected.id) }}>#{selected.id}</Typography.Text></div> : t('auditDetails')} open={!!selected} onClose={() => setSelected(null)} width={760} destroyOnHidden footer={selected && (resourcePath || selected.taskId) ? <Space>{resourcePath && <Button icon={<ArrowRightOutlined />} onClick={() => openPath(resourcePath)}>{t('viewResource')}</Button>}{selected.taskId && <Button type="primary" onClick={() => openPath(`/tasks?task=${selected.taskId}`)}>{t('viewTask')}</Button>}</Space> : undefined}>
       {selected && <div className="audit-detail">
-        <div className={`audit-detail-summary is-${selected.result}`}><span className="audit-detail-icon"><FileSearchOutlined /></span><div><Space wrap><Tag color={selected.result === 'success' ? 'green' : 'red'}>{translateCode(t, selected.result)}</Tag><Typography.Text strong>{translateCode(t, selected.action, 'auditAction')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('auditTraceDescription', { user: selected.username || '—', time: formatDateTime(selected.createdAt, i18n.language) })}</Typography.Paragraph></div></div>
+        <div className={`audit-detail-summary is-${selected.result}`}><span className="audit-detail-icon"><FileSearchOutlined /></span><div><Space wrap><Tag color={selected.result === 'success' ? 'green' : 'red'}>{translateCode(t, selected.result)}</Tag><Typography.Text strong>{translateCode(t, selected.action, 'auditAction')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('auditTraceDescription', { user: selected.username || '—', time: formatDateTime(selected.createdAt, i18n.language, timezone) })}</Typography.Paragraph></div></div>
         <Descriptions className="audit-detail-meta" bordered size="small" column={2} items={[
           { key: 'resource', label: t('resource'), children: <Space size={6}><Tag>{translateCode(t, selected.resourceType, 'resourceType')}</Tag><span>{selected.resourceName || '—'}</span></Space> },
           { key: 'resourceId', label: t('identifier'), children: selected.resourceId ? <Typography.Text code copyable>{selected.resourceId}</Typography.Text> : '—' },

@@ -21,6 +21,9 @@ make up
 也可运行 `./scripts/install.sh` 自动生成 PostgreSQL 随机密码并启动。首次打开
 `DBMOCK_PUBLIC_URL` 后，页面会要求创建第一个平台账号。
 
+`DBMOCK_TIMEZONE` 是首次初始化使用的 IANA 时区默认值。创建首个账号后，请在“系统设置”中调整时区；
+该运行时设置会立即统一影响审计、任务、告警和监控时间展示，无需重启服务。
+
 应用容器同时提供 API 和内嵌 Web 页面，Compose 中只有 DB Mock 与 PostgreSQL 两个服务，
 不需要 Nginx 或独立前端容器。
 

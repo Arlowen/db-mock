@@ -39,6 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { ApiError, api, discardImageUpload, errorMessage, uploadInChunks } from '../lib/api'
 import type { ImageUploadPhase } from '../lib/api'
 import { isRegistryURL } from '../lib/image-source'
@@ -81,6 +82,7 @@ function matchingVersions(image: ImageArtifact, templates: DatabaseTemplate[]) {
 
 export function ImagesPage() {
   const { t, i18n } = useTranslation()
+  const { timezone } = useSystemSettings()
   const { message, modal } = App.useApp()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -414,7 +416,7 @@ export function ImagesPage() {
             title: t('uploadedAt'),
             dataIndex: 'createdAt',
             width: 145,
-            render: (value: string) => formatDateTime(value, i18n.language),
+            render: (value: string) => formatDateTime(value, i18n.language, timezone),
           },
           {
             title: t('status'),
@@ -448,7 +450,7 @@ export function ImagesPage() {
             <Typography.Text className="registry-url" copyable ellipsis={{ tooltip: item.url }}>{item.url}</Typography.Text>
             <div className="registry-facts">
               <div><Typography.Text type="secondary">{t('authentication')}</Typography.Text><Typography.Text>{item.hasPassword ? item.username || t('credentialsConfigured') : t('anonymousAccess')}</Typography.Text></div>
-              <div><Typography.Text type="secondary">{t('lastTested')}</Typography.Text><Typography.Text>{formatDateTime(item.lastTestedAt, i18n.language)}</Typography.Text></div>
+              <div><Typography.Text type="secondary">{t('lastTested')}</Typography.Text><Typography.Text>{formatDateTime(item.lastTestedAt, i18n.language, timezone)}</Typography.Text></div>
             </div>
             <Space wrap size={[6, 6]} className="registry-security-tags">
               {item.hasPassword && <Tag icon={<SafetyCertificateOutlined />}>{t('credentials')}</Tag>}
@@ -557,8 +559,8 @@ export function ImagesPage() {
           { key: 'filename', label: t('filename'), children: selectedImage.filename },
           { key: 'format', label: t('format'), children: selectedImage.format.toUpperCase() },
           { key: 'size', label: t('size'), children: bytes(selectedImage.sizeBytes) },
-          { key: 'uploaded', label: t('uploadedAt'), children: formatDateTime(selectedImage.createdAt, i18n.language) },
-          { key: 'used', label: t('lastUsed'), children: selectedImage.lastUsedAt ? formatDateTime(selectedImage.lastUsedAt, i18n.language) : t('neverUsed') },
+          { key: 'uploaded', label: t('uploadedAt'), children: formatDateTime(selectedImage.createdAt, i18n.language, timezone) },
+          { key: 'used', label: t('lastUsed'), children: selectedImage.lastUsedAt ? formatDateTime(selectedImage.lastUsedAt, i18n.language, timezone) : t('neverUsed') },
         ]} /></Card>
         <Card size="small" title={t('sha256')}><Typography.Text className="image-checksum" code copyable>{selectedImage.sha256}</Typography.Text></Card>
       </div>}

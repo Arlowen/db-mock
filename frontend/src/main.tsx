@@ -7,6 +7,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
+import { SystemSettingsProvider } from './contexts/SystemSettingsContext'
 import i18n from './i18n'
 import './styles/global.css'
 
@@ -26,7 +27,7 @@ function Root() {
         components: { Layout: { headerBg: '#fff', siderBg: '#fff' }, Menu: { itemBorderRadius: 8 } },
       }}
     >
-      <AntApp><BrowserRouter><AuthProvider><App /></AuthProvider></BrowserRouter></AntApp>
+      <AntApp><BrowserRouter><AuthProvider><SystemSettingsProvider><App /></SystemSettingsProvider></AuthProvider></BrowserRouter></AntApp>
     </ConfigProvider>
   )
 }

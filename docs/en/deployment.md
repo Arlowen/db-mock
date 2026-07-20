@@ -21,6 +21,10 @@ make up
 Alternatively, run `./scripts/install.sh` to generate a PostgreSQL password and start the stack.
 Open `DBMOCK_PUBLIC_URL` and create the first platform account.
 
+`DBMOCK_TIMEZONE` is the first-run IANA timezone default. After creating the first account, change the
+timezone in System settings; the runtime setting immediately controls audit, task, alert, and monitoring
+timestamps without a service restart.
+
 The application container serves both the API and embedded Web UI. The stack contains DB Mock and
 PostgreSQL only; no Nginx or separate frontend service is required.
 
