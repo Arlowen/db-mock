@@ -67,12 +67,11 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 		if item.FileInfo().IsDir() {
 			continue
 		}
+		if _, exists := files[name]; exists {
+			return ValidatedPackage{}, fmt.Errorf("template package contains duplicate path %q", name)
+		}
 		if item.UncompressedSize64 > 10*1024*1024 {
 			return ValidatedPackage{}, fmt.Errorf("template file %s exceeds 10 MiB", name)
-		}
-		total += int64(item.UncompressedSize64)
-		if total > 50*1024*1024 {
-			return ValidatedPackage{}, errors.New("template package expands beyond 50 MiB")
 		}
 		handle, err := item.Open()
 		if err != nil {
@@ -82,6 +81,13 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 		_ = handle.Close()
 		if readErr != nil {
 			return ValidatedPackage{}, readErr
+		}
+		if len(content) > 10*1024*1024 {
+			return ValidatedPackage{}, fmt.Errorf("template file %s exceeds 10 MiB", name)
+		}
+		total += int64(len(content))
+		if total > 50*1024*1024 {
+			return ValidatedPackage{}, errors.New("template package expands beyond 50 MiB")
 		}
 		files[name] = content
 	}
@@ -97,8 +103,15 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 		return ValidatedPackage{}, errors.New("unsupported template manifest kind or apiVersion")
 	}
 	slug := store.NormalizeTemplateSlug(manifest.Metadata.Slug)
-	if slug == "" || manifest.Metadata.Name == "" || manifest.Spec.Version == "" || manifest.Spec.DefaultPort < 1 || manifest.Spec.DefaultPort > 65535 {
-		return ValidatedPackage{}, errors.New("template metadata, version and defaultPort are required")
+	manifest.Metadata.Name = strings.TrimSpace(manifest.Metadata.Name)
+	manifest.Metadata.Category = strings.TrimSpace(manifest.Metadata.Category)
+	manifest.Spec.Version = strings.TrimSpace(manifest.Spec.Version)
+	manifest.Spec.Image = strings.TrimSpace(manifest.Spec.Image)
+	if slug == "" || manifest.Metadata.Name == "" || manifest.Metadata.Category == "" || manifest.Spec.Version == "" || manifest.Spec.Image == "" || manifest.Spec.DefaultPort < 1 || manifest.Spec.DefaultPort > 65535 {
+		return ValidatedPackage{}, errors.New("template name, category, version, image and defaultPort are required")
+	}
+	if strings.ContainsAny(manifest.Spec.Version+manifest.Spec.Image, "\r\n\x00") {
+		return ValidatedPackage{}, errors.New("template version and image must be single-line values")
 	}
 	if manifest.Spec.MinCPU <= 0 || manifest.Spec.MinMemory <= 0 || manifest.Spec.MinDisk <= 0 {
 		return ValidatedPackage{}, errors.New("positive minimum resources are required")
@@ -129,19 +142,36 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 		return ValidatedPackage{}, fmt.Errorf("parse Compose YAML: %w", err)
 	}
 	risks := AnalyzeCompose(compose)
+	if risks == nil {
+		risks = make([]Risk, 0)
+	}
 	riskJSON, _ := json.Marshal(risks)
 	manifestJSON, _ := json.Marshal(Manifest{Username: manifest.Spec.Username, Database: manifest.Spec.Database,
 		Scheme: manifest.Spec.Scheme, JDBCScheme: manifest.Spec.JDBCScheme, ContainerPort: manifest.Spec.DefaultPort,
 		HostTuning: manifest.Spec.HostTuning, UpgradeScript: upgradeScript})
+	architectures := make([]string, 0, len(manifest.Spec.Architectures))
+	seenArchitectures := make(map[string]struct{})
 	if len(manifest.Spec.Architectures) == 0 {
 		manifest.Spec.Architectures = []string{"amd64"}
+	}
+	for _, architecture := range manifest.Spec.Architectures {
+		architecture = strings.ToLower(strings.TrimSpace(architecture))
+		if architecture != "amd64" && architecture != "arm64" {
+			return ValidatedPackage{}, fmt.Errorf("unsupported template architecture %q", architecture)
+		}
+		if _, exists := seenArchitectures[architecture]; exists {
+			continue
+		}
+		seenArchitectures[architecture] = struct{}{}
+		architectures = append(architectures, architecture)
 	}
 	return ValidatedPackage{Template: store.TemplateInput{Slug: slug, Name: manifest.Metadata.Name,
 		NameZH: manifest.Metadata.NameZH, Description: manifest.Metadata.Description, Category: manifest.Metadata.Category,
 		Tier: "custom", Builtin: false, Icon: manifest.Metadata.Icon, RiskReport: riskJSON}, Version: store.TemplateVersionInput{
-		Version: manifest.Spec.Version, ImageReference: manifest.Spec.Image, Architectures: manifest.Spec.Architectures,
+		Version: manifest.Spec.Version, ImageReference: manifest.Spec.Image, Architectures: architectures,
 		MinCPU: manifest.Spec.MinCPU, MinMemoryBytes: manifest.Spec.MinMemory, MinDiskBytes: manifest.Spec.MinDisk,
-		DefaultPort: manifest.Spec.DefaultPort, ComposeTemplate: string(compose), Manifest: manifestJSON}, Files: files}, nil
+		DefaultPort: manifest.Spec.DefaultPort, ComposeTemplate: string(compose), Manifest: manifestJSON,
+		RiskReport: riskJSON}, Files: files}, nil
 }
 
 type Risk struct {

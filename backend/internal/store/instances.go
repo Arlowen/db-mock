@@ -89,6 +89,10 @@ func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain
 	if host.Status != "online" || host.Maintenance {
 		return domain.Instance{}, fmt.Errorf("%w: selected host is not available", domain.ErrConflict)
 	}
+	var templateID uuid.UUID
+	if err = tx.QueryRow(ctx, "SELECT template_id FROM template_versions WHERE id=$1 FOR KEY SHARE", input.TemplateVersionID).Scan(&templateID); err != nil {
+		return domain.Instance{}, translate(err)
+	}
 	if configuration.ImageArtifactID != nil {
 		var artifactStatus string
 		if err = tx.QueryRow(ctx, "SELECT status FROM image_artifacts WHERE id=$1 FOR KEY SHARE", *configuration.ImageArtifactID).Scan(&artifactStatus); err != nil {

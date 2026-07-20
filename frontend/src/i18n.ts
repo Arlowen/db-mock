@@ -30,6 +30,8 @@ export const zh: Record<string, string> = {
   error_unauthorized: '登录状态已失效，请重新登录', error_forbidden: '没有权限执行此操作',
   error_invalid_input: '输入内容无效', error_not_initialized: '平台尚未初始化', error_resource_unavailable: '资源暂时不可用', error_http_error: '请求失败',
   errorDetail_unsupported_language_preference: '不支持该语言偏好。', errorDetail_current_user_cannot_be_disabled: '不能禁用当前登录账号。',
+  errorDetail_template_slug_is_reserved_by_a_built_in_template: '该标识属于内置模板，请为自定义模板使用其他 slug。', errorDetail_template_version_already_exists_and_cannot_be_replaced: '该模板版本已经存在且不可覆盖，请在清单中使用新的版本号。',
+  errorDetail_template_is_referenced_by_database_instance_history: '该模板仍被当前或历史数据库实例引用，不能删除。',
 
   dashboardDescription: '面向 Linux 与 macOS 的 Docker Compose 数据库管理平台。',
   projectsDescription: '项目仅用于逻辑分组，所有用户仍拥有相同的平台权限。',
@@ -115,7 +117,7 @@ export const zh: Record<string, string> = {
   lastChecked: '最近检测', lastSeen: '最近在线', consecutiveFailures: '连续检测失败', hostContextLoadFailed: '无法加载主机运行上下文',
   hostConfiguration: '连接与策略', usedPorts: '已用端口', dockerManagement: 'Docker 管理',
 
-  uploadTemplate: '上传 Compose 模板', templateUploaded: 'Compose 模板已上传', uploadTemplateHint: '上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。',
+  uploadTemplate: '上传 Compose 模板', templateUploaded: 'Compose 模板已上传', templateDeleted: '自定义模板已删除', uploadTemplateHint: '上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。', immutableTemplateVersionTitle: '模板版本不可覆盖', immutableTemplateVersionHint: '相同 slug 可以追加新版本；相同 slug 与版本号不能再次上传。修改 Compose 或脚本时，请先更新清单中的版本号。', deleteTemplateConfirm: '删除模板“{{name}}”？', deleteTemplateHint: '只有未被任何当前或历史数据库实例引用的自定义模板才能删除；删除后所有版本包都无法恢复。', deleteTemplateLabel: '删除模板 {{name}}',
   catalogSearchLabel: '搜索数据库目录', catalogSearchPlaceholder: '搜索名称、分类、版本或镜像',
   templateDetails: '模板详情', containerPort: '容器端口', minimumResources: '最低资源', composeSafety: 'Compose 安全检查', composeSafetyClear: '未发现高风险配置',
   dropTemplatePackage: '点击或拖放模板包到此处', noComposeRisks: '未检测到额外的 Compose 风险。',
@@ -283,6 +285,7 @@ export const zh: Record<string, string> = {
   auditAction_task_cancel: '取消任务', auditAction_task_retry: '重试任务', auditAction_image_upload_begin: '开始上传镜像',
   auditAction_image_upload_complete: '完成镜像上传', auditAction_image_upload_cancel: '放弃镜像上传', auditAction_image_delete: '删除镜像', auditAction_image_cleanup: '清理未使用镜像', auditAction_registry_create: '创建镜像仓库',
   auditChange_olderThanDays: '未使用天数阈值', auditChange_requestedCount: '请求清理数量', auditChange_deletedCount: '已清理数量', auditChange_skippedCount: '已跳过数量', auditChange_failedCount: '失败数量', auditChange_freedBytes: '释放字节数',
+  auditChange_slug: '模板标识', auditChange_version: '模板版本', auditChange_imageReference: '镜像引用', auditChange_architectures: '支持架构', auditChange_versionCount: '删除版本数',
   auditAction_registry_update: '更新镜像仓库', auditAction_registry_test: '测试镜像仓库', auditAction_registry_delete: '删除镜像仓库', auditAction_template_upload: '上传模板',
   auditAction_template_delete: '删除模板', auditAction_alert_acknowledged: '确认告警', auditAction_alert_resolved: '解决告警',
   auditAction_webhook_create: '创建 Webhook', auditAction_webhook_update: '更新 Webhook', auditAction_webhook_delete: '删除 Webhook',
@@ -319,6 +322,8 @@ export const en: Record<string, string> = {
   error_unauthorized: 'Your session expired. Please sign in again.', error_forbidden: 'Operation forbidden',
   error_invalid_input: 'Invalid input', error_not_initialized: 'Platform is not initialized', error_resource_unavailable: 'Resource temporarily unavailable', error_http_error: 'Request failed',
   errorDetail_unsupported_language_preference: 'This language preference is not supported.', errorDetail_current_user_cannot_be_disabled: 'The current signed-in account cannot be disabled.',
+  errorDetail_template_slug_is_reserved_by_a_built_in_template: 'This slug belongs to a built-in template. Use a different slug for the custom template.', errorDetail_template_version_already_exists_and_cannot_be_replaced: 'This template version already exists and cannot be replaced. Use a new version in the manifest.',
+  errorDetail_template_is_referenced_by_database_instance_history: 'This template is still referenced by current or historical database instances and cannot be deleted.',
 
   dashboardDescription: 'Docker Compose database control plane for Linux and macOS.',
   projectsDescription: 'Logical grouping only — all users keep equal platform access.',
@@ -404,7 +409,7 @@ export const en: Record<string, string> = {
   lastChecked: 'Last checked', lastSeen: 'Last online', consecutiveFailures: 'Consecutive probe failures', hostContextLoadFailed: 'Unable to load host runtime context',
   hostConfiguration: 'Connection and policies', usedPorts: 'Allocated ports', dockerManagement: 'Docker management',
 
-  uploadTemplate: 'Upload Compose template', templateUploaded: 'Compose template uploaded', uploadTemplateHint: 'Upload a trusted .zip containing dbmock-template.yaml and docker-compose.yml. Host-level capabilities are allowed and audited.',
+  uploadTemplate: 'Upload Compose template', templateUploaded: 'Compose template uploaded', templateDeleted: 'Custom template deleted', uploadTemplateHint: 'Upload a trusted .zip containing dbmock-template.yaml and docker-compose.yml. Host-level capabilities are allowed and audited.', immutableTemplateVersionTitle: 'Template versions cannot be replaced', immutableTemplateVersionHint: 'A slug may receive additional versions, but an existing slug and version cannot be uploaded again. Change the manifest version before changing Compose or scripts.', deleteTemplateConfirm: 'Delete template “{{name}}”?', deleteTemplateHint: 'Only a custom template with no current or historical database instance references can be deleted. All stored versions will be removed permanently.', deleteTemplateLabel: 'Delete template {{name}}',
   catalogSearchLabel: 'Search database catalog', catalogSearchPlaceholder: 'Search name, category, version, or image',
   templateDetails: 'Template details', containerPort: 'Container port', minimumResources: 'Minimum resources', composeSafety: 'Compose safety check', composeSafetyClear: 'No high-risk configuration detected',
   dropTemplatePackage: 'Choose or drop a template package', noComposeRisks: 'No additional Compose risks detected.',
@@ -572,6 +577,7 @@ export const en: Record<string, string> = {
   auditAction_task_cancel: 'Cancel task', auditAction_task_retry: 'Retry task', auditAction_image_upload_begin: 'Begin image upload',
   auditAction_image_upload_complete: 'Complete image upload', auditAction_image_upload_cancel: 'Discard image upload', auditAction_image_delete: 'Delete image', auditAction_image_cleanup: 'Clean up unused images', auditAction_registry_create: 'Create registry',
   auditChange_olderThanDays: 'Unused-day threshold', auditChange_requestedCount: 'Requested cleanup count', auditChange_deletedCount: 'Deleted count', auditChange_skippedCount: 'Skipped count', auditChange_failedCount: 'Failed count', auditChange_freedBytes: 'Bytes freed',
+  auditChange_slug: 'Template slug', auditChange_version: 'Template version', auditChange_imageReference: 'Image reference', auditChange_architectures: 'Supported architectures', auditChange_versionCount: 'Versions deleted',
   auditAction_registry_update: 'Update registry', auditAction_registry_test: 'Test registry', auditAction_registry_delete: 'Delete registry', auditAction_template_upload: 'Upload template',
   auditAction_template_delete: 'Delete template', auditAction_alert_acknowledged: 'Acknowledge alert', auditAction_alert_resolved: 'Resolve alert',
   auditAction_webhook_create: 'Create webhook', auditAction_webhook_update: 'Update webhook', auditAction_webhook_delete: 'Delete webhook',

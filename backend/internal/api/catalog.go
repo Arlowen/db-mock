@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -275,10 +276,17 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 }
+
+const templatePackageMaxBytes int64 = 60 << 20
+
 func (s *Server) uploadTemplate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(60 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, templatePackageMaxBytes+(1<<20))
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
 	file, header, err := r.FormFile("package")
 	if err != nil {
@@ -293,15 +301,25 @@ func (s *Server) uploadTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	temporaryPath := temporary.Name()
 	defer func() { _ = os.Remove(temporaryPath) }()
-	if _, err = io.Copy(temporary, io.LimitReader(file, 60<<20)); err != nil {
-		_ = temporary.Close()
-		httpx.Error(w, r, err)
+	written, copyErr := io.Copy(temporary, io.LimitReader(file, templatePackageMaxBytes+1))
+	closeErr := temporary.Close()
+	if copyErr != nil {
+		httpx.Error(w, r, copyErr)
 		return
 	}
-	_ = temporary.Close()
+	if closeErr != nil {
+		httpx.Error(w, r, closeErr)
+		return
+	}
+	if written > templatePackageMaxBytes {
+		httpx.Error(w, r, fmt.Errorf("%w: template package exceeds 60 MiB", domain.ErrInvalid))
+		return
+	}
 	validated, err := templates.ValidatePackage(temporaryPath)
 	if err != nil {
-		httpx.Error(w, r, err)
+		actor, _ := auth.ActorFrom(r.Context())
+		_ = s.audit(r, actor, "template.upload", "template", nil, header.Filename, nil, "failure", "Template package validation failed")
+		httpx.Error(w, r, fmt.Errorf("%w: %v", domain.ErrInvalid, err))
 		return
 	}
 	directory := filepath.Join(s.config.ArtifactDirectory, "templates")
@@ -315,14 +333,19 @@ func (s *Server) uploadTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	validated.Version.PackagePath = destination
-	item, err := s.store.UpsertTemplate(r.Context(), validated.Template, validated.Version)
+	item, err := s.store.CreateCustomTemplateVersion(r.Context(), validated.Template, validated.Version)
 	if err != nil {
 		_ = os.Remove(destination)
+		actor, _ := auth.ActorFrom(r.Context())
+		_ = s.audit(r, actor, "template.upload", "template", nil, validated.Template.Name, nil, "failure", err.Error())
 		httpx.Error(w, r, err)
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "template.upload", "template", &item.ID, header.Filename, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "template.upload", "template", &item.ID, item.Name, nil, "success", "", map[string]any{
+		"slug": validated.Template.Slug, "version": validated.Version.Version,
+		"imageReference": validated.Version.ImageReference, "architectures": validated.Version.Architectures,
+	})
 	httpx.JSON(w, http.StatusCreated, item)
 }
 func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
@@ -331,11 +354,41 @@ func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	if err = s.store.DeleteTemplate(r.Context(), id); err != nil {
+	deleted, err := s.store.DeleteTemplate(r.Context(), id)
+	if err != nil {
+		actor, _ := auth.ActorFrom(r.Context())
+		_ = s.audit(r, actor, "template.delete", "template", &id, "", nil, "failure", err.Error())
 		httpx.Error(w, r, err)
 		return
 	}
+	for _, packagePath := range deleted.PackagePaths {
+		if err := removeTemplatePackage(s.config.ArtifactDirectory, packagePath); err != nil {
+			s.logger.Warn("remove deleted template package", "templateId", id, "path", packagePath, "error", err)
+		}
+	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "template.delete", "template", &id, "", nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "template.delete", "template", &id, deleted.Name, nil, "success", "", map[string]any{"versionCount": len(deleted.PackagePaths)})
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func removeTemplatePackage(artifactDirectory, packagePath string) error {
+	if strings.TrimSpace(packagePath) == "" {
+		return nil
+	}
+	root, err := filepath.Abs(filepath.Join(artifactDirectory, "templates"))
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(packagePath)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("template package path is outside the artifact directory")
+	}
+	if err = os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

@@ -70,5 +70,24 @@ services:
 `DBMOCK_DB_USERNAME`, `DBMOCK_DB_PASSWORD`, and `DBMOCK_DB_NAME` are reserved for built-in template
 health checks and cannot be supplied through instance environment overrides.
 
+`metadata.name`, `metadata.category`, `spec.version`, `spec.image`, positive minimum resources, and a
+valid `spec.defaultPort` are required. `spec.architectures` accepts `amd64` and `arm64`; when omitted it
+defaults to `amd64`. Packages are limited to 60 MiB compressed, 50 MiB expanded, 256 files, and 10 MiB
+per expanded file.
+
 DB Mock treats every custom template and script as trusted host-level code. Uploading a package produces
 a risk report but does not block privileged settings.
+
+## Version lifecycle
+
+Template versions are append-only. A later package may reuse an existing custom `metadata.slug` only
+when `spec.version` is new. Uploading the same slug and version again is rejected; update the version
+before changing Compose, scripts, images, resource requirements, or connection metadata. This keeps
+existing instances pinned to the exact deployment contract they were created with.
+
+Built-in slugs such as `mysql`, `postgresql`, and `redis` are reserved and cannot be replaced by a
+custom package. The catalog details dialog lists every installed version and lets the user choose the
+version used for a new instance. A custom template can be deleted only when no current or deleted
+instance record refers to any of its versions; deletion also removes its stored ZIP packages from the
+control service. Retaining this reference keeps historical instance records tied to their exact
+deployment contract.

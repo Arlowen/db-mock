@@ -20,6 +20,21 @@ describe('API error messages', () => {
       .toBe('资源状态冲突: 该实例已有操作正在排队或执行，请在任务完成后重试。')
   })
 
+  it('explains that an existing custom template version must be incremented', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: template version already exists and cannot be replaced')))
+      .toBe('资源状态冲突: 该模板版本已经存在且不可覆盖，请在清单中使用新的版本号。')
+  })
+
+  it('protects built-in template slugs with an actionable recovery message', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: template slug is reserved by a built-in template')))
+      .toBe('资源状态冲突: 该标识属于内置模板，请为自定义模板使用其他 slug。')
+  })
+
+  it('explains why a template referenced by instance history cannot be deleted', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: template is referenced by database instance history')))
+      .toBe('资源状态冲突: 该模板仍被当前或历史数据库实例引用，不能删除。')
+  })
+
   it('does not expose an untranslated infrastructure error in place of the recovery hint', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the instance host over SSH')))
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')

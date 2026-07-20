@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS template_versions (
     default_port integer NOT NULL CHECK (default_port BETWEEN 1 AND 65535),
     compose_template text NOT NULL,
     manifest jsonb NOT NULL DEFAULT '{}'::jsonb,
+    risk_report jsonb NOT NULL DEFAULT '[]'::jsonb,
     package_path text NOT NULL DEFAULT '',
     immutable boolean NOT NULL DEFAULT true,
     created_at timestamptz NOT NULL DEFAULT now(),

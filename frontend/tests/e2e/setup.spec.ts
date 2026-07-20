@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
 
+const templatePackages = {
+  v1: 'UEsDBBQAAAAIAAAAIVx8gL0BVAEAAOwBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw9UbFOwzAQ3fMVVmeaNqlpK4+lRWJAYkAMIAbXviZW7cTYTtV+AeIXkBjYEAM7Ez8DFZ/BuUnZfO8937t3x626AedVXTEil6YW61TVg03GtS15lqxVJRmZ88CX3MM1GKt5gMRA4BJBlhDidVMwAjn0lTENCjUgWnEDjCzyBbk4omQ+64jbsqV+H99/Pp6/P5/2b6/7ly9kJXjhlA2HeaLkvycJnTlZqW1oXDQRWBa12zEkfVBVgZgS7dfEWxBxvs0xXi9Lh+mwFzWGFzgdbDm2hFRVG66VHGCGgVyygwxV3IlSBRDRzDNyx40c0xOEzZjeR/fa2NrDudLYS+LmwPU7LN0ZfUiz4o0OV7ULjGSndJQjaFR1Zhus2/clGEww24XokQ0nownNpjltybny647KMzqh09GYTpFqPLh2w+3Nold3I0a4tfEsooQowHFCgQEedPIHUEsDBBQAAAAIAAAAIVz/7PNOkAAAANIAAAASAAAAZG9ja2VyLWNvbXBvc2UueW1sPYy7DsIwDEX3foWVGSrxWrIBHdoBiR0xOIlFo75QbFiq/jsJhW73+p5jpvD2llhnAA4FDTKlDOA7fJAGNY6QVynDNKnv0qKhlmcqWqYbbJP7ngV7uxi/WhWL9hyCLNZ6xk6+d0fnAjFHTqdTObBcI5r65rDfbWe7JmyltjXZ5v9DiEXDTZ0vhVqBkvAidc8+UEsBAhQDFAAAAAgAAAAhXHyAvQFUAQAA7AEAABQAAAAAAAAAAAAAAIABAAAAAGRibW9jay10ZW1wbGF0ZS55YW1sUEsBAhQDFAAAAAgAAAAhXP/s806QAAAA0gAAABIAAAAAAAAAAAAAAIABhgEAAGRvY2tlci1jb21wb3NlLnltbFBLBQYAAAAAAgACAIIAAABGAgAAAAA=',
+  v2: 'UEsDBBQAAAAIAAAAIVxXCmuoVAEAAOwBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw9UbFOwzAQ3fMVVmeaNqlpK4+lRWJAYkAMIAbXviZW7cTYTtV+AeIXkBjYEAM7Ez8DFZ/BuUnZfO8937t3x626AedVXTEil6YW61TVg03GtS15lqxVJRmZ88CX3MM1GKt5gMRA4BJBlhDidVMwAjn0lTENCjUgWnEDjCzyBbk4omQ+64jbsqV+H99/Pp6/P5/2b6/7ly9kJXjhlA2HeaLkvycJnTlZqW1oXDQRWBa12zEkfVBVgZgS7dfEWxBxvs0xXi9Ls3TYixrDC5wOthxbQqqqDddKDjDDQC7ZQYYq7kSpAoho5hm540aO6QnCZkzvo3ttbO3hXGnsJXFz4Podlu6MPqRZ8UaHq9oFRrJTOsoRNKo6sw3W7fsSDCaY7UL0yIaT0YRm05y25Fz5dUflGZ3Q6WhMp0g1Hly74fZm0au7ESPc2ngWUUIU4DihwAAPOvkDUEsDBBQAAAAIAAAAIVz0PwprnQAAAOcAAAASAAAAZG9ja2VyLWNvbXBvc2UueW1sRY69DoJAEIR7nmJztZL411ynUkhhYm8slrsNXDzA3K40hHeXA8VuZnbmyzKFzhlinQBYFCyQKWoAV2NJGlTfQ5pHDcOgpssruM55KslqkPCmKfRYkOd5OqKKujXP1DUs2JgF87V59me1QZbVeq6dXGOP1gZiHns6RpeW5TZWo98c9rvtvK4IvVSmIvP8MYRYNNzV+ZqpFaj4n3okH1BLAQIUAxQAAAAIAAAAIVxXCmuoVAEAAOwBAAAUAAAAAAAAAAAAAACAAQAAAABkYm1vY2stdGVtcGxhdGUueWFtbFBLAQIUAxQAAAAIAAAAIVz0PwprnQAAAOcAAAASAAAAAAAAAAAAAACAAYYBAABkb2NrZXItY29tcG9zZS55bWxQSwUGAAAAAAIAAgCCAAAAUwIAAAAA',
+  builtinCollision: 'UEsDBBQAAAAIAAAAIVxIaPFUXAEAAOgBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw1Ub1OwzAY3PsUFjOkTWr64xFaJipAIAYQg+t8TazaibGd0DwB4hWQGNgQAzsTLwMVj8HnJmz+7s6+O3/cyGuwTpYFI+lSl2IdybJfx1yZnMe9tSxSRmbc8yV3cAXaKO6hp8HzFEHWI8SpKmNEN+5e4VRwDYyc1WAfrPQeCrJoLi9OO+YmZ2SezMnv4/vPx/P359P27XX78oVsCk5YafwuSJBIrSt0VUB850pWcuMrC6gWOGalbRiSzssiQ0yK9mrPGRAhWP3fa286nUaDaLAXVJpnGBA2HB+FSBY1VzLtQwL9XQWGWpRxK3LpQQQ/x8gt1+mI7iOsR/QuBCi1KR2cSIWPpfhrYA86LGq02hVa8Ur589J6RuJDOkwQ1LI4NhXO7XkBGkscNT54xIPxcEzjSUJbcibduqOSmI7pZDiiE6QqB7b95XZfwavbDyPcmLASkUMQYByfYQHczB9QSwMEFAAAAAgAAAAhXP/s806QAAAA0gAAABIAAABkb2NrZXItY29tcG9zZS55bWw9jLsOwjAMRfd+hZUZKvFasgEd2gGJHTE4iUWjvlBsWKr+OwmFbvf6nmOm8PaWWGcADgUNMqUM4Dt8kAY1jpBXKcM0qe/SoqGWZypaphtsk/ueBXu7GL9aFYv2HIIs1nrGTr53R+cCMUdOp1M5sFwjmvrmsN9tZ7smbKW2Ndnm/0OIRcNNnS+FWoGS8CJ1zz5QSwECFAMUAAAACAAAACFcSGjxVFwBAADoAQAAFAAAAAAAAAAAAAAAgAEAAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWxQSwECFAMUAAAACAAAACFc/+zzTpAAAADSAAAAEgAAAAAAAAAAAAAAgAGOAQAAZG9ja2VyLWNvbXBvc2UueW1sUEsFBgAAAAACAAIAggAAAE4CAAAAAA=',
+}
+
 test('initializes the platform and switches the embedded interface language', async ({ page, browser }) => {
   test.setTimeout(240_000)
   await page.goto('/')
@@ -12,6 +18,37 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByRole('link', { name: '跳到主要内容' })).toHaveAttribute('href', '#main-content')
   await expect(page.getByRole('button', { name: '账号菜单' })).toBeVisible()
   await expect(page.getByText('系统设置', { exact: true })).toBeVisible()
+
+  const uploadTemplatePackage = (name: string, encoded: string) => page.request.post('/api/v1/templates/custom', { multipart: { package: { name, mimeType: 'application/zip', buffer: Buffer.from(encoded, 'base64') } } })
+  const invalidTemplatePackage = await page.request.post('/api/v1/templates/custom', { multipart: { package: { name: 'invalid.zip', mimeType: 'application/zip', buffer: Buffer.from('not a zip archive') } } })
+  expect(invalidTemplatePackage.status()).toBe(400)
+  await expect(invalidTemplatePackage.json()).resolves.toMatchObject({ error: { code: 'invalid_input' } })
+  const customV1Response = await uploadTemplatePackage('e2e-template-v1.zip', templatePackages.v1)
+  expect(customV1Response.status()).toBe(201)
+  const customV1 = await customV1Response.json()
+  expect(customV1.riskReport).toEqual([])
+  expect(customV1.versions[0].riskReport).toEqual([])
+  const customV2Response = await uploadTemplatePackage('e2e-template-v2.zip', templatePackages.v2)
+  expect(customV2Response.status()).toBe(201)
+  const customV2 = await customV2Response.json()
+  expect(customV2.id).toBe(customV1.id)
+  expect(customV2.versions[0].id).not.toBe(customV1.versions[0].id)
+  expect(customV2.riskReport).toEqual([expect.objectContaining({ code: 'privileged', severity: 'critical' })])
+  expect(customV2.versions[0].riskReport).toEqual([expect.objectContaining({ code: 'privileged', severity: 'critical' })])
+
+  const duplicateTemplate = await uploadTemplatePackage('e2e-template-v1-duplicate.zip', templatePackages.v1)
+  expect(duplicateTemplate.status()).toBe(409)
+  await expect(duplicateTemplate.json()).resolves.toMatchObject({ error: { code: 'resource_conflict', message: 'resource conflict: template version already exists and cannot be replaced' } })
+  const builtinCollision = await uploadTemplatePackage('mysql-collision.zip', templatePackages.builtinCollision)
+  expect(builtinCollision.status()).toBe(409)
+  await expect(builtinCollision.json()).resolves.toMatchObject({ error: { code: 'resource_conflict', message: 'resource conflict: template slug is reserved by a built-in template' } })
+
+  const immutableCatalogResponse = await page.request.get('/api/v1/templates')
+  const immutableCatalog = await immutableCatalogResponse.json()
+  const customTemplate = immutableCatalog.items.find((item: { slug: string }) => item.slug === 'e2e-immutable')
+  expect(customTemplate.versions.map((item: { version: string }) => item.version).sort()).toEqual(['1.0.0', '1.1.0'])
+  expect(customTemplate.versions.find((item: { version: string }) => item.version === '1.0.0').id).toBe(customV1.versions[0].id)
+  expect(immutableCatalog.items.find((item: { slug: string }) => item.slug === 'mysql')).toMatchObject({ name: 'MySQL', tier: 'standard', builtin: true })
 
   await page.goto('/settings')
   const timezone = page.getByRole('combobox', { name: '系统时区' })
@@ -472,6 +509,25 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute('**/api/v1/hosts')
 
   await page.goto('/catalog')
+  await expect(page.locator('.database-icon')).toHaveCount(20)
+  const customTemplateCard = page.locator('.template-card').filter({ hasText: 'E2E 自定义模板' })
+  await expect(customTemplateCard).toBeVisible()
+  await customTemplateCard.getByRole('button', { name: '详情' }).click()
+  const customTemplateDetails = page.getByRole('dialog', { name: '模板详情' })
+  const customVersionSelect = customTemplateDetails.getByRole('combobox', { name: '版本' })
+  await expect(customVersionSelect).toBeVisible()
+  await expect(customTemplateDetails.getByText('服务以特权模式运行')).toBeVisible()
+  await customVersionSelect.click()
+  await page.locator('.ant-select-dropdown:visible').getByText('v1.0.0', { exact: true }).click()
+  await expect(customTemplateDetails.getByText('example.invalid/e2e/db:1.0.0')).toBeVisible()
+  await expect(customTemplateDetails.getByText('服务以特权模式运行')).toHaveCount(0)
+  await expect(customTemplateDetails.getByText('未发现高风险配置')).toBeVisible()
+  await customTemplateDetails.getByRole('button', { name: '关闭', exact: true }).click()
+  await customTemplateCard.getByRole('button', { name: '删除模板 E2E 自定义模板' }).click()
+  const deleteTemplateDialog = page.getByRole('dialog', { name: '删除模板“E2E 自定义模板”？' })
+  await expect(deleteTemplateDialog.getByText('只有未被任何当前或历史数据库实例引用的自定义模板才能删除；删除后所有版本包都无法恢复。')).toBeVisible()
+  await deleteTemplateDialog.getByRole('button', { name: /删\s*除/ }).click()
+  await expect(page.getByText('自定义模板已删除')).toBeVisible()
   await expect(page.locator('.database-icon')).toHaveCount(19)
   await expect(page.getByRole('img', { name: 'MySQL' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'PostgreSQL' })).toBeVisible()
@@ -531,6 +587,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.locator('.ant-empty').getByRole('button', { name: '上传 Compose 模板' }).click()
   const uploadTemplateDialog = page.getByRole('dialog', { name: '上传 Compose 模板' })
   await expect(uploadTemplateDialog.getByText('上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。')).toBeVisible()
+  await expect(uploadTemplateDialog.getByText('模板版本不可覆盖')).toBeVisible()
+  await expect(uploadTemplateDialog.getByText('相同 slug 可以追加新版本；相同 slug 与版本号不能再次上传。修改 Compose 或脚本时，请先更新清单中的版本号。')).toBeVisible()
   await uploadTemplateDialog.getByRole('button', { name: '关闭', exact: true }).click()
   await page.locator('.catalog-toolbar').getByText('全部', { exact: true }).click()
   await page.locator('.template-card').first().getByRole('button', { name: '创建' }).click()

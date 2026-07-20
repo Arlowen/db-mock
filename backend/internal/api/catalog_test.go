@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -74,5 +76,34 @@ func TestProbeRegistryConnectionFailure(t *testing.T) {
 func TestNewRegistryProbeClientRejectsInvalidCA(t *testing.T) {
 	if _, err := newRegistryProbeClient("not a certificate"); err == nil {
 		t.Fatal("expected invalid CA certificate to fail")
+	}
+}
+
+func TestRemoveTemplatePackageOnlyDeletesManagedFiles(t *testing.T) {
+	artifactDirectory := t.TempDir()
+	packageDirectory := filepath.Join(artifactDirectory, "templates")
+	if err := os.MkdirAll(packageDirectory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(packageDirectory, "version.zip")
+	if err := os.WriteFile(managed, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeTemplatePackage(artifactDirectory, managed); err != nil {
+		t.Fatalf("remove managed package: %v", err)
+	}
+	if _, err := os.Stat(managed); !os.IsNotExist(err) {
+		t.Fatalf("expected managed package to be removed, got %v", err)
+	}
+
+	outside := filepath.Join(artifactDirectory, "outside.zip")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeTemplatePackage(artifactDirectory, outside); err == nil {
+		t.Fatal("expected an outside package path to be rejected")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside package must remain untouched: %v", err)
 	}
 }

@@ -66,7 +66,7 @@ func Seed(ctx context.Context, target *store.Store) error {
 		if compose == "" {
 			compose = singleServiceCompose(definition)
 		}
-		_, err := target.UpsertTemplate(ctx, store.TemplateInput{
+		_, err := target.UpsertBuiltinTemplate(ctx, store.TemplateInput{
 			Slug: definition.Slug, Name: definition.Name, NameZH: definition.NameZH,
 			Description: definition.Description, Category: definition.Category, Tier: definition.Tier,
 			Builtin: true, Icon: definition.Icon,

@@ -388,6 +388,7 @@ button { font: inherit; }
 .template-detail-summary .ant-tag { margin-inline-end: 0; }
 .template-detail-facts .ant-descriptions-item-label { width: 148px; color: #667085; }
 .template-detail-facts .ant-typography { max-width: 100%; overflow-wrap: anywhere; }
+.template-version-alert { margin-bottom: 16px; }
 .template-risk-section { display: grid; gap: 10px; }
 .template-risk-section .form-section-label { margin: 0; }
 .project-card { height: 100%; border-top: 3px solid transparent; }

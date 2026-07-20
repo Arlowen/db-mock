@@ -134,6 +134,7 @@ type TemplateVersion struct {
 	DefaultPort     int             `json:"defaultPort"`
 	ComposeTemplate string          `json:"-"`
 	Manifest        json.RawMessage `json:"manifest"`
+	RiskReport      json.RawMessage `json:"riskReport"`
 	PackagePath     string          `json:"-"`
 	Immutable       bool            `json:"immutable"`
 	CreatedAt       time.Time       `json:"createdAt"`
