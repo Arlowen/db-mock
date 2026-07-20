@@ -2,7 +2,9 @@
 set -eu
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$root_dir"
+env_file="$root_dir/deploy/.env"
+env_example="$root_dir/deploy/.env.example"
+compose_file="$root_dir/deploy/compose.yaml"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker Engine or Docker Desktop is required." >&2
@@ -12,15 +14,15 @@ if ! docker compose version >/dev/null 2>&1; then
   echo "Docker Compose v2 is required." >&2
   exit 1
 fi
-if [ ! -f .env ]; then
-  cp .env.example .env
+if [ ! -f "$env_file" ]; then
+  cp "$env_example" "$env_file"
   password=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
   escaped=$(printf '%s' "$password" | sed 's/[&|]/\\&/g')
-  sed -i.bak "s|change-this-random-password|$escaped|" .env
-  rm -f .env.bak
-  echo "Created .env with a generated PostgreSQL password."
+  sed -i.bak "s|change-this-random-password|$escaped|" "$env_file"
+  rm -f "$env_file.bak"
+  echo "Created deploy/.env with a generated PostgreSQL password."
 fi
 
-docker compose pull
-docker compose up -d
-echo "DB Mock is starting. Open the DBMOCK_PUBLIC_URL configured in .env."
+docker compose --env-file "$env_file" -f "$compose_file" pull
+docker compose --env-file "$env_file" -f "$compose_file" up -d
+echo "DB Mock is starting. Open the DBMOCK_PUBLIC_URL configured in deploy/.env."

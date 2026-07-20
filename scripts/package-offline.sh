@@ -15,7 +15,8 @@ docker pull --platform "linux/$architecture" "$app_image"
 docker pull --platform "linux/$architecture" "$postgres_image"
 docker save "$app_image" -o "$work_dir/dbmock-offline/images/dbmock.tar"
 docker save "$postgres_image" -o "$work_dir/dbmock-offline/images/postgres.tar"
-cp "$root_dir/compose.yaml" "$root_dir/.env.example" "$work_dir/dbmock-offline/"
+cp "$root_dir/deploy/compose.yaml" "$work_dir/dbmock-offline/compose.yaml"
+cp "$root_dir/deploy/.env.example" "$work_dir/dbmock-offline/.env.example"
 cp "$root_dir/scripts/offline-install.sh" "$work_dir/dbmock-offline/"
 cp "$root_dir/scripts/offline-upgrade.sh" "$work_dir/dbmock-offline/upgrade.sh"
 cp "$root_dir/docs/zh/deployment.md" "$work_dir/dbmock-offline/docs/部署说明.md"
@@ -23,6 +24,7 @@ cp "$root_dir/docs/en/deployment.md" "$work_dir/dbmock-offline/docs/deployment.m
 awk -v app="$app_image" -v postgres="$postgres_image" '
   /^DBMOCK_IMAGE=/ { print "DBMOCK_IMAGE=" app; next }
   /^POSTGRES_IMAGE=/ { print "POSTGRES_IMAGE=" postgres; next }
+  /^DBMOCK_TLS_DIR=/ { print "DBMOCK_TLS_DIR=./deploy/tls"; next }
   { print }
 ' "$work_dir/dbmock-offline/.env.example" > "$work_dir/dbmock-offline/.env.generated"
 mv "$work_dir/dbmock-offline/.env.generated" "$work_dir/dbmock-offline/.env.example"

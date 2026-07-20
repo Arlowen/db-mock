@@ -2,8 +2,14 @@
 set -eu
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$root_dir"
+env_file="$root_dir/deploy/.env"
+compose_file="$root_dir/deploy/compose.yaml"
 
-docker compose pull
-docker compose up -d --remove-orphans
-docker compose ps
+if [ ! -f "$env_file" ]; then
+  echo "deploy/.env is missing; run ./scripts/install.sh first." >&2
+  exit 1
+fi
+
+docker compose --env-file "$env_file" -f "$compose_file" pull
+docker compose --env-file "$env_file" -f "$compose_file" up -d --remove-orphans
+docker compose --env-file "$env_file" -f "$compose_file" ps
