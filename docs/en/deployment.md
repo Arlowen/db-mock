@@ -73,6 +73,10 @@ and individual alert-type switches. Changes take effect on the next monitoring c
 restart. A password or private key rejected by the target host raises a dedicated alert that resolves
 after the credential is updated and the next probe succeeds.
 
+Settings also controls the runtime file limit and browser chunk size for offline image uploads. New
+upload sessions use the policy immediately. `DBMOCK_MAX_UPLOAD_BYTES` remains the deployment hard
+ceiling, and an upload already in progress may finish with the file size accepted when it started.
+
 PostgreSQL data, the credential master key, and uploaded images live in named Compose volumes. DB Mock
 does not provide built-in metadata backup. Do not manually delete `dbmock_postgres_data` or
 `dbmock_dbmock_data`; losing the master key makes stored SSH, registry, and database credentials

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	platformsettings "github.com/pika/db-mock/internal/settings"
 )
 
 type Config struct {
@@ -53,6 +55,9 @@ func Load() (Config, error) {
 	}
 	if cfg.TaskWorkers < 1 || cfg.TaskWorkers > 32 {
 		return Config{}, errors.New("DBMOCK_TASK_WORKERS must be between 1 and 32")
+	}
+	if cfg.MaxUploadBytes < platformsettings.MinUploadBytes || cfg.MaxUploadBytes > platformsettings.MaxUploadBytes {
+		return Config{}, fmt.Errorf("DBMOCK_MAX_UPLOAD_BYTES must be between %d and %d bytes", platformsettings.MinUploadBytes, platformsettings.MaxUploadBytes)
 	}
 
 	key, err := loadMasterKey(os.Getenv("DBMOCK_MASTER_KEY"), cfg.AutoGenerateKeyFile)

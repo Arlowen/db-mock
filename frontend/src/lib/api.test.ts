@@ -99,4 +99,26 @@ describe('chunked image uploads', () => {
     expect(methods).toEqual(['POST', 'PUT', 'POST', 'DELETE'])
     expect(localStorage.getItem('dbmock-upload:broken.tar:4:5678')).toBeNull()
   })
+
+  it('uses the runtime chunk size from system settings', async () => {
+    const file = new File([new Uint8Array(10)], 'chunked.tar', { lastModified: 9012 })
+    const requests: Array<{ method: string; url: string; size?: number }> = []
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      requests.push({ method, url: String(input), size: init?.body instanceof Blob ? init.body.size : undefined })
+      if (method === 'POST' && requests.length === 1) return Response.json({ id: 'upload-3', receivedBytes: 0 })
+      if (method === 'PUT') return new Response(null, { status: 204 })
+      return Response.json({ id: 'image-3' })
+    })
+
+    await uploadInChunks(file, () => undefined, '', 'Chunked image', () => undefined, undefined, 4)
+
+    expect(requests).toEqual([
+      { method: 'POST', url: '/api/v1/images/uploads', size: undefined },
+      { method: 'PUT', url: '/api/v1/images/uploads/upload-3/chunk?offset=0', size: 4 },
+      { method: 'PUT', url: '/api/v1/images/uploads/upload-3/chunk?offset=4', size: 4 },
+      { method: 'PUT', url: '/api/v1/images/uploads/upload-3/chunk?offset=8', size: 2 },
+      { method: 'POST', url: '/api/v1/images/uploads/upload-3/complete', size: undefined },
+    ])
+  })
 })

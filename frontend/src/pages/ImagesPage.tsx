@@ -45,6 +45,7 @@ import { isRegistryURL } from '../lib/image-source'
 import { formatDateTime } from '../lib/localization'
 import type { DatabaseTemplate, Host, ImageArtifact, Registry } from '../lib/types'
 import { bytes } from '../lib/types'
+import { defaultUploadSettings, normalizeUploadSettings, type UploadSettings } from '../lib/upload-settings'
 
 interface UploadValues {
   name: string
@@ -94,6 +95,7 @@ export function ImagesPage() {
   const [architecture, setArchitecture] = useState('')
   const [status, setStatus] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [uploadSettings, setUploadSettings] = useState<UploadSettings>(defaultUploadSettings)
   const [uploadError, setUploadError] = useState('')
   const [uploadPhase, setUploadPhase] = useState<ImageUploadPhase | 'idle' | 'paused' | 'error'>('idle')
   const [savingRegistry, setSavingRegistry] = useState(false)
@@ -113,16 +115,18 @@ export function ImagesPage() {
   const load = useCallback(async () => {
     try {
       setPageError('')
-      const [imageResponse, registryResponse, templateResponse, hostResponse] = await Promise.all([
+      const [imageResponse, registryResponse, templateResponse, hostResponse, settingsResponse] = await Promise.all([
         api<{ items: ImageArtifact[] }>('/images'),
         api<{ items: Registry[] }>('/registries'),
         api<{ items: DatabaseTemplate[] }>('/templates'),
         api<{ items: Host[] }>('/hosts'),
+        api<Record<string, unknown>>('/settings'),
       ])
       setImages(imageResponse.items)
       setRegistries(registryResponse.items)
       setTemplates(templateResponse.items)
       setHosts(hostResponse.items)
+      setUploadSettings(normalizeUploadSettings(settingsResponse.uploads))
     } catch (error) {
       setPageError(errorMessage(error))
     } finally {
@@ -151,6 +155,7 @@ export function ImagesPage() {
     })
   }, [architecture, images, search, status])
   const hasImageFilters = !!(search || architecture || status)
+  const fileTooLarge = !!file?.originFileObj && file.originFileObj.size > uploadSettings.maxBytes
 
   const resetImageFilters = () => {
     setSearch('')
@@ -186,7 +191,8 @@ export function ImagesPage() {
   const changeFile = (nextFile: UploadFile | null) => {
     setUploadDraftDirty(true)
     setFile(nextFile)
-    setUploadError('')
+    const nativeFile = nextFile?.originFileObj
+    setUploadError(nativeFile && nativeFile.size > uploadSettings.maxBytes ? t('imageFileTooLarge', { size: bytes(nativeFile.size), max: bytes(uploadSettings.maxBytes) }) : '')
     setProgress(0)
     setUploadPhase('idle')
     if (nextFile && !uploadForm.getFieldValue('name')) uploadForm.setFieldValue('name', archiveName(nextFile.name))
@@ -194,13 +200,17 @@ export function ImagesPage() {
 
   const upload = async () => {
     if (!file?.originFileObj) return
+    if (file.originFileObj.size > uploadSettings.maxBytes) {
+      setUploadError(t('imageFileTooLarge', { size: bytes(file.originFileObj.size), max: bytes(uploadSettings.maxBytes) }))
+      return
+    }
     const controller = new AbortController()
     uploadAbort.current = controller
     try {
       const values = await uploadForm.validateFields()
       setUploading(true)
       setUploadError('')
-      const uploadedImage = await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal)
+      const uploadedImage = await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal, uploadSettings.chunkBytes)
       message.success(t('imageUploadComplete'))
       setUploadDraftDirty(false)
       setImageOpen(false)
@@ -479,7 +489,7 @@ export function ImagesPage() {
       width={680}
       style={{ top: 32 }}
       styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }}
-      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={closeImageUpload}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || uploading} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
+      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={closeImageUpload}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || uploading || fileTooLarge} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
     >
       <Typography.Paragraph type="secondary" className="image-upload-intro">{t('imageUploadHint')}</Typography.Paragraph>
       <Upload.Dragger
@@ -498,7 +508,7 @@ export function ImagesPage() {
         <Form.Item name="name" label={t('displayName')} rules={[{ required: true, whitespace: true }]}><Input placeholder={t('imageDisplayNamePlaceholder')} disabled={uploading} /></Form.Item>
         <Form.Item name="expectedSha256" label={`${t('expectedChecksum')} (${t('optional')})`} extra={t('checksumHint')} rules={[{ pattern: /^[a-fA-F0-9]{64}$/, message: t('invalidChecksum') }]}><Input className="checksum-input" placeholder={t('checksumPlaceholder')} disabled={uploading} /></Form.Item>
       </Form>
-      <Alert type="info" showIcon message={t('resumableUpload')} description={t('resumableUploadHint')} />
+      <Alert type="info" showIcon message={t('resumableUpload')} description={<Space direction="vertical" size={2}><span>{t('resumableUploadHint')}</span><span>{t('imageUploadPolicyHint', { max: bytes(uploadSettings.maxBytes), chunk: bytes(uploadSettings.chunkBytes) })}</span></Space>} />
       {(progress > 0 || uploadPhase === 'verifying') && <div className="image-upload-progress"><div><Typography.Text strong>{uploadPhase === 'verifying' ? t('verifyingImageArchive') : uploadPhase === 'resuming' ? t('resumingImageUpload') : uploadPhase === 'paused' ? t('imageUploadPaused') : t('uploadingImageChunks')}</Typography.Text><Typography.Text type="secondary">{uploadPhase === 'verifying' ? t('verifyingImageArchiveHint') : t('imageUploadProgressHint')}</Typography.Text></div><Progress percent={progress} status={uploadError ? 'exception' : uploadPhase === 'verifying' ? 'active' : undefined} /></div>}
       {uploadError && <Alert className="image-upload-error" type="error" showIcon message={t('imageUploadFailed')} description={uploadError} action={file && progress > 0 ? <Button size="small" onClick={() => void discardUpload()}>{t('discardUpload')}</Button> : undefined} />}
     </Modal>

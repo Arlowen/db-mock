@@ -79,6 +79,7 @@ export async function uploadInChunks(
   displayName = file.name,
   onPhase: (phase: ImageUploadPhase) => void = () => undefined,
   signal?: AbortSignal,
+  chunkBytes = 8 * 1024 * 1024,
 ): Promise<ImageArtifact> {
   const resumeKey = imageUploadResumeKey(file)
   let upload: { id: string; receivedBytes: number; totalBytes?: number; status?: string } | undefined
@@ -100,7 +101,7 @@ export async function uploadInChunks(
   } else {
     onPhase('resuming')
   }
-  const chunkSize = 8 * 1024 * 1024
+  const chunkSize = Number.isSafeInteger(chunkBytes) && chunkBytes > 0 ? chunkBytes : 8 * 1024 * 1024
   let offset = upload.receivedBytes
   onProgress(Math.round((offset / file.size) * 100))
   while (offset < file.size) {

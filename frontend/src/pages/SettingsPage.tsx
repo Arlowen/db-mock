@@ -1,10 +1,21 @@
-import { BellOutlined, CodeOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
+import { BellOutlined, CloudUploadOutlined, CodeOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
 import { App, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Space, Switch, Typography } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PageHeader } from '../components/Common'
 import { api, errorMessage } from '../lib/api'
 import { monitoringAlertKeys, normalizeMonitoringSettings, type MonitoringSettings } from '../lib/monitoring-settings'
+import {
+  defaultUploadSettings,
+  GiB,
+  MiB,
+  normalizeUploadSettings,
+  uploadSettingsFromForm,
+  uploadSettingsToForm,
+  type UploadSettings,
+  type UploadSettingsForm,
+} from '../lib/upload-settings'
+import { bytes } from '../lib/types'
 
 type Settings = Record<string, unknown>
 
@@ -15,14 +26,20 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [monitoringSaving, setMonitoringSaving] = useState(false)
+  const [uploadSaving, setUploadSaving] = useState(false)
+  const [uploadSettings, setUploadSettings] = useState<UploadSettings>(defaultUploadSettings)
   const [editing, setEditing] = useState<string | null>(null)
   const [raw, setRaw] = useState('')
   const [monitoringForm] = Form.useForm<MonitoringSettings>()
+  const [uploadForm] = Form.useForm<UploadSettingsForm>()
 
   const load = useCallback(() => api<Settings>('/settings').then((response) => {
     setItems(response)
     monitoringForm.setFieldsValue(normalizeMonitoringSettings(response.monitoring))
-  }).catch((error) => message.error(errorMessage(error))).finally(() => setLoading(false)), [message, monitoringForm])
+    const uploads = normalizeUploadSettings(response.uploads)
+    setUploadSettings(uploads)
+    uploadForm.setFieldsValue(uploadSettingsToForm(uploads))
+  }).catch((error) => message.error(errorMessage(error))).finally(() => setLoading(false)), [message, monitoringForm, uploadForm])
 
   useEffect(() => { void load() }, [load])
 
@@ -50,8 +67,21 @@ export function SettingsPage() {
       if (error instanceof Error) message.error(errorMessage(error))
     } finally { setMonitoringSaving(false) }
   }
+  const saveUploadSettings = async () => {
+    try {
+      const values = await uploadForm.validateFields()
+      setUploadSaving(true)
+      await api('/settings/uploads', { method: 'PUT', body: uploadSettingsFromForm(values) })
+      message.success(t('uploadSettingsSaved'))
+      await load()
+    } catch (error) {
+      if (error instanceof Error) message.error(errorMessage(error))
+    } finally { setUploadSaving(false) }
+  }
 
-  const advancedItems = Object.entries(items).filter(([key]) => key !== 'monitoring')
+  const advancedItems = Object.entries(items).filter(([key]) => key !== 'monitoring' && key !== 'uploads')
+  const maxAllowedGiB = uploadSettings.maxAllowedBytes / GiB
+  const maxAllowedMiB = uploadSettings.maxAllowedBytes / MiB
 
   return <>
     <PageHeader title={t('settings')} description={t('settingsDescription')} />
@@ -71,6 +101,15 @@ export function SettingsPage() {
           <div className="monitoring-alert-grid">
             {monitoringAlertKeys.map((key) => <div className="monitoring-alert-option" key={key}><div><Typography.Text strong>{t(`monitoringAlert_${key}`)}</Typography.Text><Typography.Paragraph type="secondary">{t(`monitoringAlertHint_${key}`)}</Typography.Paragraph></div><Form.Item name={['alerts', key]} valuePropName="checked" noStyle><Switch aria-label={t(`monitoringAlert_${key}`)} /></Form.Item></div>)}
           </div>
+        </Form>
+      </Card>
+      <Card title={<Space><CloudUploadOutlined />{t('uploadSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={uploadSaving} onClick={() => void saveUploadSettings()}>{t('saveUploadSettings')}</Button>}>
+        <Typography.Paragraph type="secondary">{t('uploadSettingsHint')}</Typography.Paragraph>
+        <Form form={uploadForm} layout="vertical" requiredMark={false}>
+          <Row gutter={16}>
+            <Col xs={24} md={12}><Form.Item name="maxGiB" label={t('maxUploadSize')} extra={t('maxUploadSizeHint', { ceiling: bytes(uploadSettings.maxAllowedBytes) })} dependencies={['chunkMiB']} rules={[{ required: true }, { type: 'number', min: 1 / 1024, max: maxAllowedGiB, message: t('maxUploadSizeRange', { ceiling: bytes(uploadSettings.maxAllowedBytes) }) }, { validator: (_, value) => value * GiB >= uploadForm.getFieldValue('chunkMiB') * MiB ? Promise.resolve() : Promise.reject(new Error(t('uploadLimitAboveChunk'))) }]}><InputNumber min={1 / 1024} max={maxAllowedGiB} step={0.001} formatter={(value, info) => info.userTyping ? info.input : value === undefined || value === null ? '' : String(Number(value))} addonAfter="GiB" /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="chunkMiB" label={t('uploadChunkSize')} extra={t('uploadChunkSizeHint')} rules={[{ required: true }, { type: 'number', min: 1, max: Math.min(32, maxAllowedMiB), message: t('uploadChunkSizeRange') }]}><InputNumber min={1} max={Math.min(32, maxAllowedMiB)} precision={0} addonAfter="MiB" /></Form.Item></Col>
+          </Row>
         </Form>
       </Card>
       <Row gutter={[16, 16]}>{advancedItems.map(([key, value]) => <Col xs={24} lg={12} key={key}><Card title={<Space><CodeOutlined />{key}</Space>} extra={<Button type="text" aria-label={`${t('edit')} ${key}`} icon={<EditOutlined />} onClick={() => show(key)}>{t('edit')}</Button>}><pre className="settings-json">{JSON.stringify(value, null, 2)}</pre></Card></Col>)}</Row>

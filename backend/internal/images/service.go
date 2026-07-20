@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
+	platformsettings "github.com/pika/db-mock/internal/settings"
 	"github.com/pika/db-mock/internal/store"
 )
 
@@ -33,7 +35,8 @@ func (s *Service) Begin(ctx context.Context, userID uuid.UUID, filename string, 
 	if !(strings.HasSuffix(lower, ".tar") || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")) {
 		return domain.Upload{}, fmt.Errorf("%w: only .tar, .tar.gz and .tgz are accepted", domain.ErrInvalid)
 	}
-	if total <= 0 || total > s.maxBytes {
+	policy := s.uploadPolicy(ctx)
+	if total <= 0 || total > policy.MaxBytes {
 		return domain.Upload{}, fmt.Errorf("%w: upload size is outside the configured limit", domain.ErrInvalid)
 	}
 	id := uuid.New()
@@ -47,6 +50,23 @@ func (s *Service) Begin(ctx context.Context, userID uuid.UUID, filename string, 
 	}
 	_ = file.Close()
 	return s.store.CreateUpload(ctx, domain.Upload{ID: id, Filename: filename, TemporaryPath: temporary, TotalBytes: total, ExpectedSHA256: strings.ToLower(expectedHash), Status: "uploading", CreatedBy: userID})
+}
+
+func (s *Service) uploadPolicy(ctx context.Context) platformsettings.UploadPolicy {
+	values, err := s.store.GetSettings(ctx)
+	if err != nil {
+		return platformsettings.DefaultUploadPolicy(s.maxBytes)
+	}
+	return resolveUploadPolicy(values, s.maxBytes)
+}
+
+func resolveUploadPolicy(values map[string]json.RawMessage, maxAllowedBytes int64) platformsettings.UploadPolicy {
+	defaults := platformsettings.DefaultUploadPolicy(maxAllowedBytes)
+	policy, err := platformsettings.DecodeUploadPolicy(values["uploads"], defaults, maxAllowedBytes)
+	if err != nil {
+		return defaults
+	}
+	return policy
 }
 
 func (s *Service) WriteChunk(ctx context.Context, userID, id uuid.UUID, offset int64, source io.Reader, length int64) (domain.Upload, error) {

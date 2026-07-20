@@ -356,6 +356,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	items["uploads"] = uploadSettingView(items["uploads"], s.config.MaxUploadBytes)
 	httpx.JSON(w, http.StatusOK, items)
 }
 func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +371,7 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
 	}
-	data, err = normalizeSettingValue(key, data)
+	data, err = normalizeSettingValue(key, data, s.config.MaxUploadBytes)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -384,9 +385,26 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func normalizeSettingValue(key string, value json.RawMessage) (json.RawMessage, error) {
-	if key == "monitoring" {
+func normalizeSettingValue(key string, value json.RawMessage, maxUploadBytes int64) (json.RawMessage, error) {
+	switch key {
+	case "monitoring":
 		return platformsettings.NormalizeMonitoringPolicy(value)
+	case "uploads":
+		return platformsettings.NormalizeUploadPolicy(value, maxUploadBytes)
 	}
 	return value, nil
+}
+
+func uploadSettingView(value json.RawMessage, maxAllowedBytes int64) json.RawMessage {
+	defaults := platformsettings.DefaultUploadPolicy(maxAllowedBytes)
+	policy, err := platformsettings.DecodeUploadPolicy(value, defaults, maxAllowedBytes)
+	if err != nil {
+		policy = defaults
+	}
+	view := struct {
+		platformsettings.UploadPolicy
+		MaxAllowedBytes int64 `json:"maxAllowedBytes"`
+	}{UploadPolicy: policy, MaxAllowedBytes: maxAllowedBytes}
+	result, _ := json.Marshal(view)
+	return result
 }
