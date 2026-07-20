@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/pika/db-mock/internal/domain"
 )
 
@@ -96,16 +97,32 @@ func (s *Store) SetRegistryTestResult(ctx context.Context, id uuid.UUID, status,
 }
 
 func (s *Store) DeleteRegistry(ctx context.Context, id uuid.UUID) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var lockedID uuid.UUID
+	if err = tx.QueryRow(ctx, "SELECT id FROM registries WHERE id=$1 FOR UPDATE", id).Scan(&lockedID); err != nil {
+		return translate(err)
+	}
 	var inUse bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM instances WHERE configuration->>'registryId'=$1::text AND status<>'deleted')`, id).Scan(&inUse); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM instances WHERE configuration->>'registryId'=$1::text AND status<>'deleted')`, id).Scan(&inUse); err != nil {
 		return err
 	}
 	if inUse {
 		return fmt.Errorf("%w: registry is used by managed database instances", domain.ErrConflict)
 	}
-	result, err := s.pool.Exec(ctx, "DELETE FROM registries WHERE id=$1", id)
-	if err == nil && result.RowsAffected() == 0 {
-		return domain.ErrNotFound
+	var pendingUse bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE payload->>'registryId'=$1::text
+		AND status IN ('queued','running'))`, id).Scan(&pendingUse); err != nil {
+		return err
 	}
-	return err
+	if pendingUse {
+		return fmt.Errorf("%w: registry is referenced by an active instance operation", domain.ErrConflict)
+	}
+	if _, err = tx.Exec(ctx, "DELETE FROM registries WHERE id=$1", id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

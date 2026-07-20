@@ -128,6 +128,9 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ConfirmName       string     `json:"confirmName"`
 		TemplateVersionID *uuid.UUID `json:"templateVersionId"`
+		ImageSource       string     `json:"imageSource"`
+		ImageArtifactID   *uuid.UUID `json:"imageArtifactId"`
+		RegistryID        *uuid.UUID `json:"registryId"`
 	}
 	if r.ContentLength != 0 {
 		if err = httpx.Decode(r, &input); err != nil {
@@ -145,12 +148,29 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	task, err := s.instances.Action(r.Context(), actor.User.ID, id, action, input.TemplateVersionID)
+	task, err := s.instances.Action(r.Context(), actor.User.ID, id, action, instances.ActionRequest{
+		NewTemplateVersionID: input.TemplateVersionID, ImageSource: input.ImageSource,
+		ImageArtifactID: input.ImageArtifactID, RegistryID: input.RegistryID,
+	})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	_ = s.audit(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "")
+	if action == "upgrade" {
+		changes := map[string]any{"imageSource": input.ImageSource}
+		if input.TemplateVersionID != nil {
+			changes["templateVersionId"] = input.TemplateVersionID.String()
+		}
+		if input.ImageArtifactID != nil {
+			changes["imageArtifactId"] = input.ImageArtifactID.String()
+		}
+		if input.RegistryID != nil {
+			changes["registryId"] = input.RegistryID.String()
+		}
+		_ = s.auditWithChanges(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "", changes)
+	} else {
+		_ = s.audit(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "")
+	}
 	httpx.JSON(w, http.StatusAccepted, task)
 }
 

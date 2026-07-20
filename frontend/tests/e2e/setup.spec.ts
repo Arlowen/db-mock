@@ -271,9 +271,22 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute('**/api/v1/hosts')
 
   const instanceID = '44444444-4444-4444-8444-444444444444'
+  const upgradeVersionID = '56565656-5656-4565-8565-565656565656'
+  const upgradeImageID = '57575757-5757-4575-8575-575757575757'
+  const upgradeRegistryID = '58585858-5858-4585-8585-585858585858'
   let failLogs = true
   let instanceStatus = 'running'
   let relatedTasks: Array<Record<string, unknown>> = []
+  let submittedUpgradeBody: Record<string, unknown> | undefined
+  await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
+    id: '54545454-5454-4545-8545-545454545454', slug: 'postgresql', name: 'PostgreSQL', nameZh: 'PostgreSQL', description: '', category: 'relational', tier: 'standard', builtin: true, icon: '', riskReport: [], versions: [
+      { id: '55555555-5555-4555-8555-555555555555', templateId: '54545454-5454-4545-8545-545454545454', version: '17', imageReference: 'postgres:17', architectures: ['amd64', 'arm64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
+      { id: upgradeVersionID, templateId: '54545454-5454-4545-8545-545454545454', version: '17.1', imageReference: 'postgres:17.1', architectures: ['amd64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
+    ],
+  }] } }))
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64' }] } }))
+  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: upgradeImageID, name: 'PostgreSQL 17.1 offline', filename: 'postgres-17.1.tar', sizeBytes: 134217728, sha256: 'd'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17.1'], architectures: ['amd64'], status: 'ready', usedByCount: 0, createdAt: new Date().toISOString() }] } }))
+  await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: upgradeRegistryID, name: 'Docker Hub mirror', url: 'https://docker.io', hasPassword: true, hasCaCertificate: false, status: 'online', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } }))
   await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: {
     id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555',
     projectId: '77777777-7777-4777-8777-777777777777', environment: 'development', labels: { team: 'checkout' }, status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
@@ -282,6 +295,12 @@ test('initializes the platform and switches the embedded interface language', as
     hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
   } }))
   await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: relatedTasks } }))
+  await page.route(`**/api/v1/instances/${instanceID}/actions/upgrade`, async (route) => {
+    submittedUpgradeBody = route.request().postDataJSON()
+    const task = { id: '59595959-5959-4595-8595-595959595959', kind: 'instance.upgrade', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
+    relatedTasks = [task]
+    await route.fulfill({ status: 202, json: task })
+  })
   await page.route('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry', async (route) => {
     const retried = { ...relatedTasks[0], id: '88888888-8888-4888-8888-888888888888', status: 'queued', progress: 0, stage: 'queued', message: 'task_started' }
     relatedTasks = [retried]
@@ -303,7 +322,26 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: '更多操作' }).click()
   await expect(page.getByRole('menuitem', { name: '升级' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: '删除' })).toBeVisible()
-  await page.keyboard.press('Escape')
+  await page.getByRole('menuitem', { name: '升级' }).click()
+  const upgradeDialog = page.getByRole('dialog', { name: '升级' })
+  await expect(upgradeDialog.getByText('升级镜像来源')).toHaveCount(0)
+  await upgradeDialog.getByRole('combobox', { name: '版本' }).click()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(upgradeDialog.getByText('升级镜像来源')).toBeVisible()
+  await upgradeDialog.getByText('仓库凭据', { exact: true }).click()
+  await upgradeDialog.getByRole('combobox', { name: '镜像仓库' }).click()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(upgradeDialog.getByText('凭据与 docker.io 匹配')).toBeVisible()
+  await upgradeDialog.getByText('离线镜像', { exact: true }).click()
+  await upgradeDialog.getByRole('combobox', { name: '离线镜像' }).click()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await upgradeDialog.getByRole('button', { name: /确\s*定/ }).click()
+  await expect.poll(() => submittedUpgradeBody).toEqual({ templateVersionId: upgradeVersionID, imageSource: 'offline', imageArtifactId: upgradeImageID, registryId: null })
+  relatedTasks = []
+  await page.reload()
 
   instanceStatus = 'provisioning'
   relatedTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
@@ -365,8 +403,13 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}/logs?**`)
   await page.unroute(`**/api/v1/instances/${instanceID}/connection`)
   await page.unroute(`**/api/v1/instances/${instanceID}`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/actions/upgrade`)
   await page.unroute('**/api/v1/tasks?resourceType=instance&resourceId=**')
   await page.unroute('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry')
+  await page.unroute('**/api/v1/templates')
+  await page.unroute('**/api/v1/images')
+  await page.unroute('**/api/v1/registries')
+  await page.unroute('**/api/v1/hosts')
 
   await page.goto('/images')
   await expect(page.getByText('尚未上传离线镜像。上传 docker save 导出的镜像包，即可在无法访问镜像仓库时部署数据库。')).toBeVisible()

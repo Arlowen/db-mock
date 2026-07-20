@@ -236,20 +236,66 @@ async function copyText(text: string) {
 }
 
 export function InstanceDetailPage() {
-  const { id = '' } = useParams(); const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [detailParams, setDetailParams] = useSearchParams(); const requestedTab = detailParams.get('tab'); const [item, setItem] = useState<Instance | null>(null); const [pageLoading, setPageLoading] = useState(true); const [pageError, setPageError] = useState(''); const [connection, setConnection] = useState<Connection | null>(null); const [connectionLoading, setConnectionLoading] = useState(false); const [logs, setLogs] = useState(''); const [logsLoading, setLogsLoading] = useState(false); const [logsError, setLogsError] = useState(''); const [logsUpdatedAt, setLogsUpdatedAt] = useState<Date>(); const [logTail, setLogTail] = useState(1000); const [logsAutoRefresh, setLogsAutoRefresh] = useState(true); const [metrics, setMetrics] = useState<Metric[]>([]); const [metricsLoading, setMetricsLoading] = useState(false); const [metricsError, setMetricsError] = useState(''); const [metricHours, setMetricHours] = useState(24); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [tasks, setTasks] = useState<Task[]>([]); const [deleteOpen, setDeleteOpen] = useState(false); const [confirm, setConfirm] = useState(''); const [upgradeOpen, setUpgradeOpen] = useState(false); const [upgradeVersion, setUpgradeVersion] = useState<string>(); const [editOpen, setEditOpen] = useState(false); const [editSaving, setEditSaving] = useState(false); const [actioning, setActioning] = useState(''); const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics'].includes(requestedTab || '') ? requestedTab! : 'overview'); const [editForm] = Form.useForm()
+  const { id = '' } = useParams()
+  const { t, i18n } = useTranslation()
+  const { timezone } = useSystemSettings()
+  const { message } = App.useApp()
+  const navigate = useNavigate()
+  const notifyTask = useTaskNotification()
+  const [detailParams, setDetailParams] = useSearchParams()
+  const requestedTab = detailParams.get('tab')
+  const [item, setItem] = useState<Instance | null>(null)
+  const [pageLoading, setPageLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
+  const [connection, setConnection] = useState<Connection | null>(null)
+  const [connectionLoading, setConnectionLoading] = useState(false)
+  const [logs, setLogs] = useState('')
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState('')
+  const [logsUpdatedAt, setLogsUpdatedAt] = useState<Date>()
+  const [logTail, setLogTail] = useState(1000)
+  const [logsAutoRefresh, setLogsAutoRefresh] = useState(true)
+  const [metrics, setMetrics] = useState<Metric[]>([])
+  const [metricsLoading, setMetricsLoading] = useState(false)
+  const [metricsError, setMetricsError] = useState('')
+  const [metricHours, setMetricHours] = useState(24)
+  const [templates, setTemplates] = useState<DatabaseTemplate[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [hosts, setHosts] = useState<Host[]>([])
+  const [images, setImages] = useState<ImageArtifact[]>([])
+  const [registries, setRegistries] = useState<Registry[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [confirm, setConfirm] = useState('')
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [upgradeVersion, setUpgradeVersion] = useState<string>()
+  const [upgradeImageSource, setUpgradeImageSource] = useState<ImageSource>('public')
+  const [upgradeImageArtifactID, setUpgradeImageArtifactID] = useState<string>()
+  const [upgradeRegistryID, setUpgradeRegistryID] = useState<string>()
+  const [editOpen, setEditOpen] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [actioning, setActioning] = useState('')
+  const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics'].includes(requestedTab || '') ? requestedTab! : 'overview')
+  const [editForm] = Form.useForm()
   const load = useCallback(async () => {
     try {
       const instance = await api<Instance>(`/instances/${id}`)
       setItem(instance)
-      const [catalog, projectList, taskList] = await Promise.allSettled([
+      const [catalog, projectList, hostList, imageList, registryList, taskList] = await Promise.allSettled([
         api<{ items: DatabaseTemplate[] }>('/templates'),
         api<{ items: Project[] }>('/projects'),
+        api<{ items: Host[] }>('/hosts'),
+        api<{ items: ImageArtifact[] }>('/images'),
+        api<{ items: Registry[] }>('/registries'),
         api<{ items: Task[] }>(`/tasks?resourceType=instance&resourceId=${encodeURIComponent(id)}`),
       ])
       if (catalog.status === 'fulfilled') setTemplates(catalog.value.items)
       if (projectList.status === 'fulfilled') setProjects(projectList.value.items)
+      if (hostList.status === 'fulfilled') setHosts(hostList.value.items)
+      if (imageList.status === 'fulfilled') setImages(imageList.value.items)
+      if (registryList.status === 'fulfilled') setRegistries(registryList.value.items)
       if (taskList.status === 'fulfilled') setTasks(taskList.value.items)
-      const failedRequest = [catalog, projectList, taskList].find((result) => result.status === 'rejected')
+      const failedRequest = [catalog, projectList, hostList, imageList, registryList, taskList].find((result) => result.status === 'rejected')
       setPageError(failedRequest?.status === 'rejected' ? errorMessage(failedRequest.reason) : '')
     } catch (error) { setPageError(errorMessage(error)) } finally { setPageLoading(false) }
   }, [id])
@@ -266,10 +312,36 @@ export function InstanceDetailPage() {
   useEffect(() => { if (activeTab !== 'connection') setConnection(null) }, [activeTab])
   const showEdit = () => { if (!item) return; editForm.resetFields(); editForm.setFieldsValue({ name: item.name, projectId: item.projectId, environment: item.environment, labels: Object.entries(item.labels || {}).map(([key, value]) => `${key}=${value}`).join(', '), autoRestart: item.autoRestart }); setEditOpen(true) }
   const showDelete = () => { setConfirm(''); setDeleteOpen(true) }
-  const showUpgrade = () => { setUpgradeVersion(undefined); setUpgradeOpen(true) }
+  const showUpgrade = () => {
+    setUpgradeVersion(undefined)
+    setUpgradeImageSource('public')
+    setUpgradeImageArtifactID(undefined)
+    setUpgradeRegistryID(undefined)
+    setUpgradeOpen(true)
+  }
   const saveEdit = async () => { try { setEditSaving(true); const values = await editForm.validateFields(); const labels: Record<string, string> = {}; String(values.labels || '').split(',').forEach((part) => { const separator = part.indexOf('='); const key = separator >= 0 ? part.slice(0, separator) : part; const value = separator >= 0 ? part.slice(separator + 1) : ''; if (key.trim()) labels[key.trim()] = value.trim() || 'true' }); await api(`/instances/${id}`, { method: 'PATCH', body: { name: values.name, projectId: values.projectId || null, environment: values.environment, labels, autoRestart: !!values.autoRestart } }); message.success(t('saved')); setEditOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } finally { setEditSaving(false) } }
   if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
-  const currentTemplate = templates.find((tpl) => tpl.slug === item.templateSlug); const upgradeOptions = currentTemplate?.versions.filter((v) => v.id !== item.templateVersionId).map((v) => ({ value: v.id, label: v.version })) ?? []
+  const instanceHost = hosts.find((host) => host.id === item.hostId)
+  const currentTemplate = templates.find((tpl) => tpl.slug === item.templateSlug)
+  const upgradeVersions = currentTemplate?.versions.filter((version) => version.id !== item.templateVersionId &&
+    (!instanceHost?.architecture || version.architectures.includes(instanceHost.architecture))) ?? []
+  const upgradeOptions = upgradeVersions.map((version) => ({ value: version.id, label: version.version }))
+  const upgradeTarget = upgradeVersions.find((version) => version.id === upgradeVersion)
+  const upgradeCompatibleImages = images.filter((image) => image.status === 'ready' && !!upgradeTarget &&
+    image.imageRefs.includes(upgradeTarget.imageReference) && (!instanceHost?.architecture || image.architectures.includes(instanceHost.architecture)))
+  const upgradeCompatibleRegistries = registries.filter((registry) => !!upgradeTarget && registryMatchesImage(registry.url, upgradeTarget.imageReference))
+  const upgradeRegistry = upgradeCompatibleRegistries.find((registry) => registry.id === upgradeRegistryID)
+  const upgradeReady = !!upgradeVersion && (upgradeImageSource === 'public' ||
+    (upgradeImageSource === 'offline' && !!upgradeImageArtifactID) || (upgradeImageSource === 'registry' && !!upgradeRegistryID))
+  const submitUpgrade = () => {
+    if (!upgradeReady || !upgradeVersion) return
+    void run('upgrade', {
+      templateVersionId: upgradeVersion,
+      imageSource: upgradeImageSource,
+      imageArtifactId: upgradeImageSource === 'offline' ? upgradeImageArtifactID : null,
+      registryId: upgradeImageSource === 'registry' ? upgradeRegistryID : null,
+    })
+  }
   const project = projects.find((candidate) => candidate.id === item.projectId)
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, isRecoverableInstanceStatus(item.status))
   const retryTask = async () => {
@@ -309,6 +381,26 @@ export function InstanceDetailPage() {
   return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} actions={<><Button icon={<EditOutlined />} disabled={!!actioning} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'upgrade' ? showUpgrade() : showDelete() }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></>} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{operationPanel}<Tabs activeKey={activeTab} onChange={changeTab} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')}><Form form={editForm} layout="vertical"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((project) => ({ value: project.id, label: project.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} /></Form.Item><Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item><Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item></Form></Modal>
     <Modal title={`${t('delete')} ${item.name}`} open={deleteOpen} onCancel={() => { if (!actioning) { setDeleteOpen(false); setConfirm('') } }} onOk={() => void run('delete', { confirmName: confirm })} confirmLoading={actioning === 'delete'} okButtonProps={{ danger: true, disabled: confirm !== item.name }}><Alert className="delete-instance-alert" type="error" showIcon message={t('deleteInstanceWarningTitle')} description={t('deleteInstanceWarningDescription')} /><Typography.Paragraph>{t('deleteInstanceConfirmHint', { name: item.name })}</Typography.Paragraph><Input autoFocus aria-label={t('deleteInstanceConfirmLabel', { name: item.name })} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={item.name} /></Modal>
-    <Modal title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={() => upgradeVersion && void run('upgrade', { templateVersionId: upgradeVersion })} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeVersion }}><Typography.Paragraph type="secondary">{t('upgradeHint')}</Typography.Paragraph><Select style={{ width: '100%' }} options={upgradeOptions} value={upgradeVersion} onChange={setUpgradeVersion} placeholder={t('version')} />{upgradeOptions.length === 0 && <Typography.Text type="warning">{t('noCompatibleVersion')}</Typography.Text>}</Modal>
+    <Modal title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={submitUpgrade} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeReady }} destroyOnHidden>
+      <Typography.Paragraph type="secondary">{t('upgradeHint')}</Typography.Paragraph>
+      <div className="upgrade-field">
+        <Typography.Text strong>{t('version')}</Typography.Text>
+        <Select aria-label={t('version')} style={{ width: '100%' }} options={upgradeOptions} value={upgradeVersion} onChange={(value) => { setUpgradeVersion(value); setUpgradeImageArtifactID(undefined); setUpgradeRegistryID(undefined) }} placeholder={t('version')} />
+      </div>
+      {upgradeOptions.length === 0 && <Alert type="warning" showIcon message={t('noCompatibleVersion')} />}
+      {upgradeTarget && <div className="upgrade-source-panel">
+        <Typography.Text strong>{t('upgradeImageSource')}</Typography.Text>
+        <Radio.Group className="upgrade-source-options" optionType="button" buttonStyle="solid" value={upgradeImageSource} options={[{ value: 'public', label: t('publicRegistry') }, { value: 'registry', label: t('configuredRegistry') }, { value: 'offline', label: t('offlineImage') }]} onChange={(event) => { setUpgradeImageSource(event.target.value); setUpgradeImageArtifactID(undefined); setUpgradeRegistryID(undefined) }} />
+        {upgradeImageSource === 'public' && <Alert type="info" showIcon message={t('pullUpgradeImage')} description={upgradeTarget.imageReference} />}
+        {upgradeImageSource === 'offline' && <>
+          <Select aria-label={t('offlineImage')} value={upgradeImageArtifactID} onChange={setUpgradeImageArtifactID} placeholder={t('selectCompatibleUpgradeImage')} options={upgradeCompatibleImages.map((image) => ({ value: image.id, label: `${image.name} · ${bytes(image.sizeBytes)} · ${image.architectures.join(' / ')}` }))} />
+          {upgradeCompatibleImages.length === 0 && <Alert type="warning" showIcon message={t('noCompatibleUpgradeImages')} description={t('noCompatibleUpgradeImagesHint', { image: upgradeTarget.imageReference, architecture: instanceHost?.architecture || '—' })} action={<Button size="small" onClick={() => navigate('/images')}>{t('uploadImage')}</Button>} />}
+        </>}
+        {upgradeImageSource === 'registry' && <>
+          <Select aria-label={t('registry')} value={upgradeRegistryID} onChange={setUpgradeRegistryID} placeholder={t('selectRegistryForHost', { host: imageRegistryHost(upgradeTarget.imageReference) })} options={upgradeCompatibleRegistries.map((registry) => ({ value: registry.id, disabled: ['offline', 'degraded'].includes(registry.status), label: <Space><span>{registry.name}</span><StatusTag value={registry.status} /></Space> }))} />
+          {upgradeCompatibleRegistries.length === 0 ? <Alert type="warning" showIcon message={t('noMatchingUpgradeRegistries')} description={t('noMatchingRegistriesHint', { host: imageRegistryHost(upgradeTarget.imageReference) })} action={<Button size="small" onClick={() => navigate('/images?tab=registries')}>{t('addRegistry')}</Button>} /> : upgradeRegistry && <Alert type={upgradeRegistry.status === 'online' ? 'success' : 'info'} showIcon message={t('registryMatchesImageSource', { host: imageRegistryHost(upgradeTarget.imageReference) })} description={upgradeRegistry.statusMessage ? t(upgradeRegistry.statusMessage) : t('registryWillBeVerifiedOnTarget')} />}
+        </>}
+      </div>}
+    </Modal>
   </>
 }

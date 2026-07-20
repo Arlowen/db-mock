@@ -223,3 +223,62 @@ func TestValidateRegistryImageSource(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateUpgradeImageSelection(t *testing.T) {
+	artifactID := uuid.New()
+	registryID := uuid.New()
+	valid := []struct {
+		source     string
+		artifactID *uuid.UUID
+		registryID *uuid.UUID
+	}{
+		{source: "public"},
+		{source: "offline", artifactID: &artifactID},
+		{source: "registry", registryID: &registryID},
+	}
+	for _, test := range valid {
+		if err := validateUpgradeImageSelection(test.source, test.artifactID, test.registryID); err != nil {
+			t.Errorf("expected %s selection to be valid: %v", test.source, err)
+		}
+	}
+	invalid := []struct {
+		source     string
+		artifactID *uuid.UUID
+		registryID *uuid.UUID
+	}{
+		{},
+		{source: "public", artifactID: &artifactID},
+		{source: "offline"},
+		{source: "offline", artifactID: &artifactID, registryID: &registryID},
+		{source: "registry"},
+		{source: "unknown"},
+	}
+	for _, test := range invalid {
+		if err := validateUpgradeImageSelection(test.source, test.artifactID, test.registryID); !errors.Is(err, domain.ErrInvalid) {
+			t.Errorf("expected invalid selection %#v to fail, got %v", test, err)
+		}
+	}
+}
+
+func TestArtifactSupportsUpgradeRequiresImageAndHostArchitecture(t *testing.T) {
+	host := domain.Host{Architecture: "arm64"}
+	version := domain.TemplateVersion{ImageReference: "postgres:17.1"}
+	artifact := domain.ImageArtifact{Status: "ready", Architectures: []string{"amd64", "arm64"}, ImageRefs: []string{"postgres:17.1"}}
+	if !artifactSupportsUpgrade(artifact, host, version) {
+		t.Fatal("expected matching ready artifact to support the upgrade")
+	}
+	artifact.Status = "deleting"
+	if artifactSupportsUpgrade(artifact, host, version) {
+		t.Fatal("expected deleting artifact to be rejected")
+	}
+	artifact.Status = "ready"
+	artifact.Architectures = []string{"amd64"}
+	if artifactSupportsUpgrade(artifact, host, version) {
+		t.Fatal("expected incompatible architecture to be rejected")
+	}
+	artifact.Architectures = []string{"arm64"}
+	artifact.ImageRefs = []string{"postgres:17"}
+	if artifactSupportsUpgrade(artifact, host, version) {
+		t.Fatal("expected archive without the target image reference to be rejected")
+	}
+}

@@ -182,6 +182,10 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_queue_idx ON tasks (status, created_at);
 CREATE INDEX IF NOT EXISTS tasks_resource_idx ON tasks (resource_type, resource_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS tasks_active_image_artifact_idx ON tasks ((payload->>'imageArtifactId'))
+    WHERE status IN ('queued', 'running') AND payload ? 'imageArtifactId';
+CREATE INDEX IF NOT EXISTS tasks_active_registry_idx ON tasks ((payload->>'registryId'))
+    WHERE status IN ('queued', 'running') AND payload ? 'registryId';
 
 CREATE TABLE IF NOT EXISTS task_logs (
     id bigserial PRIMARY KEY,

@@ -52,11 +52,27 @@ type CreateRequest struct {
 	RegistryID        *uuid.UUID        `json:"registryId"`
 }
 
+type ActionRequest struct {
+	NewTemplateVersionID *uuid.UUID
+	ImageSource          string
+	ImageArtifactID      *uuid.UUID
+	RegistryID           *uuid.UUID
+}
+
 type ActionPayload struct {
 	InstanceID           uuid.UUID  `json:"instanceId"`
 	NewTemplateVersionID *uuid.UUID `json:"newTemplateVersionId,omitempty"`
+	ImageSource          string     `json:"imageSource,omitempty"`
+	ImageArtifactID      *uuid.UUID `json:"imageArtifactId,omitempty"`
+	RegistryID           *uuid.UUID `json:"registryId,omitempty"`
 	PreviousStatus       string     `json:"previousStatus,omitempty"`
 	PreviousDesiredState string     `json:"previousDesiredState,omitempty"`
+}
+
+type instanceConfiguration struct {
+	ExtraEnvironment map[string]string `json:"extraEnvironment,omitempty"`
+	ImageArtifactID  *uuid.UUID        `json:"imageArtifactId"`
+	RegistryID       *uuid.UUID        `json:"registryId"`
 }
 
 type instanceStateTarget struct {
@@ -163,7 +179,8 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 		return domain.Instance{}, domain.Task{}, err
 	}
 	labels, _ := json.Marshal(request.Labels)
-	configuration, _ := json.Marshal(map[string]any{"extraEnvironment": request.ExtraEnvironment, "imageArtifactId": request.ImageArtifactID, "registryId": request.RegistryID})
+	configuration, _ := json.Marshal(instanceConfiguration{ExtraEnvironment: request.ExtraEnvironment,
+		ImageArtifactID: request.ImageArtifactID, RegistryID: request.RegistryID})
 	short := strings.ReplaceAll(instanceID.String(), "-", "")
 	instance, err := s.store.CreateInstance(ctx, store.InstanceInput{ID: instanceID, Name: request.Name, ProjectID: request.ProjectID,
 		HostID: host.ID, TemplateVersionID: version.ID, Environment: request.Environment, Labels: labels, AutoRestart: autoRestart,
@@ -185,22 +202,135 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	return instance, task, nil
 }
 
-func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, action string, newVersion *uuid.UUID) (domain.Task, error) {
+func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, action string, request ActionRequest) (domain.Task, error) {
 	instance, err := s.store.GetInstance(ctx, instanceID)
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if err = validateInstanceAction(instance.Status, action, newVersion); err != nil {
+	if err = validateInstanceAction(instance.Status, action, request.NewTemplateVersionID); err != nil {
 		return domain.Task{}, err
+	}
+	payload := ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: request.NewTemplateVersionID,
+		PreviousStatus: instance.Status, PreviousDesiredState: instance.DesiredState}
+	if action == "upgrade" {
+		var target domain.TemplateVersion
+		payload.ImageSource, payload.ImageArtifactID, payload.RegistryID, target, err = s.prepareUpgrade(ctx, instance, request)
+		if err != nil {
+			return domain.Task{}, err
+		}
+		payload.NewTemplateVersionID = &target.ID
+	} else if request.ImageSource != "" || request.ImageArtifactID != nil || request.RegistryID != nil {
+		return domain.Task{}, fmt.Errorf("%w: image source is only valid for instance upgrades", domain.ErrInvalid)
 	}
 	operationStatus := instanceOperationStatus(action)
 	task, err := s.store.CreateInstanceActionTask(ctx, store.TaskInput{Kind: "instance." + action, ResourceType: "instance", ResourceID: &instance.ID,
-		RequestedBy: userID, HostID: &instance.HostID, Payload: ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: newVersion,
-			PreviousStatus: instance.Status, PreviousDesiredState: instance.DesiredState}}, instance.ID, instance.Status, operationStatus)
+		RequestedBy: userID, HostID: &instance.HostID, Payload: payload}, instance.ID, instance.Status, operationStatus)
 	if err == nil {
 		s.tasks.Wake()
 	}
 	return task, err
+}
+
+func validateUpgradeImageSelection(source string, artifactID, registryID *uuid.UUID) error {
+	switch source {
+	case "public":
+		if artifactID != nil || registryID != nil {
+			return fmt.Errorf("%w: direct pull cannot include an offline image or registry", domain.ErrInvalid)
+		}
+	case "offline":
+		if artifactID == nil || registryID != nil {
+			return fmt.Errorf("%w: offline upgrade requires exactly one offline image", domain.ErrInvalid)
+		}
+	case "registry":
+		if registryID == nil || artifactID != nil {
+			return fmt.Errorf("%w: registry upgrade requires exactly one configured registry", domain.ErrInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: upgrade image source must be public, registry, or offline", domain.ErrInvalid)
+	}
+	return nil
+}
+
+func artifactSupportsUpgrade(artifact domain.ImageArtifact, host domain.Host, version domain.TemplateVersion) bool {
+	return artifact.Status == "ready" && supports(artifact.Architectures, host.Architecture) &&
+		contains(artifact.ImageRefs, version.ImageReference)
+}
+
+func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, request ActionRequest) (string, *uuid.UUID, *uuid.UUID, domain.TemplateVersion, error) {
+	if request.NewTemplateVersionID == nil {
+		return "", nil, nil, domain.TemplateVersion{}, domain.ErrInvalid
+	}
+	_, currentVersion, err := s.store.GetTemplateVersion(ctx, instance.TemplateVersionID)
+	if err != nil {
+		return "", nil, nil, domain.TemplateVersion{}, err
+	}
+	_, targetVersion, err := s.store.GetTemplateVersion(ctx, *request.NewTemplateVersionID)
+	if err != nil {
+		return "", nil, nil, domain.TemplateVersion{}, err
+	}
+	if targetVersion.ID == currentVersion.ID {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: select a different template version", domain.ErrConflict)
+	}
+	if targetVersion.TemplateID != currentVersion.TemplateID {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: upgrade version belongs to a different database template", domain.ErrConflict)
+	}
+	targetManifest, manifestErr := templates.ParseManifest(targetVersion.Manifest)
+	if manifestErr != nil {
+		return "", nil, nil, domain.TemplateVersion{}, manifestErr
+	}
+	if major(currentVersion.Version) != major(targetVersion.Version) && targetManifest.UpgradeScript == "" {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: major version upgrades require a template-specific migration", domain.ErrConflict)
+	}
+	host, err := s.store.GetHost(ctx, instance.HostID)
+	if err != nil {
+		return "", nil, nil, domain.TemplateVersion{}, err
+	}
+	if !supports(targetVersion.Architectures, host.Architecture) {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: upgrade version is incompatible with the instance host architecture", domain.ErrConflict)
+	}
+
+	source, artifactID, registryID := request.ImageSource, request.ImageArtifactID, request.RegistryID
+	if source == "" {
+		var configuration instanceConfiguration
+		_ = json.Unmarshal(instance.Configuration, &configuration)
+		if configuration.ImageArtifactID != nil {
+			artifact, artifactErr := s.store.GetImageArtifact(ctx, *configuration.ImageArtifactID)
+			if artifactErr == nil && artifactSupportsUpgrade(artifact, host, targetVersion) {
+				source, artifactID = "offline", configuration.ImageArtifactID
+			}
+		}
+		if source == "" && configuration.RegistryID != nil {
+			registry, registryErr := s.store.GetRegistry(ctx, *configuration.RegistryID)
+			if registryErr == nil && validateRegistryImageSource(registry, targetVersion.ImageReference) == nil {
+				source, registryID = "registry", configuration.RegistryID
+			}
+		}
+		if source == "" {
+			source = "public"
+		}
+	}
+	if err = validateUpgradeImageSelection(source, artifactID, registryID); err != nil {
+		return "", nil, nil, domain.TemplateVersion{}, err
+	}
+	if artifactID != nil {
+		artifact, getErr := s.store.GetImageArtifact(ctx, *artifactID)
+		if getErr != nil {
+			return "", nil, nil, domain.TemplateVersion{}, getErr
+		}
+		if !artifactSupportsUpgrade(artifact, host, targetVersion) {
+			return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: offline image is incompatible with the upgrade version or instance host", domain.ErrConflict)
+		}
+	}
+	if registryID != nil {
+		registry, getErr := s.store.GetRegistry(ctx, *registryID)
+		if getErr != nil {
+			return "", nil, nil, domain.TemplateVersion{}, getErr
+		}
+		if getErr = validateRegistryImageSource(registry, targetVersion.ImageReference); getErr != nil {
+			return "", nil, nil, domain.TemplateVersion{}, getErr
+		}
+	}
+	return source, artifactID, registryID, targetVersion, nil
 }
 
 func instanceOperationStatus(action string) string {
@@ -504,11 +634,7 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 			return nil, err
 		}
 	}
-	var configuration struct {
-		ExtraEnvironment map[string]string `json:"extraEnvironment"`
-		RegistryID       *uuid.UUID        `json:"registryId"`
-		ImageArtifactID  *uuid.UUID        `json:"imageArtifactId"`
-	}
+	var configuration instanceConfiguration
 	_ = json.Unmarshal(instance.Configuration, &configuration)
 	if err = runtime.Stage(ctx, 30, "image", "Preparing database image", true); err != nil {
 		return nil, err
@@ -749,10 +875,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if err != nil {
 		return nil, err
 	}
-	var configuration struct {
-		ExtraEnvironment map[string]string `json:"extraEnvironment"`
-		RegistryID       *uuid.UUID        `json:"registryId"`
-	}
+	var configuration instanceConfiguration
 	_ = json.Unmarshal(instance.Configuration, &configuration)
 	plain, err := s.vault.Open(instance.EncryptedPassword, "instance:"+instance.ID.String())
 	if err != nil {
@@ -763,11 +886,22 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		return nil, err
 	}
 	env, _ := templates.EnvFile(instance.DatabaseUsername, string(plain), instance.DatabaseName)
-	if err = runtime.Stage(ctx, 35, "image", "Pulling upgraded image", false); err != nil {
+	if err = runtime.Stage(ctx, 35, "image", "Preparing upgraded image", false); err != nil {
 		return nil, err
 	}
-	if configuration.RegistryID != nil {
-		registry, getErr := s.store.GetRegistry(ctx, *configuration.RegistryID)
+	source, imageArtifactID, registryID := payload.ImageSource, payload.ImageArtifactID, payload.RegistryID
+	if source == "" {
+		legacyRequest := ActionRequest{NewTemplateVersionID: &newVersion.ID}
+		source, imageArtifactID, registryID, _, err = s.prepareUpgrade(ctx, instance, legacyRequest)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err = validateUpgradeImageSelection(source, imageArtifactID, registryID); err != nil {
+		return nil, err
+	}
+	if registryID != nil {
+		registry, getErr := s.store.GetRegistry(ctx, *registryID)
 		if getErr != nil {
 			return nil, getErr
 		}
@@ -795,7 +929,28 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 			return nil, err
 		}
 	}
-	if err = s.docker.PullImage(ctx, host, newVersion.ImageReference); err != nil {
+	if imageArtifactID != nil {
+		artifact, getErr := s.store.GetImageArtifact(ctx, *imageArtifactID)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if !artifactSupportsUpgrade(artifact, host, newVersion) {
+			return nil, fmt.Errorf("%w: offline image is incompatible with the upgrade version or instance host", domain.ErrConflict)
+		}
+		if err = s.docker.LoadImage(ctx, host, artifact.Path, func(done, total int64) {
+			if total > 0 {
+				_ = s.store.UpdateTask(context.Background(), task.ID, 35+int(done*20/total), "image", "Transferring offline upgrade image", false)
+			}
+		}); err != nil {
+			return nil, err
+		}
+		markContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = s.store.MarkImageArtifactUsed(markContext, artifact.ID)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+	} else if err = s.docker.PullImage(ctx, host, newVersion.ImageReference); err != nil {
 		return nil, err
 	}
 	projectFiles, filesErr := templates.PackageProjectFiles(newVersion.PackagePath)
@@ -835,7 +990,13 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 			return nil, err
 		}
 	}
-	if err = s.store.UpdateInstanceTemplateVersion(ctx, instance.ID, newVersion.ID); err != nil {
+	configuration.ImageArtifactID = imageArtifactID
+	configuration.RegistryID = registryID
+	updatedConfiguration, marshalErr := json.Marshal(configuration)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	if err = s.store.UpdateInstanceTemplateVersionAndConfiguration(ctx, instance.ID, newVersion.ID, updatedConfiguration); err != nil {
 		return nil, err
 	}
 	templateUpdated = true
@@ -876,7 +1037,7 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 		}
 	}
 	if templateUpdated {
-		if versionErr := s.store.UpdateInstanceTemplateVersion(recoveryCtx, instance.ID, oldVersion.ID); versionErr != nil {
+		if versionErr := s.store.UpdateInstanceTemplateVersionAndConfiguration(recoveryCtx, instance.ID, oldVersion.ID, instance.Configuration); versionErr != nil {
 			recoveryErrors = append(recoveryErrors, "version")
 		}
 	}

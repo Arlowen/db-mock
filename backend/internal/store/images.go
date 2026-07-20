@@ -106,6 +106,8 @@ func (s *Store) ListUnusedImageArtifacts(ctx context.Context, before time.Time) 
 		status,created_by,created_at,last_used_at,0 FROM image_artifacts
 		WHERE status='ready' AND COALESCE(last_used_at,created_at)<$1 AND NOT EXISTS
 		(SELECT 1 FROM instances WHERE configuration->>'imageArtifactId'=image_artifacts.id::text AND status<>'deleted')
+		AND NOT EXISTS (SELECT 1 FROM tasks WHERE payload->>'imageArtifactId'=image_artifacts.id::text
+			AND status IN ('queued','running'))
 		ORDER BY COALESCE(last_used_at,created_at),created_at`, before)
 	if err != nil {
 		return nil, err
@@ -151,6 +153,14 @@ func (s *Store) beginDeleteImageArtifact(ctx context.Context, id uuid.UUID, befo
 	}
 	if inUse {
 		return domain.ImageArtifact{}, fmt.Errorf("%w: offline image is used by managed database instances", domain.ErrConflict)
+	}
+	var pendingUse bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE payload->>'imageArtifactId'=$1::text
+		AND status IN ('queued','running'))`, id).Scan(&pendingUse); err != nil {
+		return domain.ImageArtifact{}, err
+	}
+	if pendingUse {
+		return domain.ImageArtifact{}, fmt.Errorf("%w: offline image is referenced by an active instance operation", domain.ErrConflict)
 	}
 	if before != nil {
 		activityAt := item.CreatedAt

@@ -113,6 +113,12 @@ button { font: inherit; }
 .instance-operation-copy .ant-typography { margin: 5px 0 0; line-height: 1.45; }
 .instance-operation-progress { margin: 0; }
 .instance-operation-actions { justify-self: end; }
+.upgrade-field, .upgrade-source-panel { display: grid; gap: 10px; }
+.upgrade-field { margin-bottom: 18px; }
+.upgrade-source-panel { padding-top: 17px; border-top: 1px solid #edf0f4; }
+.upgrade-source-options { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.upgrade-source-options .ant-radio-button-wrapper { padding-inline: 8px; text-align: center; }
+.upgrade-source-panel > .ant-select { width: 100%; }
 .description-link.ant-btn { height: auto; padding: 0; }
 .health-summary-card { height: 100%; }
 .health-summary-card .ant-card-body { min-height: 220px; display: grid; grid-template-columns: 50px minmax(0, 1fr); align-content: start; gap: 12px; }

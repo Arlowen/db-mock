@@ -32,16 +32,58 @@ func taskScan(item *domain.Task) []any {
 		&item.Attempts, &item.CreatedAt, &item.StartedAt, &item.FinishedAt, &item.UpdatedAt}
 }
 
+type taskSourceReferences struct {
+	ImageArtifactID *uuid.UUID `json:"imageArtifactId"`
+	RegistryID      *uuid.UUID `json:"registryId"`
+}
+
+func lockTaskSourceReferences(ctx context.Context, tx pgx.Tx, payload []byte) error {
+	var references taskSourceReferences
+	if err := json.Unmarshal(payload, &references); err != nil {
+		return fmt.Errorf("%w: task payload is not valid JSON", domain.ErrInvalid)
+	}
+	if references.ImageArtifactID != nil {
+		var status string
+		if err := tx.QueryRow(ctx, "SELECT status FROM image_artifacts WHERE id=$1 FOR KEY SHARE", *references.ImageArtifactID).Scan(&status); err != nil {
+			return translate(err)
+		}
+		if status != "ready" {
+			return fmt.Errorf("%w: offline image is not available", domain.ErrConflict)
+		}
+	}
+	if references.RegistryID != nil {
+		var id uuid.UUID
+		if err := tx.QueryRow(ctx, "SELECT id FROM registries WHERE id=$1 FOR KEY SHARE", *references.RegistryID).Scan(&id); err != nil {
+			return translate(err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) CreateTask(ctx context.Context, input TaskInput) (domain.Task, error) {
 	payload, err := json.Marshal(input.Payload)
 	if err != nil {
 		return domain.Task{}, err
 	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = lockTaskSourceReferences(ctx, tx, payload); err != nil {
+		return domain.Task{}, err
+	}
 	item := domain.Task{ID: uuid.New()}
-	err = s.pool.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
+	err = tx.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, item.ID, input.Kind, input.ResourceType,
 		input.ResourceID, input.RequestedBy, input.HostID, payload).Scan(taskScan(&item)...)
-	return item, taskInsertError(err)
+	if err != nil {
+		return item, taskInsertError(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Task{}, err
+	}
+	return item, nil
 }
 
 func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, instanceID uuid.UUID, expectedStatus, operationStatus string) (domain.Task, error) {
@@ -60,6 +102,9 @@ func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, i
 	}
 	if currentStatus != expectedStatus {
 		return domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the operation", domain.ErrConflict)
+	}
+	if err = lockTaskSourceReferences(ctx, tx, payload); err != nil {
+		return domain.Task{}, err
 	}
 	item := domain.Task{ID: uuid.New()}
 	err = tx.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)

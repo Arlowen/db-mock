@@ -204,8 +204,15 @@ func (s *Store) MarkInstanceDeleted(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-func (s *Store) UpdateInstanceTemplateVersion(ctx context.Context, id, versionID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx, `UPDATE instances SET template_version_id=$2,updated_at=now() WHERE id=$1`, id, versionID)
+func (s *Store) UpdateInstanceTemplateVersionAndConfiguration(ctx context.Context, id, versionID uuid.UUID, configuration json.RawMessage) error {
+	if !json.Valid(configuration) {
+		return fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE instances SET template_version_id=$2,configuration=$3,updated_at=now()
+		WHERE id=$1 AND status<>'deleted'`, id, versionID, configuration)
+	if err == nil && result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	return err
 }
 

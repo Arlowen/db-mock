@@ -35,6 +35,16 @@ describe('API error messages', () => {
       .toBe('资源状态冲突: 该模板仍被当前或历史数据库实例引用，不能删除。')
   })
 
+  it('protects an offline image selected by an active upgrade task', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: offline image is referenced by an active instance operation')))
+      .toBe('资源状态冲突: 该离线镜像正被排队或执行中的实例操作使用，任务结束后才能删除。')
+  })
+
+  it('explains an incompatible offline upgrade image', () => {
+    expect(errorMessage(new ApiError(409, 'resource_conflict', 'resource conflict: offline image is incompatible with the upgrade version or instance host')))
+      .toBe('资源状态冲突: 所选离线镜像不包含目标版本镜像，或不支持实例主机架构。')
+  })
+
   it('does not expose an untranslated infrastructure error in place of the recovery hint', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the instance host over SSH')))
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')
