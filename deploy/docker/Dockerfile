@@ -2,14 +2,14 @@
 ARG NODE_IMAGE=node:22-alpine
 ARG GOLANG_IMAGE=golang:1.25.12-alpine
 ARG ALPINE_IMAGE=alpine:3.22
-FROM ${NODE_IMAGE} AS frontend
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS frontend
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM ${GOLANG_IMAGE} AS backend
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS backend
 ARG VERSION=dev
 ARG TARGETOS=linux
 ARG TARGETARCH
