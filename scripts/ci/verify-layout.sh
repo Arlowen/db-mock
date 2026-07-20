@@ -14,6 +14,12 @@ for path in \
   deploy/compose.yaml \
   deploy/.env.example \
   frontend/package.json \
+  scripts/ci/verify-offline-bundle.sh \
+  scripts/ci/verify-oci-platforms.py \
+  .github/workflows/ci.yml \
+  .github/workflows/release.yml \
+  .dockerignore \
+  .gitignore \
   README.md
 do
   if [ ! -e "$path" ]; then

@@ -18,8 +18,9 @@ cp deploy/.env.example deploy/.env
 make up
 ```
 
-也可运行 `./scripts/install.sh` 自动生成 PostgreSQL 随机密码并启动。首次打开
-`DBMOCK_PUBLIC_URL` 后，页面会要求创建第一个平台账号。
+也可运行 `./scripts/install.sh` 自动生成 PostgreSQL 随机密码并启动。脚本优先拉取
+`ghcr.io/arlowen/db-mock:latest`；尚未发布镜像或镜像不可用时，会从当前源码检出构建应用镜像。
+首次打开 `DBMOCK_PUBLIC_URL` 后，页面会要求创建第一个平台账号。
 
 `DBMOCK_TIMEZONE` 是首次初始化使用的 IANA 时区默认值。创建首个账号后，请在“系统设置”中调整时区；
 该运行时设置会立即统一影响审计、任务、告警和监控时间展示，无需重启服务。
@@ -29,10 +30,12 @@ make up
 
 ## 离线安装
 
-在可以访问镜像仓库且安装了 Docker 的机器上制作 x86_64 离线包：
+每个版本的 GitHub Release 提供 `amd64`、`arm64` 两个离线包及顶层 `SHA256SUMS`。
+也可以在能够访问镜像仓库且安装了 Docker 的机器上自行制作对应架构的离线包：
 
 ```bash
 ./scripts/package-offline.sh v0.1.0 amd64
+./scripts/package-offline.sh v0.1.0 arm64
 ```
 
 将 `dist/dbmock-v0.1.0-linux-amd64-offline.tar.gz` 复制到离线控制平台，解压后运行：
@@ -48,6 +51,8 @@ cd dbmock-offline
 
 离线包只包含控制平台和 PostgreSQL 镜像。数据库镜像通过平台的“镜像与仓库”页面上传
 `docker save` 生成的 `.tar`、`.tar.gz` 或 `.tgz` 文件。
+安装和离线升级会先校验包内镜像的 SHA-256，再使用 `--pull never --no-build` 启动，
+保证离线机器不会意外访问仓库或尝试从缺失的源码构建镜像。
 
 ## HTTPS
 

@@ -23,6 +23,12 @@ if [ ! -f "$env_file" ]; then
   echo "Created deploy/.env with a generated PostgreSQL password."
 fi
 
-docker compose --env-file "$env_file" -f "$compose_file" pull
-docker compose --env-file "$env_file" -f "$compose_file" up -d
+if docker compose --env-file "$env_file" -f "$compose_file" pull; then
+  echo "Downloaded published DB Mock images."
+else
+  echo "Published DB Mock image is unavailable; building the application image from this checkout." >&2
+  docker compose --env-file "$env_file" -f "$compose_file" pull postgres
+  docker compose --env-file "$env_file" -f "$compose_file" build dbmock
+fi
+docker compose --env-file "$env_file" -f "$compose_file" up -d --no-build
 echo "DB Mock is starting. Open the DBMOCK_PUBLIC_URL configured in deploy/.env."

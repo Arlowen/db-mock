@@ -18,8 +18,10 @@ cp deploy/.env.example deploy/.env
 make up
 ```
 
-Alternatively, run `./scripts/install.sh` to generate a PostgreSQL password and start the stack.
-Open `DBMOCK_PUBLIC_URL` and create the first platform account.
+Alternatively, run `./scripts/install.sh` to generate a PostgreSQL password and start the stack. The
+script first pulls `ghcr.io/arlowen/db-mock:latest` and falls back to building the application image
+from the current checkout when no published image is available. Open `DBMOCK_PUBLIC_URL` and create
+the first platform account.
 
 `DBMOCK_TIMEZONE` is the first-run IANA timezone default. After creating the first account, change the
 timezone in System settings; the runtime setting immediately controls audit, task, alert, and monitoring
@@ -30,10 +32,12 @@ PostgreSQL only; no Nginx or separate frontend service is required.
 
 ## Offline installation
 
-On an internet-connected machine with Docker, build an x86_64 bundle:
+Each GitHub Release contains `amd64` and `arm64` offline bundles plus a top-level `SHA256SUMS` file.
+You can also build either bundle on an internet-connected machine with Docker:
 
 ```bash
 ./scripts/package-offline.sh v0.1.0 amd64
+./scripts/package-offline.sh v0.1.0 arm64
 ```
 
 Copy and extract `dist/dbmock-v0.1.0-linux-amd64-offline.tar.gz` on the offline control plane:
@@ -50,6 +54,8 @@ use the source repository's `deploy/` paths.
 
 The bundle contains only the control-plane and PostgreSQL images. Upload database images from
 `docker save` as `.tar`, `.tar.gz`, or `.tgz` in the Images & registries page.
+Installation and offline upgrades verify the bundled image checksums before starting Compose with
+`--pull never --no-build`, so the offline host never contacts a registry or tries to build from missing source.
 
 ## HTTPS
 

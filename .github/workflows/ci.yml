@@ -15,8 +15,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache: true
@@ -24,6 +24,13 @@ jobs:
       - name: Verify repository layout
         working-directory: .
         run: ./scripts/ci/verify-layout.sh
+      - name: Verify delivery helpers
+        working-directory: .
+        run: |
+          sh -n scripts/*.sh scripts/ci/*.sh
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+          if ./scripts/package-offline.sh '../invalid' amd64 >/dev/null 2>&1; then exit 1; fi
+          if ./scripts/package-offline.sh v0.1.0 riscv64 >/dev/null 2>&1; then exit 1; fi
       - name: Go tests
         run: go test -race ./...
       - name: Verify Go formatting
@@ -35,8 +42,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -56,8 +63,8 @@ jobs:
       DBMOCK_POSTGRES_PASSWORD: ci-only-password
       DBMOCK_IMAGE: dbmock:e2e
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -85,10 +92,50 @@ jobs:
         if: always()
         run: docker compose -f deploy/compose.yaml down -v
 
+  multi-arch-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: amd64,arm64
+      - uses: docker/setup-buildx-action@v4
+      - name: Build amd64 and arm64 OCI image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          outputs: type=oci,dest=${{ runner.temp }}/dbmock-multiarch.tar
+          tags: dbmock:ci
+          build-args: VERSION=ci-${{ github.sha }}
+          cache-from: type=gha,scope=multi-arch-image
+          cache-to: type=gha,mode=max,scope=multi-arch-image
+      - name: Verify OCI platform index
+        run: python3 scripts/ci/verify-oci-platforms.py "${{ runner.temp }}/dbmock-multiarch.tar" linux/amd64 linux/arm64
+      - name: Load the amd64 image for offline packaging
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: dbmock:offline-ci
+          build-args: VERSION=ci-${{ github.sha }}
+          cache-from: type=gha,scope=multi-arch-image
+      - name: Build and verify the offline bundle
+        env:
+          DBMOCK_IMAGE: dbmock:offline-ci
+          DBMOCK_OFFLINE_SKIP_PULL: 'true'
+        run: |
+          docker pull --platform linux/amd64 postgres:17-alpine
+          ./scripts/package-offline.sh ci amd64
+          ./scripts/ci/verify-offline-bundle.sh dist/dbmock-ci-linux-amd64-offline.tar.gz
+
   vulnerability-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: golang/govulncheck-action@v1
         with:
           repo-checkout: false

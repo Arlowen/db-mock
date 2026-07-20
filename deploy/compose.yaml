@@ -17,7 +17,7 @@ services:
     networks: [dbmock]
 
   dbmock:
-    image: ${DBMOCK_IMAGE:-ghcr.io/pika/db-mock:latest}
+    image: ${DBMOCK_IMAGE:-ghcr.io/arlowen/db-mock:latest}
     build:
       context: ..
       dockerfile: deploy/docker/Dockerfile
