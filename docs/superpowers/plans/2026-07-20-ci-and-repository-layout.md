@@ -271,6 +271,7 @@ git commit -m "fix: repair CI and deployment automation"
 **Files:**
 - Modify: `backend/go.mod`
 - Modify: `backend/go.sum`
+- Modify: `deploy/docker/Dockerfile`
 
 **Interfaces:**
 - Consumes: the existing backend and fixed versions reported by GitHub Actions.
@@ -291,6 +292,10 @@ go get github.com/go-chi/chi/v5@v5.2.2 github.com/jackc/pgx/v5@v5.9.2 golang.org
 go mod tidy
 ```
 
+Set the module's minimum Go version to `1.25.12` and the Docker build image to
+`golang:1.25.12-alpine`; the current vulnerability database reports standard
+library fixes through Go 1.25.12.
+
 - [ ] **Step 3: Verify GREEN**
 
 ```sh
@@ -304,8 +309,8 @@ Expected: tests exit 0 and govulncheck reports no vulnerabilities affecting the 
 - [ ] **Step 4: Inspect and commit**
 
 ```sh
-git diff -- backend/go.mod backend/go.sum
-git add backend/go.mod backend/go.sum
+git diff -- backend/go.mod backend/go.sum deploy/docker/Dockerfile
+git add backend/go.mod backend/go.sum deploy/docker/Dockerfile
 git commit -m "fix: upgrade vulnerable Go dependencies"
 ```
 

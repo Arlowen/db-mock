@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 ARG NODE_IMAGE=node:22-alpine
-ARG GOLANG_IMAGE=golang:1.25-alpine
+ARG GOLANG_IMAGE=golang:1.25.12-alpine
 ARG ALPINE_IMAGE=alpine:3.22
 FROM ${NODE_IMAGE} AS frontend
 WORKDIR /src/frontend
