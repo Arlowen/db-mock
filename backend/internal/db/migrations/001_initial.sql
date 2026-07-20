@@ -305,7 +305,6 @@ CREATE TABLE IF NOT EXISTS settings (
 
 INSERT INTO settings (key, value) VALUES
     ('timezone', '"Asia/Shanghai"'::jsonb),
-    ('monitoring', '{"intervalSeconds":30,"retentionDays":7,"diskWarningPercent":80,"diskCriticalPercent":90}'::jsonb),
+    ('monitoring', '{"intervalSeconds":30,"retentionDays":7,"diskWarningPercent":80,"diskCriticalPercent":90,"alerts":{"hostOffline":true,"sshCredentialInvalid":true,"containerExited":true,"containerUnhealthy":true,"restartFailed":true,"diskWarning":true,"diskCritical":true,"upgradeFailed":true}}'::jsonb),
     ('uploads', '{"maxBytes":53687091200,"chunkBytes":8388608}'::jsonb)
 ON CONFLICT (key) DO NOTHING;
-

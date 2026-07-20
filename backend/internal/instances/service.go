@@ -18,6 +18,7 @@ import (
 	appcrypto "github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/hostops"
+	platformsettings "github.com/pika/db-mock/internal/settings"
 	"github.com/pika/db-mock/internal/store"
 	"github.com/pika/db-mock/internal/tasks"
 	"github.com/pika/db-mock/internal/templates"
@@ -833,6 +834,15 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 	severity, recoveryStatus := "warning", "restored"
 	if !recovered {
 		severity, recoveryStatus = "critical", "incomplete"
+	}
+	activePolicy := platformsettings.DefaultMonitoringPolicy(30, 7)
+	if values, settingsErr := s.store.GetSettings(recoveryCtx); settingsErr == nil {
+		if configured, decodeErr := platformsettings.DecodeMonitoringPolicy(values["monitoring"], activePolicy); decodeErr == nil {
+			activePolicy = configured
+		}
+	}
+	if !activePolicy.AlertEnabled(platformsettings.AlertUpgradeFailed) {
+		return
 	}
 	alert, created, alertErr := s.store.CreateAlert(recoveryCtx, store.AlertInput{Severity: severity, Type: "upgrade_failed", ResourceType: "instance",
 		ResourceID: instance.ID, Title: "Database upgrade failed", Message: message, Details: map[string]string{

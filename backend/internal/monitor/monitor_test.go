@@ -1,10 +1,37 @@
 package monitor
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/pika/db-mock/internal/hostops"
+	platformsettings "github.com/pika/db-mock/internal/settings"
 )
+
+func TestHostProbeFailureSeparatesCredentialRejection(t *testing.T) {
+	if got := hostProbeAlertType(fmt.Errorf("wrapped: %w", hostops.ErrSSHCredentialInvalid)); got != "ssh_credential_invalid" {
+		t.Fatalf("credential failure alert type = %q", got)
+	}
+	if got := hostProbeAlertType(errors.New("connection refused")); got != "host_offline" {
+		t.Fatalf("network failure alert type = %q", got)
+	}
+}
+
+func TestDiskAlertTypeHonorsThresholdsAndSwitches(t *testing.T) {
+	active := platformsettings.DefaultMonitoringPolicy(30, 7)
+	if got := diskAlertType(active, 95); got != platformsettings.AlertDiskCritical {
+		t.Fatalf("critical disk alert = %q", got)
+	}
+	active.Alerts.DiskCritical = false
+	if got := diskAlertType(active, 95); got != platformsettings.AlertDiskWarning {
+		t.Fatalf("disabled critical alert should fall back to warning, got %q", got)
+	}
+	active.Alerts.DiskWarning = false
+	if got := diskAlertType(active, 95); got != "" {
+		t.Fatalf("disabled disk alerts should suppress alert, got %q", got)
+	}
+}
 
 func TestTaskOwnedInstanceStatesAreNotOverwrittenByMonitoring(t *testing.T) {
 	for _, status := range []string{"provisioning", "starting", "stopping", "restarting", "upgrading", "deleting", "failed"} {
@@ -52,10 +79,11 @@ func TestDecideInstanceReconciliation(t *testing.T) {
 
 func TestWebhookEventForRuntimeAlerts(t *testing.T) {
 	for alertType, want := range map[string]string{
-		"container_exited":    "instance.failed",
-		"container_unhealthy": "instance.failed",
-		"restart_failed":      "instance.restart_failed",
-		"upgrade_failed":      "instance.failed",
+		"container_exited":       "instance.failed",
+		"container_unhealthy":    "instance.failed",
+		"restart_failed":         "instance.restart_failed",
+		"upgrade_failed":         "instance.failed",
+		"ssh_credential_invalid": "host.offline",
 	} {
 		if got := webhookEventForAlert(alertType); got != want {
 			t.Errorf("event for %s = %q, want %q", alertType, got, want)

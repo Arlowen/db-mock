@@ -214,6 +214,12 @@ button { font: inherit; }
 .settings-json { min-height: 180px; max-height: 300px; }
 .json-editor textarea, textarea.json-editor { font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .configuration-note { margin-top: 16px; background: linear-gradient(135deg, #f8fbff, #f7fffd); }
+.settings-stack { width: 100%; }
+.settings-stack .ant-input-number { width: 100%; }
+.monitoring-alert-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.monitoring-alert-option { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; min-height: 92px; padding: 16px; border: 1px solid #e6eaf0; border-radius: 10px; background: #fafcff; }
+.monitoring-alert-option .ant-typography { margin-bottom: 0; }
+.monitoring-alert-option .ant-switch { flex: none; margin-top: 2px; }
 .table-toolbar { margin-bottom: 18px; }
 .table-filter-card { margin-bottom: 12px; }
 .instance-filter-card .ant-card-body { padding: 14px; }
@@ -454,6 +460,7 @@ button { font: inherit; }
   .host-health-facts { grid-template-columns: 1fr; }
   .host-health-guidance { align-items: flex-start; flex-direction: column; gap: 9px; }
   .create-review-grid { grid-template-columns: 1fr; }
+  .monitoring-alert-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

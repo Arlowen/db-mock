@@ -68,6 +68,11 @@ make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
+After signing in, use Settings to change the monitoring interval, metric retention, disk thresholds,
+and individual alert-type switches. Changes take effect on the next monitoring cycle without a
+restart. A password or private key rejected by the target host raises a dedicated alert that resolves
+after the credential is updated and the next probe succeeds.
+
 PostgreSQL data, the credential master key, and uploaded images live in named Compose volumes. DB Mock
 does not provide built-in metadata backup. Do not manually delete `dbmock_postgres_data` or
 `dbmock_dbmock_data`; losing the master key makes stored SSH, registry, and database credentials

@@ -16,6 +16,7 @@ import (
 	"github.com/pika/db-mock/internal/auth"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/httpx"
+	platformsettings "github.com/pika/db-mock/internal/settings"
 	"github.com/pika/db-mock/internal/store"
 )
 
@@ -369,6 +370,11 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
 	}
+	data, err = normalizeSettingValue(key, data)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
 	if err = s.store.PutSetting(r.Context(), key, data); err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -376,4 +382,11 @@ func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFrom(r.Context())
 	_ = s.audit(r, actor, "setting.update", "setting", nil, key, nil, "success", "")
 	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func normalizeSettingValue(key string, value json.RawMessage) (json.RawMessage, error) {
+	if key == "monitoring" {
+		return platformsettings.NormalizeMonitoringPolicy(value)
+	}
+	return value, nil
 }

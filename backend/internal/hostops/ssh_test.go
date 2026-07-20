@@ -2,9 +2,21 @@ package hostops
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
+
+func TestSSHHandshakeErrorClassifiesRejectedCredential(t *testing.T) {
+	authentication := sshHandshakeError(errors.New("ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain"))
+	if !IsSSHCredentialInvalid(authentication) {
+		t.Fatalf("expected authentication rejection to be classified, got %v", authentication)
+	}
+	network := sshHandshakeError(errors.New("read tcp: connection reset by peer"))
+	if IsSSHCredentialInvalid(network) {
+		t.Fatalf("network failure must not be classified as an invalid credential: %v", network)
+	}
+}
 
 func TestShellQuote(t *testing.T) {
 	got := ShellQuote("a'b; $(bad)")

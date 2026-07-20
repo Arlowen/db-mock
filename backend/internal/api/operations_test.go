@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeWebhook(t *testing.T) {
 	tests := []struct {
@@ -43,6 +47,19 @@ func TestNormalizeWebhook(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNormalizeSettingValueValidatesMonitoringPolicy(t *testing.T) {
+	normalized, err := normalizeSettingValue("monitoring", json.RawMessage(`{"alerts":{"hostOffline":false}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(normalized) || !strings.Contains(string(normalized), `"intervalSeconds":30`) || !strings.Contains(string(normalized), `"hostOffline":false`) {
+		t.Fatalf("unexpected normalized monitoring setting: %s", normalized)
+	}
+	if _, err = normalizeSettingValue("monitoring", json.RawMessage(`{"diskWarningPercent":95,"diskCriticalPercent":90}`)); err == nil {
+		t.Fatal("expected invalid thresholds to be rejected")
 	}
 }
 

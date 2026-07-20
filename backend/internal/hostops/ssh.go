@@ -30,6 +30,20 @@ type Runner interface {
 	UploadFile(ctx context.Context, host domain.Host, localPath, remotePath string, progress func(int64, int64)) error
 }
 
+var ErrSSHCredentialInvalid = errors.New("SSH credential is invalid")
+
+func IsSSHCredentialInvalid(err error) bool {
+	return errors.Is(err, ErrSSHCredentialInvalid)
+}
+
+func sshHandshakeError(err error) error {
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "unable to authenticate") || strings.Contains(message, "no supported methods remain") {
+		return fmt.Errorf("%w: the server rejected the configured password or private key", ErrSSHCredentialInvalid)
+	}
+	return fmt.Errorf("SSH handshake: %w", err)
+}
+
 type Manager struct {
 	vault       *crypto.Vault
 	dialTimeout time.Duration
@@ -88,7 +102,7 @@ func (m *Manager) client(ctx context.Context, host domain.Host, captureKey *stri
 			signer, parseErr = ssh.ParsePrivateKey([]byte(envelope.Secret))
 		}
 		if parseErr != nil {
-			return nil, fmt.Errorf("parse SSH private key: %w", parseErr)
+			return nil, fmt.Errorf("%w: parse private key: %v", ErrSSHCredentialInvalid, parseErr)
 		}
 		auth = ssh.PublicKeys(signer)
 	default:
@@ -123,7 +137,7 @@ func (m *Manager) client(ctx context.Context, host domain.Host, captureKey *stri
 	clientConn, channels, requests, err := ssh.NewClientConn(connection, address, config)
 	if err != nil {
 		_ = connection.Close()
-		return nil, fmt.Errorf("SSH handshake: %w", err)
+		return nil, sshHandshakeError(err)
 	}
 	return ssh.NewClient(clientConn, channels, requests), nil
 }
