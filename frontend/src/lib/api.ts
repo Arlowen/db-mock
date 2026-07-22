@@ -2,6 +2,8 @@ import i18n from '../i18n'
 import { getStoredValue, removeStoredValue, setStoredValue } from './storage'
 import type { ImageArtifact } from './types'
 
+export const sessionInvalidatedEvent = 'dbmock:session-invalidated'
+
 export class ApiError extends Error {
   status: number
   code: string
@@ -34,6 +36,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ error: { code: 'http_error', message: response.statusText } }))
+    if (response.status === 401) window.dispatchEvent(new Event(sessionInvalidatedEvent))
     throw new ApiError(response.status, payload.error?.code ?? 'http_error', payload.error?.message ?? response.statusText, payload.error?.details)
   }
   if (response.status === 204) return undefined as T

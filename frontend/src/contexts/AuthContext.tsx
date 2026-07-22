@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import i18n from '../i18n'
-import { api } from '../lib/api'
+import { api, sessionInvalidatedEvent } from '../lib/api'
 import { applyLocale, normalizeLocale, type AppLocale } from '../lib/locale'
 import type { User } from '../lib/types'
 
@@ -8,6 +8,7 @@ interface AuthState {
   loading: boolean
   initialized: boolean
   user: User | null
+  sessionExpired: boolean
   login: (username: string, password: string) => Promise<void>
   setup: (values: { username: string; password: string; displayName: string; locale: string }) => Promise<void>
   logout: () => Promise<void>
@@ -23,6 +24,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState(true)
   const [user, setUser] = useState<User | null>(null)
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const userRef = useRef<User | null>(null)
+  userRef.current = user
+
+  useEffect(() => {
+    const invalidateSession = () => {
+      if (userRef.current) setSessionExpired(true)
+      setUser(null)
+    }
+    window.addEventListener(sessionInvalidatedEvent, invalidateSession)
+    return () => window.removeEventListener(sessionInvalidatedEvent, invalidateSession)
+  }, [])
 
   const reload = useCallback(async () => {
     try {
@@ -31,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (setupStatus.initialized) {
         const me = await api<{ user: User }>('/auth/me')
         await applyLocale(me.user.locale)
+        setSessionExpired(false)
         setUser(me.user)
       } else {
         setUser(null)
@@ -47,16 +61,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (username: string, password: string) => {
     const response = await api<{ user: User }>('/auth/login', { method: 'POST', body: { username, password } })
     await applyLocale(response.user.locale)
+    setSessionExpired(false)
     setUser(response.user)
   }
   const setup = async (values: { username: string; password: string; displayName: string; locale: string }) => {
     const response = await api<{ user: User }>('/setup', { method: 'POST', body: values })
     await applyLocale(response.user.locale)
     setInitialized(true)
+    setSessionExpired(false)
     setUser(response.user)
   }
   const logout = async () => {
     await api('/auth/logout', { method: 'POST', body: {} })
+    setSessionExpired(false)
     setUser(null)
   }
   const updateLocale = useCallback(async (requested: AppLocale) => {
@@ -79,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const changePassword = useCallback(async (values: { currentPassword: string; newPassword: string }) => {
     await api('/auth/password', { method: 'PUT', body: values })
   }, [])
-  const value = useMemo(() => ({ loading, initialized, user, login, setup, logout, reload, updateLocale, updateProfile, changePassword }), [loading, initialized, user, reload, updateLocale, updateProfile, changePassword])
+  const value = useMemo(() => ({ loading, initialized, user, sessionExpired, login, setup, logout, reload, updateLocale, updateProfile, changePassword }), [loading, initialized, user, sessionExpired, reload, updateLocale, updateProfile, changePassword])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import i18n from '../i18n'
+import { sessionInvalidatedEvent } from '../lib/api'
 import { AuthProvider, useAuth } from './AuthContext'
 
 const account = {
@@ -30,6 +31,12 @@ function AccountProbe() {
     <button onClick={() => void updateProfile({ displayName: 'Updated account', locale: 'en-US' })}>profile:{user?.displayName}</button>
     <button onClick={() => void changePassword({ currentPassword: 'old-password', newPassword: 'new-password' })}>change-password</button>
   </>
+}
+
+function SessionProbe() {
+  const { loading, user, sessionExpired } = useAuth()
+  if (loading) return <span>loading</span>
+  return <span>{user ? 'signed-in' : 'signed-out'}:{sessionExpired ? 'expired' : 'current'}</span>
 }
 
 function renderProvider() {
@@ -110,5 +117,21 @@ describe('account language preference', () => {
     expect(profileRequest?.[1]?.body).toBe(JSON.stringify({ displayName: 'Updated account', locale: 'en-US' }))
     const passwordRequest = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => String(input).endsWith('/auth/password') && init?.method === 'PUT')
     expect(passwordRequest?.[1]?.body).toBe(JSON.stringify({ currentPassword: 'old-password', newPassword: 'new-password' }))
+  })
+
+  it('clears sensitive authenticated state when the API reports a revoked session', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path.endsWith('/setup/status')) return Response.json({ initialized: true })
+      if (path.endsWith('/auth/me')) return Response.json({ user: account })
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(<I18nextProvider i18n={i18n}><AuthProvider><SessionProbe /></AuthProvider></I18nextProvider>)
+    await screen.findByText('signed-in:current')
+
+    window.dispatchEvent(new Event(sessionInvalidatedEvent))
+
+    await screen.findByText('signed-out:expired')
   })
 })

@@ -1,6 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../i18n'
-import { ApiError, errorMessage, uploadInChunks } from './api'
+import { api, ApiError, errorMessage, sessionInvalidatedEvent, uploadInChunks } from './api'
+
+describe('API session invalidation', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    vi.restoreAllMocks()
+  })
+
+  it('notifies the authentication boundary when any request loses authorization', async () => {
+    globalThis.fetch = vi.fn(async () => Response.json({ error: { code: 'unauthorized', message: 'Authentication required' } }, { status: 401 }))
+    const invalidated = vi.fn()
+    window.addEventListener(sessionInvalidatedEvent, invalidated, { once: true })
+
+    await expect(api('/projects')).rejects.toMatchObject({ status: 401, code: 'unauthorized' })
+
+    expect(invalidated).toHaveBeenCalledOnce()
+  })
+
+  it('does not invalidate the session for authorization or validation errors', async () => {
+    globalThis.fetch = vi.fn(async () => Response.json({ error: { code: 'forbidden', message: 'Operation forbidden' } }, { status: 403 }))
+    const invalidated = vi.fn()
+    window.addEventListener(sessionInvalidatedEvent, invalidated, { once: true })
+
+    await expect(api('/users')).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+
+    expect(invalidated).not.toHaveBeenCalled()
+    window.removeEventListener(sessionInvalidatedEvent, invalidated)
+  })
+})
 
 describe('API error messages', () => {
   beforeEach(async () => { await i18n.changeLanguage('zh-CN') })

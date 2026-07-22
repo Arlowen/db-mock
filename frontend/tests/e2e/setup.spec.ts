@@ -1045,8 +1045,9 @@ test('initializes the platform and switches the embedded interface language', as
   await developerDialog.getByRole('button', { name: /保\s*存/ }).click()
   await expect(developerDialog).toBeHidden()
 
-  await developerPage.reload()
+  await developerPage.locator('.app-sider').getByText('项目', { exact: true }).click()
   await expect(developerPage.getByRole('heading', { name: '登录' })).toBeVisible()
+  await expect(developerPage.getByText('会话已结束')).toBeVisible()
   await developerPage.locator('#username').fill('e2e-developer')
   await developerPage.locator('#password').fill('developer-password-self')
   await developerPage.locator('button[type="submit"]').click()

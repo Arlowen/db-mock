@@ -11,6 +11,7 @@ export const zh: Record<string, string> = {
   languageChinese: '简体中文', languageEnglish: 'English', collapse: '收起菜单', expandMenu: '展开菜单',
   skipToContent: '跳到主要内容', accountMenu: '账号菜单', accountSettings: '个人账号', accountSettingsHint: '所有角色都可以维护自己的显示信息和登录密码。', moreActions: '更多操作', switchToEnglish: '切换为 English', switchToChinese: '切换为简体中文',
   initialize: '初始化 DB Mock', initializeHint: '创建第一个管理员账号以开始使用。',
+  sessionExpiredTitle: '会话已结束', sessionExpiredHint: '账号状态或密码可能已变更，请重新登录后继续。',
 
   create: '创建', edit: '编辑', delete: '删除', restore: '恢复', save: '保存', saved: '已保存', cancel: '取消', confirm: '确认', close: '关闭', refresh: '刷新', clearFilters: '清除筛选',
   actions: '操作', status: '状态', name: '名称', description: '描述', createdAt: '创建时间', createdBy: '创建人', details: '详情', noData: '暂无数据', resource: '资源', lastUpdated: '最近更新', identifier: '标识符', eventIdentifier: '事件标识符',
@@ -357,6 +358,7 @@ export const en: Record<string, string> = {
   languageChinese: 'Chinese (Simplified)', languageEnglish: 'English', collapse: 'Collapse menu', expandMenu: 'Expand menu',
   skipToContent: 'Skip to main content', accountMenu: 'Account menu', accountSettings: 'My account', accountSettingsHint: 'Every role can maintain its own display information and sign-in password.', moreActions: 'More actions', switchToEnglish: 'Switch to English', switchToChinese: 'Switch to Chinese (Simplified)',
   initialize: 'Initialize DB Mock', initializeHint: 'Create the first administrator account to get started.',
+  sessionExpiredTitle: 'Session ended', sessionExpiredHint: 'Your account status or password may have changed. Sign in again to continue.',
 
   create: 'Create', edit: 'Edit', delete: 'Delete', restore: 'Restore', save: 'Save', saved: 'Saved', cancel: 'Cancel', confirm: 'Confirm', close: 'Close', refresh: 'Refresh', clearFilters: 'Clear filters',
   actions: 'Actions', status: 'Status', name: 'Name', description: 'Description', createdAt: 'Created', createdBy: 'Created by', details: 'Details', noData: 'No data', resource: 'Resource', lastUpdated: 'Last updated', identifier: 'Identifier', eventIdentifier: 'Event ID',
