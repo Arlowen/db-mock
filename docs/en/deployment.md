@@ -88,6 +88,19 @@ set `DBMOCK_PUBLIC_URL` to the browser-facing `https://` origin, and preserve th
 Set `DBMOCK_BIND_ADDRESS` to `127.0.0.1` or a private address reachable only by the proxy. An HTTPS public
 URL enables Secure session cookies and HSTS whether TLS terminates in DB Mock or at the proxy.
 
+DB Mock ignores every `X-Forwarded-For` header by default and records the direct peer as the session and
+audit source IP. Configure only the proxy IPs or CIDRs that can connect directly to the application when
+the original client IP must be retained:
+
+```dotenv
+DBMOCK_TRUSTED_PROXIES=10.0.0.10,10.0.1.0/24
+```
+
+DB Mock accepts `X-Forwarded-For` only from these trusted peers and walks a continuous trusted proxy chain
+from right to left. List every hop in a multi-proxy chain. Configure the edge proxy to overwrite any
+client-supplied header and each downstream proxy to append its peer correctly. DB Mock rejects `0.0.0.0/0`
+and `::/0`; do not configure a network broader than the actual proxies. `Forwarded` and `X-Real-IP` are not read.
+
 ## Upgrade and operations
 
 ```bash

@@ -31,6 +31,7 @@ services:
       DBMOCK_LISTEN_ADDRESS: :8080
       DBMOCK_DATABASE_URL: postgres://dbmock:${DBMOCK_POSTGRES_PASSWORD}@postgres:5432/dbmock?sslmode=disable
       DBMOCK_PUBLIC_URL: ${DBMOCK_PUBLIC_URL:-http://localhost:8080}
+      DBMOCK_TRUSTED_PROXIES: ${DBMOCK_TRUSTED_PROXIES:-}
       DBMOCK_ARTIFACT_DIR: /var/lib/dbmock/artifacts
       DBMOCK_MASTER_KEY_FILE: /var/lib/dbmock/master.key
       DBMOCK_TIMEZONE: ${DBMOCK_TIMEZONE:-Asia/Shanghai}

@@ -5,12 +5,15 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
+
+	"github.com/pika/db-mock/internal/auth"
 )
 
 func TestRequestMiddlewareDisablesAPICaching(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := RequestMiddleware(logger, "", false)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := RequestMiddleware(logger, "", false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -30,9 +33,25 @@ func TestRequestMiddlewareDisablesAPICaching(t *testing.T) {
 	}
 }
 
+func TestRequestMiddlewareStoresResolvedClientIP(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	handler := RequestMiddleware(logger, "http://dbmock.example.com", false, trusted)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, auth.ClientIP(r))
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	request.RemoteAddr = "10.0.0.2:4321"
+	request.Header.Set("X-Forwarded-For", "198.51.100.25")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if got := recorder.Body.String(); got != "198.51.100.25" {
+		t.Fatalf("middleware client IP = %q", got)
+	}
+}
+
 func TestRequestMiddlewareEnablesHSTSForHTTPSDeployments(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := RequestMiddleware(logger, "https://dbmock.example.com", true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := RequestMiddleware(logger, "https://dbmock.example.com", true, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

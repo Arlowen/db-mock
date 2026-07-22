@@ -103,6 +103,46 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           npm run test:e2e
+      - name: Verify trusted proxy audit attribution
+        run: |
+          test "$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'X-Forwarded-For: 198.51.100.25' \
+            --data '{"username":"e2e-admin","password":"wrong-password"}' \
+            http://127.0.0.1:8080/api/v1/auth/login)" = "401"
+          direct_ip="$(docker compose -f deploy/compose.yaml exec -T postgres \
+            psql -U dbmock -d dbmock -Atc \
+            "SELECT ip FROM audit_logs WHERE action='auth.login' AND result='failure' ORDER BY created_at DESC LIMIT 1")"
+          test -n "$direct_ip"
+          test "$direct_ip" != "198.51.100.25"
+
+          export DBMOCK_TRUSTED_PROXIES="$direct_ip"
+          docker compose -f deploy/compose.yaml up -d --force-recreate dbmock
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/api/v1/health >/dev/null
+          test "$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'X-Forwarded-For: 198.51.100.25' \
+            --data '{"username":"e2e-admin","password":"wrong-password"}' \
+            http://127.0.0.1:8080/api/v1/auth/login)" = "401"
+          test "$(docker compose -f deploy/compose.yaml exec -T postgres \
+            psql -U dbmock -d dbmock -Atc \
+            "SELECT ip FROM audit_logs WHERE action='auth.login' AND result='failure' ORDER BY created_at DESC LIMIT 1")" = \
+            "198.51.100.25"
+          export DBMOCK_TRUSTED_PROXIES=
+          docker compose -f deploy/compose.yaml up -d --force-recreate dbmock
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/api/v1/health >/dev/null
       - name: Verify control-plane backup and restore
         env:
           DBMOCK_PLATFORM_BACKUP_DIR: ${{ runner.temp }}

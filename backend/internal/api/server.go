@@ -44,7 +44,7 @@ func New(cfg config.Config, target *store.Store, vault *appcrypto.Vault, authSer
 
 func (s *Server) Handler() http.Handler {
 	router := chi.NewRouter()
-	router.Use(middleware.RealIP, middleware.Compress(5), httpx.RequestMiddleware(s.logger, s.config.PublicURL, s.config.SecureCookies))
+	router.Use(middleware.Compress(5), httpx.RequestMiddleware(s.logger, s.config.PublicURL, s.config.SecureCookies, s.config.TrustedProxies))
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", s.health)
 		r.Get("/setup/status", s.setupStatus)

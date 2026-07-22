@@ -45,7 +45,8 @@ make up
 [中文部署文档](docs/zh/deployment.md) 或 [English deployment guide](docs/en/deployment.md)。
 部署变量采用严格校验；无效的时长、数值、公开 URL 或 TLS 证书会阻止服务启动并给出具体
 变量名，避免以意外默认值继续运行。公开 URL 使用 HTTPS 时，内置 TLS 和反向代理两种部署
-都会启用 Secure 会话 Cookie 与 HSTS。
+都会启用 Secure 会话 Cookie 与 HSTS；反向代理部署必须显式配置最小范围的可信代理地址，
+否则应用会安全地忽略转发来源头。
 版本标签会发布 `ghcr.io/arlowen/db-mock` 的 `linux/amd64`、`linux/arm64` 多架构镜像，
 并在 GitHub Release 中附带两种架构的离线安装包和 SHA-256 校验文件。
 

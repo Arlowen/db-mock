@@ -345,7 +345,7 @@ export const zh: Record<string, string> = {
   auditAction_webhook_create: '创建 Webhook', auditAction_webhook_update: '更新 Webhook', auditAction_webhook_delete: '删除 Webhook',
   auditAction_webhook_test: '测试 Webhook', auditAction_webhook_delivery_retry: '重试 Webhook 投递', auditAction_audit_clear: '清理审计日志', auditAction_setting_update: '更新系统设置',
   lastLogin: '最后登录时间',
-  deploymentEnvironment: '部署环境', deploymentEnvironmentHint: '监听地址、PostgreSQL URL、主密钥、制品目录、公开访问地址、可选 TLS 证书与私钥、会话时长、任务并发数和上传硬上限均通过 DBMOCK_* 环境变量配置。变量会在启动时严格校验；HTTPS 公开地址会启用 Secure Cookie 与 HSTS。DBMOCK_TIMEZONE 仅提供首次初始化默认值，之后由上方系统时区控制。',
+  deploymentEnvironment: '部署环境', deploymentEnvironmentHint: '监听地址、PostgreSQL URL、主密钥、制品目录、公开访问地址、可信代理、可选 TLS 证书与私钥、会话时长、任务并发数和上传硬上限均通过 DBMOCK_* 环境变量配置。变量会在启动时严格校验；HTTPS 公开地址会启用 Secure Cookie 与 HSTS，未配置可信代理时会忽略转发来源头。DBMOCK_TIMEZONE 仅提供首次初始化默认值，之后由上方系统时区控制。',
 }
 
 export const en: Record<string, string> = {
@@ -691,7 +691,7 @@ export const en: Record<string, string> = {
   auditAction_webhook_create: 'Create webhook', auditAction_webhook_update: 'Update webhook', auditAction_webhook_delete: 'Delete webhook',
   auditAction_webhook_test: 'Test webhook', auditAction_webhook_delivery_retry: 'Retry webhook delivery', auditAction_audit_clear: 'Clear audit log', auditAction_setting_update: 'Update setting',
   lastLogin: 'Last login',
-  deploymentEnvironment: 'Deployment environment', deploymentEnvironmentHint: 'Listen address, PostgreSQL URL, master key, artifact directory, public URL, optional TLS certificate/key, session duration, task concurrency, and the hard upload ceiling use DBMOCK_* variables. Startup validates them strictly; an HTTPS public URL enables Secure cookies and HSTS. DBMOCK_TIMEZONE only supplies the first-run default; the system timezone above is authoritative afterward.',
+  deploymentEnvironment: 'Deployment environment', deploymentEnvironmentHint: 'Listen address, PostgreSQL URL, master key, artifact directory, public URL, trusted proxies, optional TLS certificate/key, session duration, task concurrency, and the hard upload ceiling use DBMOCK_* variables. Startup validates them strictly; an HTTPS public URL enables Secure cookies and HSTS, while forwarded client headers are ignored unless trusted proxies are configured. DBMOCK_TIMEZONE only supplies the first-run default; the system timezone above is authoritative afterward.',
 }
 
 const zhKeys = Object.keys(zh).sort()

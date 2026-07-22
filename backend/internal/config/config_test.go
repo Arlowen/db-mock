@@ -15,6 +15,7 @@ func configureValidEnvironment(t *testing.T) {
 	t.Setenv("DBMOCK_DATABASE_URL", "postgres://dbmock:dbmock@localhost:5432/dbmock?sslmode=disable")
 	t.Setenv("DBMOCK_ARTIFACT_DIR", t.TempDir())
 	t.Setenv("DBMOCK_PUBLIC_URL", "http://localhost:8080")
+	t.Setenv("DBMOCK_TRUSTED_PROXIES", "")
 	t.Setenv("DBMOCK_TLS_CERT_FILE", "")
 	t.Setenv("DBMOCK_TLS_KEY_FILE", "")
 	t.Setenv("DBMOCK_SESSION_DURATION", "720h")
@@ -25,6 +26,36 @@ func configureValidEnvironment(t *testing.T) {
 	t.Setenv("DBMOCK_TIMEZONE", "Asia/Shanghai")
 	t.Setenv("DBMOCK_MASTER_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	t.Setenv("DBMOCK_MASTER_KEY_FILE", t.TempDir()+"/unused.key")
+}
+
+func TestLoadParsesTrustedProxyAddressesAndNetworks(t *testing.T) {
+	configureValidEnvironment(t)
+	t.Setenv("DBMOCK_TRUSTED_PROXIES", "127.0.0.1, 10.0.0.42/8, ::1, fd00::/8, ::ffff:192.0.2.42/120")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(cfg.TrustedProxies))
+	for _, prefix := range cfg.TrustedProxies {
+		got = append(got, prefix.String())
+	}
+	if strings.Join(got, ",") != "127.0.0.1/32,10.0.0.0/8,::1/128,fd00::/8,192.0.2.0/24" {
+		t.Fatalf("unexpected trusted proxies: %v", got)
+	}
+}
+
+func TestLoadRejectsInvalidTrustedProxyConfiguration(t *testing.T) {
+	tooMany := strings.Repeat("127.0.0.1,", 32) + "127.0.0.1"
+	for _, value := range []string{"not-an-address", "10.0.0.1/99", "127.0.0.1,,10.0.0.0/8", "0.0.0.0/0", "::/0", "fe80::1%en0", tooMany} {
+		t.Run(value, func(t *testing.T) {
+			configureValidEnvironment(t)
+			t.Setenv("DBMOCK_TRUSTED_PROXIES", value)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "DBMOCK_TRUSTED_PROXIES") {
+				t.Fatalf("Load() error = %v, want trusted proxy validation failure", err)
+			}
+		})
+	}
 }
 
 func TestLoadParsesStrictTypedEnvironment(t *testing.T) {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -129,15 +131,79 @@ func RequestID(ctx context.Context) string {
 	return value
 }
 
+type clientIPKey struct{}
+
+func WithClientIP(ctx context.Context, value string) context.Context {
+	return context.WithValue(ctx, clientIPKey{}, value)
+}
+
 func ClientIP(r *http.Request) string {
-	value := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		value = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+	if value, _ := r.Context().Value(clientIPKey{}).(string); value != "" {
+		return value
 	}
-	if index := strings.LastIndex(value, ":"); index > 0 && !strings.Contains(value[index+1:], "]") {
-		value = strings.Trim(value[:index], "[]")
+	if address, ok := parseRequestAddress(r.RemoteAddr); ok {
+		return address.String()
 	}
-	return value
+	return ""
+}
+
+func ResolveClientIP(r *http.Request, trustedProxies []netip.Prefix) string {
+	peer, ok := parseRequestAddress(r.RemoteAddr)
+	if !ok {
+		return ""
+	}
+	if !trustedProxy(peer, trustedProxies) {
+		return peer.String()
+	}
+	forwarded := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
+	if strings.TrimSpace(forwarded) == "" {
+		return peer.String()
+	}
+	parts := strings.Split(forwarded, ",")
+	if len(parts) > 32 {
+		return peer.String()
+	}
+	chain := make([]netip.Addr, 0, len(parts))
+	for _, part := range parts {
+		address, valid := parseRequestAddress(part)
+		if !valid {
+			return peer.String()
+		}
+		chain = append(chain, address)
+	}
+	client := peer
+	for index := len(chain) - 1; index >= 0 && trustedProxy(client, trustedProxies); index-- {
+		client = chain[index]
+	}
+	return client.String()
+}
+
+func parseRequestAddress(value string) (netip.Addr, bool) {
+	value = strings.TrimSpace(value)
+	address, err := netip.ParseAddr(strings.Trim(value, "[]"))
+	if err != nil {
+		host, _, splitErr := net.SplitHostPort(value)
+		if splitErr != nil {
+			return netip.Addr{}, false
+		}
+		address, err = netip.ParseAddr(strings.Trim(host, "[]"))
+		if err != nil {
+			return netip.Addr{}, false
+		}
+	}
+	if address.Zone() != "" {
+		address = address.WithZone("")
+	}
+	return address.Unmap(), true
+}
+
+func trustedProxy(address netip.Addr, trusted []netip.Prefix) bool {
+	for _, prefix := range trusted {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeUnauthorized(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"runtime/debug"
 	"strings"
@@ -112,7 +113,7 @@ func (w *statusWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
-func RequestMiddleware(logger *slog.Logger, publicURL string, secureTransport bool) func(http.Handler) http.Handler {
+func RequestMiddleware(logger *slog.Logger, publicURL string, secureTransport bool, trustedProxies []netip.Prefix) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestID := r.Header.Get("X-Request-ID")
@@ -130,7 +131,8 @@ func RequestMiddleware(logger *slog.Logger, publicURL string, secureTransport bo
 			if secureTransport {
 				w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 			}
-			ctx := auth.WithRequestID(r.Context(), requestID)
+			clientIP := auth.ResolveClientIP(r, trustedProxies)
+			ctx := auth.WithClientIP(auth.WithRequestID(r.Context(), requestID), clientIP)
 			started := time.Now()
 			writer := &statusWriter{ResponseWriter: w}
 			defer func() {
@@ -140,7 +142,7 @@ func RequestMiddleware(logger *slog.Logger, publicURL string, secureTransport bo
 						Error(writer, r, errors.New("panic"))
 					}
 				}
-				logger.Info("request", "requestId", requestID, "method", r.Method, "path", r.URL.Path, "status", writer.status, "duration", time.Since(started), "bytes", writer.bytes)
+				logger.Info("request", "requestId", requestID, "clientIp", clientIP, "method", r.Method, "path", r.URL.Path, "status", writer.status, "duration", time.Since(started), "bytes", writer.bytes)
 			}()
 			if isMutation(r.Method) && !sameOrigin(r, publicURL) {
 				Error(writer, r, domain.ErrForbidden)

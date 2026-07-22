@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ type Config struct {
 	MasterKey           []byte
 	ArtifactDirectory   string
 	PublicURL           string
+	TrustedProxies      []netip.Prefix
 	TLSCertFile         string
 	TLSKeyFile          string
 	SessionDuration     time.Duration
@@ -59,11 +61,16 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	trustedProxies, err := parseTrustedProxies(os.Getenv("DBMOCK_TRUSTED_PROXIES"))
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		ListenAddress:       env("DBMOCK_LISTEN_ADDRESS", ":8080"),
 		DatabaseURL:         env("DBMOCK_DATABASE_URL", "postgres://dbmock:dbmock@localhost:5432/dbmock?sslmode=disable"),
 		ArtifactDirectory:   env("DBMOCK_ARTIFACT_DIR", "./data/artifacts"),
 		PublicURL:           publicURL,
+		TrustedProxies:      trustedProxies,
 		TLSCertFile:         os.Getenv("DBMOCK_TLS_CERT_FILE"),
 		TLSKeyFile:          os.Getenv("DBMOCK_TLS_KEY_FILE"),
 		SessionDuration:     sessionDuration,
@@ -206,4 +213,51 @@ func parsePublicURL(value string) (string, bool, error) {
 	}
 	parsed.Path = ""
 	return strings.TrimRight(parsed.String(), "/"), parsed.Scheme == "https", nil
+}
+
+func parseTrustedProxies(value string) ([]netip.Prefix, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	items := strings.Split(value, ",")
+	if len(items) > 32 {
+		return nil, errors.New("DBMOCK_TRUSTED_PROXIES must contain at most 32 addresses or networks")
+	}
+	result := make([]netip.Prefix, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return nil, errors.New("DBMOCK_TRUSTED_PROXIES must not contain empty entries")
+		}
+		if strings.Contains(item, "/") {
+			prefix, err := netip.ParsePrefix(item)
+			if err != nil {
+				return nil, fmt.Errorf("DBMOCK_TRUSTED_PROXIES contains invalid network %q: %w", item, err)
+			}
+			prefix = prefix.Masked()
+			if prefix.Addr().Is4In6() {
+				bits := prefix.Bits() - 96
+				if bits < 0 {
+					return nil, fmt.Errorf("DBMOCK_TRUSTED_PROXIES contains unsupported IPv4-mapped network %q", item)
+				}
+				prefix = netip.PrefixFrom(prefix.Addr().Unmap(), bits).Masked()
+			}
+			if prefix.Bits() == 0 {
+				return nil, fmt.Errorf("DBMOCK_TRUSTED_PROXIES must not trust every address with %q", item)
+			}
+			result = append(result, prefix)
+			continue
+		}
+		address, err := netip.ParseAddr(item)
+		if err != nil {
+			return nil, fmt.Errorf("DBMOCK_TRUSTED_PROXIES contains invalid address %q: %w", item, err)
+		}
+		if address.Zone() != "" {
+			return nil, fmt.Errorf("DBMOCK_TRUSTED_PROXIES contains unsupported zoned address %q", item)
+		}
+		address = address.Unmap()
+		result = append(result, netip.PrefixFrom(address, address.BitLen()))
+	}
+	return result, nil
 }
