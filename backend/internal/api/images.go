@@ -17,13 +17,13 @@ import (
 func (s *Server) imageRoutes(r chi.Router) {
 	r.Get("/", s.listImages)
 	r.Get("/unused", s.listUnusedImages)
-	r.Post("/cleanup", s.cleanupUnusedImages)
-	r.Delete("/{id}", s.deleteImage)
-	r.Post("/uploads", s.beginImageUpload)
-	r.Get("/uploads/{id}", s.getImageUpload)
-	r.Put("/uploads/{id}/chunk", s.uploadImageChunk)
-	r.Post("/uploads/{id}/complete", s.completeImageUpload)
-	r.Delete("/uploads/{id}", s.cancelImageUpload)
+	r.With(requireOperator).Post("/cleanup", s.cleanupUnusedImages)
+	r.With(requireOperator).Delete("/{id}", s.deleteImage)
+	r.With(requireOperator).Post("/uploads", s.beginImageUpload)
+	r.With(requireOperator).Get("/uploads/{id}", s.getImageUpload)
+	r.With(requireOperator).Put("/uploads/{id}/chunk", s.uploadImageChunk)
+	r.With(requireOperator).Post("/uploads/{id}/complete", s.completeImageUpload)
+	r.With(requireOperator).Delete("/uploads/{id}", s.cancelImageUpload)
 }
 func (s *Server) cancelImageUpload(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))

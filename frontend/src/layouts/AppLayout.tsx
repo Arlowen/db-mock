@@ -3,7 +3,7 @@ import {
   DatabaseOutlined, DownOutlined, GlobalOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
   SettingOutlined, TeamOutlined, UnorderedListOutlined,
 } from '@ant-design/icons'
-import { App, Avatar, Badge, Button, Dropdown, Layout, Menu, Space, Typography } from 'antd'
+import { Alert, App, Avatar, Badge, Button, Dropdown, Layout, Menu, Space, Tag, Typography } from 'antd'
 import type { MenuProps } from 'antd'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +11,8 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { api, errorMessage } from '../lib/api'
 import { oppositeLocale } from '../lib/locale'
-import type { Alert } from '../lib/types'
+import { permissionsFor } from '../lib/permissions'
+import type { Alert as AlertItem } from '../lib/types'
 
 const { Header, Sider, Content } = Layout
 
@@ -24,9 +25,10 @@ export function AppLayout() {
   const location = useLocation()
   const [activeAlerts, setActiveAlerts] = useState(0)
   const [languageSaving, setLanguageSaving] = useState(false)
+  const permissions = permissionsFor(user!)
   useEffect(() => {
     let active = true
-    const loadAlerts = () => void api<{ items: Alert[] }>('/alerts').then((response) => {
+    const loadAlerts = () => void api<{ items: AlertItem[] }>('/alerts').then((response) => {
       if (active) setActiveAlerts(response.items.filter((item) => item.status !== 'resolved').length)
     }).catch(() => undefined)
     loadAlerts()
@@ -46,13 +48,15 @@ export function AppLayout() {
     { key: '/audit', icon: <AuditOutlined />, label: t('audit') },
     { key: '/settings', icon: <SettingOutlined />, label: t('settings') },
   ]
+  const operationalItems = [routeItems[6], routeItems[7], ...(permissions.canViewAudit ? [routeItems[9]] : [])]
+  const systemItems = [...(permissions.canManageUsers ? [routeItems[8]] : []), ...(permissions.canManageSettings ? [routeItems[10]] : [])]
   const items: MenuProps['items'] = [
     routeItems[0],
     { type: 'group', label: t('navResources'), children: [routeItems[1], routeItems[2]] },
     { type: 'group', label: t('navDatabases'), children: [routeItems[3], routeItems[4], routeItems[5]] },
-    { type: 'group', label: t('navOperations'), children: [routeItems[6], routeItems[7], routeItems[9]] },
-    { type: 'group', label: t('navSystem'), children: [routeItems[8], routeItems[10]] },
+    { type: 'group', label: t('navOperations'), children: operationalItems },
   ]
+  if (systemItems.length) items.push({ type: 'group', label: t('navSystem'), children: systemItems })
   const selected = routeItems.find((item) => item.key !== '/' && location.pathname.startsWith(item.key))?.key ?? '/'
   const targetLocale = oppositeLocale(i18n.language)
   const switchLanguage = async () => {
@@ -78,11 +82,11 @@ export function AppLayout() {
           <Button type="text" icon={<GlobalOutlined />} loading={languageSaving} aria-label={t(targetLocale === 'en-US' ? 'switchToEnglish' : 'switchToChinese')} onClick={() => void switchLanguage()}>{targetLocale === 'en-US' ? t('languageEnglish') : t('languageChinese')}</Button>
           <Badge count={activeAlerts} size="small" overflowCount={99}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
           <Dropdown menu={{ items: [{ key: 'logout', icon: <LogoutOutlined />, label: t('logout'), onClick: () => void logout() }] }}>
-            <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><DownOutlined className="user-menu-caret" /></Button>
+            <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><Tag className="desktop-only" bordered={false}>{t(`role_${user?.role}`)}</Tag><DownOutlined className="user-menu-caret" /></Button>
           </Dropdown>
         </Space>
       </Header>
-      <Content id="main-content" tabIndex={-1} className="app-content"><Outlet /></Content>
+      <Content id="main-content" tabIndex={-1} className="app-content">{!permissions.canOperate && <Alert className="read-only-banner" type="info" showIcon message={t('readOnlyMode')} description={t('readOnlyModeHint')} />}<Outlet /></Content>
     </Layout>
   </Layout></>
 }

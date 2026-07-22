@@ -14,8 +14,8 @@ func (s *Server) taskRoutes(r chi.Router) {
 	r.Get("/", s.listTasks)
 	r.Get("/{id}", s.getTask)
 	r.Get("/{id}/logs", s.taskLogs)
-	r.Post("/{id}/cancel", s.cancelTask)
-	r.Post("/{id}/retry", s.retryTask)
+	r.With(requireOperator).Post("/{id}/cancel", s.cancelTask)
+	r.With(requireOperator).Post("/{id}/retry", s.retryTask)
 }
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	var resourceID *uuid.UUID

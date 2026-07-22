@@ -40,11 +40,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { ApiError, api, discardImageUpload, errorMessage, uploadInChunks } from '../lib/api'
 import type { ImageUploadPhase } from '../lib/api'
 import { isRegistryURL } from '../lib/image-source'
 import { formatDateTime } from '../lib/localization'
+import { permissionsFor } from '../lib/permissions'
 import type { DatabaseTemplate, Host, ImageArtifact, Registry } from '../lib/types'
 import { bytes } from '../lib/types'
 import { defaultUploadSettings, normalizeUploadSettings, type UploadSettings } from '../lib/upload-settings'
@@ -97,6 +99,8 @@ function matchingVersions(image: ImageArtifact, templates: DatabaseTemplate[]) {
 
 export function ImagesPage() {
   const { t, i18n } = useTranslation()
+  const { user } = useAuth()
+  const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const { message, modal } = App.useApp()
   const navigate = useNavigate()
@@ -416,7 +420,7 @@ export function ImagesPage() {
 
   const imageEmpty = hasImageFilters
     ? <EmptyState compact action={resetImageFilters} actionLabel={t('clearFilters')} description={t('imagesFilteredEmptyDescription')} />
-    : <EmptyState compact action={showImageUpload} actionLabel={t('uploadImage')} description={t('imagesEmptyDescription')} />
+    : <EmptyState compact action={canOperate ? showImageUpload : undefined} actionLabel={canOperate ? t('uploadImage') : undefined} description={t('imagesEmptyDescription')} />
 
   const selectedMatches = selectedImage ? matchingVersions(selectedImage, templates) : []
   const selectedCompatibleHosts = selectedImage ? hosts.filter((host) => host.status === 'online' && !host.maintenance && selectedImage.architectures.includes(host.architecture || '')) : []
@@ -500,7 +504,7 @@ export function ImagesPage() {
           {
             title: '',
             width: 88,
-            render: (_: unknown, item: ImageArtifact) => <Space size={2} className="image-row-actions"><Button type="text" onClick={() => setSelectedImage(item)}>{t('details')}</Button><Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={item.usedByCount > 0} onConfirm={() => void removeImage(item)}><Button danger type="text" disabled={item.usedByCount > 0} aria-label={`${t('delete')} ${item.name}`} title={item.usedByCount > 0 ? t('imageUsedByInstances', { count: item.usedByCount }) : t('delete')} icon={<DeleteOutlined />} /></Popconfirm></Space>,
+            render: (_: unknown, item: ImageArtifact) => <Space size={2} className="image-row-actions"><Button type="text" onClick={() => setSelectedImage(item)}>{t('details')}</Button>{canOperate && <Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={item.usedByCount > 0} onConfirm={() => void removeImage(item)}><Button danger type="text" disabled={item.usedByCount > 0} aria-label={`${t('delete')} ${item.name}`} title={item.usedByCount > 0 ? t('imageUsedByInstances', { count: item.usedByCount }) : t('delete')} icon={<DeleteOutlined />} /></Popconfirm>}</Space>,
           },
         ]}
       />
@@ -528,17 +532,17 @@ export function ImagesPage() {
               {!item.hasPassword && !item.hasCaCertificate && <Tag>{t('standardTLS')}</Tag>}
             </Space>
             {item.statusMessage && <Alert className="registry-test-result" type={item.status === 'online' ? 'success' : item.status === 'offline' ? 'error' : 'warning'} showIcon message={t(item.statusMessage)} description={item.statusCode ? `HTTP ${item.statusCode}` : undefined} />}
-            <div className="registry-card-footer">
+            {canOperate && <div className="registry-card-footer">
               <Button icon={<CheckCircleOutlined />} loading={testingRegistry === item.id} onClick={() => void testRegistry(item)}>{t('testRegistry')}</Button>
               <Space size={4}>
                 <Button type="text" icon={<EditOutlined />} onClick={() => showRegistry(item)}>{t('edit')}</Button>
                 <Popconfirm title={t('deleteRegistry')} description={t('registryDeleteConfirm')} onConfirm={() => void removeRegistry(item)}><Button danger type="text" aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} /></Popconfirm>
               </Space>
-            </div>
+            </div>}
           </Card>
         </Col>
       })}
-      {registries.length === 0 && <Col span={24}><Card><EmptyState action={() => showRegistry()} actionLabel={t('addRegistry')} description={t('registriesEmptyDescription')} /></Card></Col>}
+      {registries.length === 0 && <Col span={24}><Card><EmptyState action={canOperate ? () => showRegistry() : undefined} actionLabel={canOperate ? t('addRegistry') : undefined} description={t('registriesEmptyDescription')} /></Card></Col>}
     </Row>}
   </>
 
@@ -546,7 +550,7 @@ export function ImagesPage() {
     <PageHeader
       title={t('images')}
       description={t('imagesDescription')}
-      actions={<><Button icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}
+      actions={canOperate ? <><Button icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></> : undefined}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     <Tabs activeKey={activeTab} onChange={changeTab} items={[
@@ -664,7 +668,7 @@ export function ImagesPage() {
       open={!!selectedImage}
       onClose={() => setSelectedImage(null)}
       width={620}
-      footer={selectedImage && <div className="workflow-drawer-footer"><Typography.Text type="secondary">{selectedImage.usedByCount > 0 ? t('imageUsedByInstances', { count: selectedImage.usedByCount }) : t('imageDeleteAvailableHint')}</Typography.Text><Space>{primaryMatch ? <Button type="primary" icon={<RocketOutlined />} onClick={createWithSelectedImage}>{selectedCompatibleHosts.length ? t('createInstance') : t('connectHostAndContinue')}</Button> : <Button onClick={() => navigate('/catalog')}>{t('catalog')}</Button>}<Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={selectedImage.usedByCount > 0} onConfirm={() => void removeImage(selectedImage)}><Button danger icon={<DeleteOutlined />} disabled={selectedImage.usedByCount > 0}>{t('delete')}</Button></Popconfirm></Space></div>}
+      footer={canOperate && selectedImage ? <div className="workflow-drawer-footer"><Typography.Text type="secondary">{selectedImage.usedByCount > 0 ? t('imageUsedByInstances', { count: selectedImage.usedByCount }) : t('imageDeleteAvailableHint')}</Typography.Text><Space>{primaryMatch ? <Button type="primary" icon={<RocketOutlined />} onClick={createWithSelectedImage}>{selectedCompatibleHosts.length ? t('createInstance') : t('connectHostAndContinue')}</Button> : <Button onClick={() => navigate('/catalog')}>{t('catalog')}</Button>}<Popconfirm title={t('deleteOfflineImage')} description={t('imageDeleteConfirm')} disabled={selectedImage.usedByCount > 0} onConfirm={() => void removeImage(selectedImage)}><Button danger icon={<DeleteOutlined />} disabled={selectedImage.usedByCount > 0}>{t('delete')}</Button></Popconfirm></Space></div> : undefined}
     >
       {selectedImage && <div className="image-detail">
         <div className="image-detail-summary"><span><CheckCircleOutlined /></span><div><Space wrap><StatusTag value={selectedImage.status} />{selectedImage.architectures.map((value) => <Tag key={value}>{value}</Tag>)}{selectedImage.usedByCount > 0 && <Tag color="blue">{t('imageUsedByInstances', { count: selectedImage.usedByCount })}</Tag>}</Space><Typography.Title level={4}>{t('imageReadyForDeployment')}</Typography.Title><Typography.Paragraph type="secondary">{t('imageReadyForDeploymentHint')}</Typography.Paragraph></div></div>

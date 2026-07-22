@@ -10,6 +10,7 @@ const account = {
   username: 'admin',
   displayName: 'Admin',
   locale: 'en-US',
+  role: 'admin' as const,
   createdAt: '2026-01-01T00:00:00Z',
 }
 

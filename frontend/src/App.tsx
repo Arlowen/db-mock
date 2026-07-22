@@ -15,6 +15,7 @@ import { AlertsPage } from './pages/AlertsPage'
 import { UsersPage } from './pages/UsersPage'
 import { AuditPage } from './pages/AuditPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { permissionsFor } from './lib/permissions'
 
 export default function App() {
   const { loading, initialized, user } = useAuth()
@@ -22,5 +23,6 @@ export default function App() {
   if (loading || settingsLoading) return <div className="full-spin"><Spin size="large" /></div>
   if (!initialized) return <AuthPage setup />
   if (!user) return <AuthPage setup={false} />
-  return <Routes><Route element={<AppLayout />}><Route index element={<DashboardPage />} /><Route path="projects" element={<ProjectsPage />} /><Route path="hosts" element={<HostsPage />} /><Route path="catalog" element={<CatalogPage />} /><Route path="instances" element={<InstancesPage />} /><Route path="instances/:id" element={<InstanceDetailPage />} /><Route path="images" element={<ImagesPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="alerts" element={<AlertsPage />} /><Route path="users" element={<UsersPage />} /><Route path="audit" element={<AuditPage />} /><Route path="settings" element={<SettingsPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes>
+  const permissions = permissionsFor(user)
+  return <Routes><Route element={<AppLayout />}><Route index element={<DashboardPage />} /><Route path="projects" element={<ProjectsPage />} /><Route path="hosts" element={<HostsPage />} /><Route path="catalog" element={<CatalogPage />} /><Route path="instances" element={<InstancesPage />} /><Route path="instances/:id" element={<InstanceDetailPage />} /><Route path="images" element={<ImagesPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="alerts" element={<AlertsPage />} /><Route path="users" element={permissions.canManageUsers ? <UsersPage /> : <Navigate to="/" replace />} /><Route path="audit" element={permissions.canViewAudit ? <AuditPage /> : <Navigate to="/" replace />} /><Route path="settings" element={permissions.canManageSettings ? <SettingsPage /> : <Navigate to="/" replace />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes>
 }

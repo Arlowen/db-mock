@@ -5,14 +5,18 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'rea
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader } from '../components/Common'
+import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { auditChangeEntries, auditResourcePath, auditValueText, isRedactedAuditValue } from '../lib/audit'
 import { formatDateTime, translateCode } from '../lib/localization'
+import { permissionsFor } from '../lib/permissions'
 import { bytes, type Audit } from '../lib/types'
 
 export function AuditPage() {
   const { t, i18n } = useTranslation()
+  const { user } = useAuth()
+  const { canManageSettings } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const { message } = App.useApp()
   const navigate = useNavigate()
@@ -77,7 +81,7 @@ export function AuditPage() {
   ]
 
   return <>
-    <PageHeader title={t('audit')} description={t('auditDescription')} actions={<Space><Button href={exportURL} icon={<DownloadOutlined />}>{t('export')}</Button><Button danger icon={<ClearOutlined />} onClick={showClear}>{t('clear')}</Button></Space>} />
+    <PageHeader title={t('audit')} description={t('auditDescription')} actions={<Space><Button href={exportURL} icon={<DownloadOutlined />}>{t('export')}</Button>{canManageSettings && <Button danger icon={<ClearOutlined />} onClick={showClear}>{t('clear')}</Button>}</Space>} />
     <Card className="audit-table-card">
       <Space wrap className="table-toolbar"><Input value={search} onChange={(event) => setSearch(event.target.value)} allowClear prefix={<SearchOutlined />} placeholder={t('search')} style={{ width: 260 }} /><Select value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value) }} style={{ width: 170 }} options={[{ value: '', label: t('allResources') }, ...['platform', 'session', 'user', 'project', 'host', 'instance', 'task', 'image', 'image_upload', 'template', 'registry', 'webhook', 'alert', 'setting', 'audit'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button></Space>
       <Table rowKey="id" loading={loading || search !== deferredSearch} dataSource={items} columns={columns} scroll={{ x: 1250 }} pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [20, 50, 100] }} locale={{ emptyText: <EmptyState compact action={hasFilters ? resetFilters : undefined} actionLabel={t('clearFilters')} description={t('auditEmptyDescription')} /> }} />
@@ -101,6 +105,6 @@ export function AuditPage() {
       </div>}
     </Drawer>
 
-    <Modal title={t('clear')} open={clearOpen} onCancel={() => { setClearOpen(false); setConfirm('') }} onOk={() => void clear()} okButtonProps={{ danger: true, disabled: confirm !== 'CLEAR' }}><Typography.Paragraph type="danger">{t('auditDeleteWarning')}</Typography.Paragraph><Form layout="vertical"><Form.Item label={t('deleteBefore')}><DatePicker showTime value={before} onChange={(value) => value && setBefore(value)} style={{ width: '100%' }} /></Form.Item><Form.Item label={t('typeClearToConfirm')} htmlFor="audit-clear-confirm"><Input id="audit-clear-confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></Form.Item></Form></Modal>
+    {canManageSettings && <Modal title={t('clear')} open={clearOpen} onCancel={() => { setClearOpen(false); setConfirm('') }} onOk={() => void clear()} okButtonProps={{ danger: true, disabled: confirm !== 'CLEAR' }}><Typography.Paragraph type="danger">{t('auditDeleteWarning')}</Typography.Paragraph><Form layout="vertical"><Form.Item label={t('deleteBefore')}><DatePicker showTime value={before} onChange={(value) => value && setBefore(value)} style={{ width: '100%' }} /></Form.Item><Form.Item label={t('typeClearToConfirm')} htmlFor="audit-clear-confirm"><Input id="audit-clear-confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></Form.Item></Form></Modal>}
   </>
 }

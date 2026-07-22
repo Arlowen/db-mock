@@ -24,10 +24,10 @@ import (
 
 func (s *Server) registryRoutes(r chi.Router) {
 	r.Get("/", s.listRegistries)
-	r.Post("/", s.createRegistry)
-	r.Put("/{id}", s.updateRegistry)
-	r.Post("/{id}/test", s.testRegistry)
-	r.Delete("/{id}", s.deleteRegistry)
+	r.With(requireOperator).Post("/", s.createRegistry)
+	r.With(requireOperator).Put("/{id}", s.updateRegistry)
+	r.With(requireOperator).Post("/{id}/test", s.testRegistry)
+	r.With(requireOperator).Delete("/{id}", s.deleteRegistry)
 }
 
 type registryRequest struct {
@@ -265,8 +265,8 @@ func (s *Server) sealOptional(value, context string) (string, error) {
 
 func (s *Server) templateRoutes(r chi.Router) {
 	r.Get("/", s.listTemplates)
-	r.Post("/custom", s.uploadTemplate)
-	r.Delete("/{id}", s.deleteTemplate)
+	r.With(requireOperator).Post("/custom", s.uploadTemplate)
+	r.With(requireOperator).Delete("/{id}", s.deleteTemplate)
 }
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListTemplates(r.Context())

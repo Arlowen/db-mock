@@ -22,7 +22,7 @@ import (
 
 func (s *Server) alertRoutes(r chi.Router) {
 	r.Get("/", s.listAlerts)
-	r.Post("/{id}/{status}", s.updateAlert)
+	r.With(requireOperator).Post("/{id}/{status}", s.updateAlert)
 }
 func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListAlerts(r.Context(), r.URL.Query().Get("status"), 200)
@@ -60,6 +60,7 @@ func (s *Server) updateAlert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) webhookRoutes(r chi.Router) {
+	r.Use(requireOperator)
 	r.Get("/", s.listWebhooks)
 	r.Post("/", s.createWebhook)
 	r.Put("/{id}", s.updateWebhook)
@@ -276,9 +277,9 @@ func (s *Server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) auditRoutes(r chi.Router) {
-	r.Get("/", s.listAudit)
-	r.Get("/export", s.exportAudit)
-	r.Post("/clear", s.clearAudit)
+	r.With(requireOperator).Get("/", s.listAudit)
+	r.With(requireOperator).Get("/export", s.exportAudit)
+	r.With(requireAdmin).Post("/clear", s.clearAudit)
 }
 func auditBefore(r *http.Request) time.Time {
 	value := r.URL.Query().Get("before")
@@ -360,7 +361,7 @@ func (s *Server) clearAudit(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) settingRoutes(r chi.Router) {
 	r.Get("/", s.getSettings)
-	r.Put("/{key}", s.putSetting)
+	r.With(requireAdmin).Put("/{key}", s.putSetting)
 }
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.GetSettings(r.Context())

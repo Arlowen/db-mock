@@ -9,9 +9,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { formatDateTime, translateCode } from '../lib/localization'
+import { permissionsFor } from '../lib/permissions'
 import type { Alert as AlertItem, Host, Instance, Webhook, WebhookDelivery } from '../lib/types'
 import { normalizeWebhookEvents } from '../lib/webhook-events'
 
@@ -35,6 +37,8 @@ interface WebhookValues {
 
 export function AlertsPage() {
   const { t, i18n } = useTranslation()
+  const { user } = useAuth()
+  const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const { message } = App.useApp()
   const location = useLocation()
@@ -60,7 +64,7 @@ export function AlertsPage() {
   const clearWebhookSecret = Form.useWatch('clearSecret', form)
 
   const query = useMemo(() => new URLSearchParams(location.search), [location.search])
-  const activeTab = query.get('tab') === 'webhooks' ? 'webhooks' : 'alerts'
+  const activeTab = canOperate && query.get('tab') === 'webhooks' ? 'webhooks' : 'alerts'
   const selectedAlertID = query.get('alert') || ''
   const selectedWebhookID = query.get('webhook') || ''
 
@@ -75,7 +79,7 @@ export function AlertsPage() {
     try {
       const [alertResponse, webhookResponse, hostResponse, instanceResponse] = await Promise.all([
         api<{ items: AlertItem[] }>('/alerts'),
-        api<{ items: Webhook[] }>('/webhooks'),
+        canOperate ? api<{ items: Webhook[] }>('/webhooks') : Promise.resolve({ items: [] as Webhook[] }),
         api<{ items: Host[] }>('/hosts'),
         api<{ items: Instance[] }>('/instances'),
       ])
@@ -89,7 +93,7 @@ export function AlertsPage() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [])
+  }, [canOperate])
 
   useEffect(() => {
     void load()
@@ -111,7 +115,7 @@ export function AlertsPage() {
   }, [])
 
   useEffect(() => {
-    if (!selectedWebhookID) {
+    if (!canOperate || !selectedWebhookID) {
       setDeliveries([])
       setDeliveryError('')
       return
@@ -119,7 +123,7 @@ export function AlertsPage() {
     void loadDeliveries(selectedWebhookID)
     const timer = window.setInterval(() => void loadDeliveries(selectedWebhookID, true), 2500)
     return () => window.clearInterval(timer)
-  }, [loadDeliveries, selectedWebhookID])
+  }, [canOperate, loadDeliveries, selectedWebhookID])
 
   const hostNames = useMemo(() => new Map(hosts.map((item) => [item.id, item.name])), [hosts])
   const instanceNames = useMemo(() => new Map(instances.map((item) => [item.id, item.name])), [instances])
@@ -304,8 +308,8 @@ export function AlertsPage() {
     {
       title: t('actions'), width: 220,
       render: (_: unknown, item: AlertItem) => <Space className="alert-table-actions">
-        {item.status === 'open' && <Button size="small" loading={actioning === `${item.id}:acknowledged`} disabled={!!actioning && actioning !== `${item.id}:acknowledged`} onClick={() => void setAlertStatus(item, 'acknowledged')}>{t('acknowledge')}</Button>}
-        {item.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(item)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(item, 'resolved')}><Button size="small" type="primary" loading={actioning === `${item.id}:resolved`} disabled={!!actioning && actioning !== `${item.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}
+        {canOperate && item.status === 'open' && <Button size="small" loading={actioning === `${item.id}:acknowledged`} disabled={!!actioning && actioning !== `${item.id}:acknowledged`} onClick={() => void setAlertStatus(item, 'acknowledged')}>{t('acknowledge')}</Button>}
+        {canOperate && item.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(item)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(item, 'resolved')}><Button size="small" type="primary" loading={actioning === `${item.id}:resolved`} disabled={!!actioning && actioning !== `${item.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}
         <Button size="small" type="link" onClick={() => setQuery({ tab: 'alerts', alert: item.id, webhook: undefined })}>{t('details')}</Button>
       </Space>,
     },
@@ -340,14 +344,14 @@ export function AlertsPage() {
   </Row>
 
   return <>
-    <PageHeader title={t('alerts')} description={t('alertInboxDescription')} actions={<><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button><Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button></>} />
+    <PageHeader title={t('alerts')} description={t('alertInboxDescription')} actions={<><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button>{canOperate && <Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button>}</>} />
     {loadError && <InlineAlert className="instance-page-alert" type="error" showIcon message={t('alertListLoadFailed')} description={loadError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}
     <Tabs activeKey={activeTab} onChange={(tab) => setQuery({ tab: tab === 'webhooks' ? 'webhooks' : undefined, alert: undefined, webhook: undefined })} items={[
       { key: 'alerts', label: <Space size={6}>{t('alertEvents')}<Tag color={activeAlertCount ? 'orange' : 'default'}>{activeAlertCount}</Tag></Space>, children: alertTab },
-      { key: 'webhooks', label: <Space size={6}>{t('webhook')}<Tag>{webhooks.length}</Tag></Space>, children: webhookTab },
+      ...(canOperate ? [{ key: 'webhooks', label: <Space size={6}>{t('webhook')}<Tag>{webhooks.length}</Tag></Space>, children: webhookTab }] : []),
     ]} />
 
-    <Drawer title={t('alertDetails')} width={620} open={!!selectedAlertID} onClose={() => setQuery({ alert: undefined })} footer={selectedAlert ? <div className="alert-drawer-footer"><Button icon={<LinkOutlined />} disabled={!resourceFor(selectedAlert).path} onClick={() => openResource(selectedAlert)}>{t('viewResource')}</Button><Space>{selectedAlert.status === 'open' && <Button loading={actioning === `${selectedAlert.id}:acknowledged`} onClick={() => void setAlertStatus(selectedAlert, 'acknowledged')}>{t('acknowledge')}</Button>}{selectedAlert.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(selectedAlert)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(selectedAlert, 'resolved')}><Button type="primary" loading={actioning === `${selectedAlert.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}</Space></div> : undefined}>
+    <Drawer title={t('alertDetails')} width={620} open={!!selectedAlertID} onClose={() => setQuery({ alert: undefined })} footer={selectedAlert ? <div className="alert-drawer-footer"><Button icon={<LinkOutlined />} disabled={!resourceFor(selectedAlert).path} onClick={() => openResource(selectedAlert)}>{t('viewResource')}</Button>{canOperate && <Space>{selectedAlert.status === 'open' && <Button loading={actioning === `${selectedAlert.id}:acknowledged`} onClick={() => void setAlertStatus(selectedAlert, 'acknowledged')}>{t('acknowledge')}</Button>}{selectedAlert.status !== 'resolved' && <Popconfirm title={t('alertResolveConfirmTitle')} description={resolutionConfirmationFor(selectedAlert)} okText={t('resolve')} cancelText={t('cancel')} onConfirm={() => void setAlertStatus(selectedAlert, 'resolved')}><Button type="primary" loading={actioning === `${selectedAlert.id}:resolved`}>{t('resolve')}</Button></Popconfirm>}</Space>}</div> : undefined}>
       {selectedAlert ? <div className="alert-detail"><div className={`alert-detail-summary severity-${selectedAlert.severity}`}><div className="alert-detail-icon"><BellOutlined /></div><div><Space wrap><StatusTag value={selectedAlert.severity} /><StatusTag value={selectedAlert.status} /></Space><Typography.Title level={4}>{t(`alertTitle_${selectedAlert.type}`, { defaultValue: selectedAlert.title })}</Typography.Title><Typography.Paragraph>{summaryFor(selectedAlert)}</Typography.Paragraph></div></div>{selectedResourceState ? <InlineAlert className="alert-resource-health" type={selectedResourceState.healthy ? 'success' : 'warning'} showIcon message={t(selectedResourceState.healthy ? 'alertResourceRecovered' : 'alertResourceStillUnhealthy')} description={t(selectedResourceState.healthy ? 'alertResourceRecoveredHint' : 'alertResourceUnhealthyHint', { name: selectedResourceState.name, status: translateCode(t, selectedResourceState.status) })} action={<Button size="small" icon={<LinkOutlined />} onClick={() => openResource(selectedAlert)}>{t('inspectAffectedResource')}</Button>} /> : <InlineAlert type="warning" showIcon message={t('resourceUnavailable')} description={t('alertResourceUnavailableHint')} />}{relatedActiveAlerts.length > 0 && <Card size="small" title={t('relatedActiveAlerts')}><div className="related-alert-list">{relatedActiveAlerts.map((item) => <div className="related-alert-item" key={item.id}><StatusTag value={item.severity} /><div><Button type="link" onClick={() => setQuery({ tab: 'alerts', alert: item.id, webhook: undefined })}>{t(`alertTitle_${item.type}`, { defaultValue: item.title })}</Button><Typography.Text type="secondary">{summaryFor(item)}</Typography.Text></div><StatusTag value={item.status} /></div>)}</div></Card>}{selectedDiagnosticEntries.length > 0 && <Card size="small" title={t('alertDiagnostics')}><Descriptions className="alert-diagnostic-details" size="small" column={1} items={selectedDiagnosticEntries.map(([key, value]) => ({ key, label: t(`alertDetail_${key}`, { defaultValue: key }), children: typeof value === 'string' ? <Typography.Text code>{value}</Typography.Text> : typeof value === 'object' ? <Typography.Text code>{JSON.stringify(value)}</Typography.Text> : String(value) }))} /></Card>}<InlineAlert type="info" showIcon message={t('technicalDetails')} description={<Typography.Text code copyable>{selectedAlert.message}</Typography.Text>} /><Card size="small" title={t('alertLifecycle')}><Descriptions size="small" column={1} items={[
         { key: 'created', label: t('alertFirstSeen'), children: formatDateTime(selectedAlert.createdAt, i18n.language, timezone) },
         { key: 'acknowledged', label: t('alertAcknowledgedAt'), children: formatDateTime(selectedAlert.acknowledgedAt, i18n.language, timezone) },
@@ -369,7 +373,7 @@ export function AlertsPage() {
       </Form>
     </Modal>
 
-    <Drawer title={selectedWebhook ? `${t('deliveryHistory')} · ${selectedWebhook.name}` : t('deliveryHistory')} width={760} open={!!selectedWebhookID} onClose={() => { setFocusedDeliveryID(''); setQuery({ webhook: undefined }) }} extra={selectedWebhook && <Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${selectedWebhook.id}`} disabled={!selectedWebhook.enabled} onClick={() => void testWebhook(selectedWebhook)}>{t('testWebhook')}</Button>}>
+    <Drawer title={selectedWebhook ? `${t('deliveryHistory')} · ${selectedWebhook.name}` : t('deliveryHistory')} width={760} open={canOperate && !!selectedWebhookID} onClose={() => { setFocusedDeliveryID(''); setQuery({ webhook: undefined }) }} extra={selectedWebhook && <Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${selectedWebhook.id}`} disabled={!selectedWebhook.enabled} onClick={() => void testWebhook(selectedWebhook)}>{t('testWebhook')}</Button>}>
       {selectedWebhook && <div className="delivery-webhook-summary"><div><Space><StatusTag value={selectedWebhook.enabled ? 'enabled' : 'disabled'} />{selectedWebhook.hasSecret && <Tag>{t('hmacSigningEnabled')}</Tag>}</Space><Typography.Text copyable ellipsis={{ tooltip: selectedWebhook.url }}>{selectedWebhook.url}</Typography.Text></div><Typography.Paragraph type="secondary">{t('deliveryHistoryDescription')}</Typography.Paragraph></div>}
       {deliveryError && <InlineAlert className="ops-alert" type="error" showIcon message={t('deliveryLoadFailed')} description={deliveryError} action={<Button size="small" onClick={() => selectedWebhookID && void loadDeliveries(selectedWebhookID)}>{t('retry')}</Button>} />}
       <Table rowKey="id" size="small" loading={deliveryLoading} dataSource={deliveries} pagination={false} rowClassName={(item) => item.id === focusedDeliveryID ? 'delivery-row-focused' : ''} locale={{ emptyText: <EmptyState compact description={t('noDeliveries')} /> }} expandable={{ rowExpandable: (item) => !!(item.errorMessage || item.responseBody), expandedRowRender: (item) => <Descriptions className="delivery-details" size="small" column={1} items={[

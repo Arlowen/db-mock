@@ -19,12 +19,12 @@ import (
 
 func (s *Server) hostRoutes(r chi.Router) {
 	r.Get("/", s.listHosts)
-	r.Post("/test", s.testHost)
-	r.Post("/", s.createHost)
+	r.With(requireOperator).Post("/test", s.testHost)
+	r.With(requireOperator).Post("/", s.createHost)
 	r.Get("/{id}", s.getHost)
-	r.Put("/{id}", s.updateHost)
-	r.Delete("/{id}", s.deleteHost)
-	r.Post("/{id}/actions/{action}", s.hostAction)
+	r.With(requireOperator).Put("/{id}", s.updateHost)
+	r.With(requireOperator).Delete("/{id}", s.deleteHost)
+	r.With(requireOperator).Post("/{id}/actions/{action}", s.hostAction)
 }
 
 type hostRequest struct {

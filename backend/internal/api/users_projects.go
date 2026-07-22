@@ -14,6 +14,7 @@ import (
 )
 
 func (s *Server) userRoutes(r chi.Router) {
+	r.Use(requireAdmin)
 	r.Get("/", s.listUsers)
 	r.Post("/", s.createUser)
 	r.Patch("/{id}", s.updateUser)
@@ -28,7 +29,13 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	var input credentialRequest
+	var input struct {
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+		Password    string `json:"password"`
+		Locale      string `json:"locale"`
+		Role        string `json:"role"`
+	}
 	if err := httpx.Decode(r, &input); err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -38,21 +45,23 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	user, err := s.store.CreateUser(r.Context(), input.Username, input.DisplayName, input.Locale, hash)
+	user, err := s.store.CreateUser(r.Context(), input.Username, input.DisplayName, input.Locale, input.Role, hash)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.audit(r, actor, "user.create", "user", &user.ID, user.Username, nil, "success", "")
+	_ = s.auditWithChanges(r, actor, "user.create", "user", &user.ID, user.Username, nil, "success", "",
+		map[string]any{"role": map[string]string{"to": user.Role}})
 	httpx.JSON(w, http.StatusCreated, user)
 }
 
 type userUpdateRequest struct {
-	DisplayName string `json:"displayName"`
-	Locale      string `json:"locale"`
-	Disabled    *bool  `json:"disabled"`
-	Password    string `json:"password"`
+	DisplayName string  `json:"displayName"`
+	Locale      string  `json:"locale"`
+	Disabled    *bool   `json:"disabled"`
+	Password    string  `json:"password"`
+	Role        *string `json:"role"`
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +76,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	if err = validateUserUpdate(actor.User.ID, id, input.Disabled); err != nil {
+	if err = validateUserUpdate(actor.User.ID, id, input.Disabled, input.Role); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
@@ -88,7 +97,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	if hash != "" && actor.User.ID == id {
 		keepSessionID = &actor.SessionID
 	}
-	user, err := s.store.UpdateUser(r.Context(), id, input.DisplayName, input.Locale, input.Disabled, hash, keepSessionID)
+	user, err := s.store.UpdateUser(r.Context(), id, input.DisplayName, input.Locale, input.Disabled, hash, input.Role, keepSessionID)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -107,6 +116,9 @@ func userUpdateAuditAction(actorID, targetID uuid.UUID, before domain.User, inpu
 		}
 		return "user.enable"
 	}
+	if input.Role != nil && *input.Role != before.Role {
+		return "user.role_update"
+	}
 	if input.Password != "" {
 		if actorID == targetID {
 			return "user.password_update"
@@ -123,6 +135,10 @@ func userUpdateAuditChanges(before, after domain.User, input userUpdateRequest) 
 	}
 	if before.Locale != after.Locale {
 		changes["locale"] = map[string]string{"from": before.Locale, "to": after.Locale}
+	}
+	if before.Role != after.Role {
+		changes["role"] = map[string]string{"from": before.Role, "to": after.Role}
+		changes["sessionsRevoked"] = true
 	}
 	if (before.DisabledAt != nil) != (after.DisabledAt != nil) {
 		changes["status"] = map[string]string{"from": userStatus(before), "to": userStatus(after)}
@@ -143,18 +159,24 @@ func userStatus(user domain.User) string {
 	return "active"
 }
 
-func validateUserUpdate(actorID, targetID uuid.UUID, disabled *bool) error {
+func validateUserUpdate(actorID, targetID uuid.UUID, disabled *bool, role *string) error {
 	if actorID == targetID && disabled != nil && *disabled {
 		return fmt.Errorf("%w: current user cannot be disabled", domain.ErrConflict)
+	}
+	if actorID == targetID && role != nil {
+		return fmt.Errorf("%w: current user cannot change their own role", domain.ErrConflict)
+	}
+	if role != nil && !domain.ValidUserRole(*role) {
+		return fmt.Errorf("%w: user role must be admin, operator, or viewer", domain.ErrInvalid)
 	}
 	return nil
 }
 
 func (s *Server) projectRoutes(r chi.Router) {
 	r.Get("/", s.listProjects)
-	r.Post("/", s.createProject)
-	r.Put("/{id}", s.updateProject)
-	r.Delete("/{id}", s.deleteProject)
+	r.With(requireOperator).Post("/", s.createProject)
+	r.With(requireOperator).Put("/{id}", s.updateProject)
+	r.With(requireOperator).Delete("/{id}", s.deleteProject)
 }
 
 type projectRequest struct {

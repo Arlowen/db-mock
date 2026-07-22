@@ -28,6 +28,7 @@ func TestUserUpdateAuditAction(t *testing.T) {
 	disabledAt := time.Now()
 	enabled := false
 	disabled := true
+	viewer := domain.RoleViewer
 	tests := []struct {
 		name   string
 		target uuid.UUID
@@ -39,6 +40,7 @@ func TestUserUpdateAuditAction(t *testing.T) {
 		{name: "enable", target: otherID, before: domain.User{DisabledAt: &disabledAt}, input: userUpdateRequest{Disabled: &enabled}, want: "user.enable"},
 		{name: "reset another password", target: otherID, input: userUpdateRequest{Password: "new-secret"}, want: "user.password_reset"},
 		{name: "change own password", target: actorID, input: userUpdateRequest{Password: "new-secret"}, want: "user.password_update"},
+		{name: "change role", target: otherID, before: domain.User{Role: domain.RoleOperator}, input: userUpdateRequest{Role: &viewer}, want: "user.role_update"},
 		{name: "ordinary update", target: otherID, input: userUpdateRequest{DisplayName: "New name"}, want: "user.update"},
 	}
 	for _, test := range tests {
@@ -67,22 +69,30 @@ func TestUserUpdateAuditChangesNeverIncludePassword(t *testing.T) {
 	}
 }
 
-func TestValidateUserUpdatePreventsSelfDisable(t *testing.T) {
+func TestValidateUserUpdatePreventsUnsafeSelfChanges(t *testing.T) {
 	actorID := uuid.New()
 	otherID := uuid.New()
 	enabled := false
 	disabled := true
+	viewer := domain.RoleViewer
+	invalidRole := "owner"
 
-	if err := validateUserUpdate(actorID, actorID, &disabled); !errors.Is(err, domain.ErrConflict) {
+	if err := validateUserUpdate(actorID, actorID, &disabled, nil); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected self-disable to conflict, got %v", err)
 	}
-	if err := validateUserUpdate(actorID, actorID, &enabled); err != nil {
+	if err := validateUserUpdate(actorID, actorID, &enabled, nil); err != nil {
 		t.Fatalf("expected self-enable to be allowed, got %v", err)
 	}
-	if err := validateUserUpdate(actorID, otherID, &disabled); err != nil {
+	if err := validateUserUpdate(actorID, otherID, &disabled, nil); err != nil {
 		t.Fatalf("expected another user to be disabled, got %v", err)
 	}
-	if err := validateUserUpdate(actorID, actorID, nil); err != nil {
+	if err := validateUserUpdate(actorID, actorID, nil, nil); err != nil {
 		t.Fatalf("expected an unchanged status to be allowed, got %v", err)
+	}
+	if err := validateUserUpdate(actorID, actorID, nil, &viewer); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected self-demotion to conflict, got %v", err)
+	}
+	if err := validateUserUpdate(actorID, otherID, nil, &invalidRole); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("expected an unknown role to be rejected, got %v", err)
 	}
 }

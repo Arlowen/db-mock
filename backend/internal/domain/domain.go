@@ -18,11 +18,22 @@ var (
 	ErrUnavailable   = errors.New("resource temporarily unavailable")
 )
 
+const (
+	RoleAdmin    = "admin"
+	RoleOperator = "operator"
+	RoleViewer   = "viewer"
+)
+
+func ValidUserRole(role string) bool {
+	return role == RoleAdmin || role == RoleOperator || role == RoleViewer
+}
+
 type User struct {
 	ID           uuid.UUID  `json:"id"`
 	Username     string     `json:"username"`
 	DisplayName  string     `json:"displayName"`
 	Locale       string     `json:"locale"`
+	Role         string     `json:"role"`
 	DisabledAt   *time.Time `json:"disabledAt,omitempty"`
 	LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`

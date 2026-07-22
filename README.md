@@ -11,6 +11,7 @@ DB Mock 是一个基于 Web 和 Docker Compose 的开源数据库实例管理平
 ## 首版能力
 
 - 单个 Go 服务同时提供 API 和内嵌的 React 中英文页面，无需单独部署前端或 Nginx。
+- 内置管理员、运维和只读三种角色；关键权限由服务端强制校验，角色变更会立即撤销旧会话。
 - SSH 密码/私钥接入远程主机，由服务端验证主机指纹、数据目录、端口池和资源，可选安装
   或升级 Linux Docker。
 - 通过 Docker Compose 创建、启停、异常自动重启、受控调整 CPU/内存/磁盘预留与环境
@@ -37,7 +38,7 @@ cp deploy/.env.example deploy/.env
 make up
 ```
 
-访问 `http://localhost:8080` 创建首个账号。生产环境、内置 HTTPS 与离线安装步骤见
+访问 `http://localhost:8080` 创建首个管理员账号。生产环境、内置 HTTPS 与离线安装步骤见
 [中文部署文档](docs/zh/deployment.md) 或 [English deployment guide](docs/en/deployment.md)。
 版本标签会发布 `ghcr.io/arlowen/db-mock` 的 `linux/amd64`、`linux/arm64` 多架构镜像，
 并在 GitHub Release 中附带两种架构的离线安装包和 SHA-256 校验文件。

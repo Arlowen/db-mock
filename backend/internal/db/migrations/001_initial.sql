@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     username text NOT NULL,
     display_name text NOT NULL DEFAULT '',
     locale text NOT NULL DEFAULT 'zh-CN',
+    role text NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin','operator','viewer')),
     password_hash text NOT NULL,
     disabled_at timestamptz,
     last_login_at timestamptz,
