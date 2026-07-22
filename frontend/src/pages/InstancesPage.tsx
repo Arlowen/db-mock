@@ -98,12 +98,13 @@ export function InstancesPage() {
     form.setFieldsValue({ cpu: profile?.cpu ?? selected.version.minCpu, memoryGiB: (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3, diskGiB: (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3, username: manifest.username, databaseName: manifest.database, templateParameters: templateParameterDefaults(selectedTemplateParameters) })
   }, [form, selected, selectedResourceProfiles, selectedTemplateParameters])
   useEffect(() => {
+    if (!selected) return
     if (selectedHostID && !compatibleHosts.some((host) => host.id === selectedHostID)) form.setFieldValue('hostId', undefined)
     const imageArtifactID = form.getFieldValue('imageArtifactId')
     if (imageArtifactID && !compatibleImages.some((item) => item.id === imageArtifactID)) form.setFieldValue('imageArtifactId', undefined)
     const registryID = form.getFieldValue('registryId')
     if (registryID && !compatibleRegistries.some((registry) => registry.id === registryID)) form.setFieldValue('registryId', undefined)
-  }, [compatibleHosts, compatibleImages, compatibleRegistries, form, selectedHostID])
+  }, [compatibleHosts, compatibleImages, compatibleRegistries, form, selected, selectedHostID])
   const activeResourceProfile = selectedResourceProfiles.find((profile) => profile.cpu === requestedCPU && profile.memoryBytes === Math.round((requestedMemoryGiB || 0) * 1024 ** 3) && profile.diskBytes === Math.round((requestedDiskGiB || 0) * 1024 ** 3))
   const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } setDrawer(true); setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields(); form.setFieldsValue({ environment: 'development', bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public' }) }
   const finishCloseCreate = () => { setDrawer(false); setParams({}); setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields() }

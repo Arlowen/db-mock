@@ -231,7 +231,7 @@ test('initializes the platform and switches the embedded interface language', as
   await discardInstanceDraftDialog.getByRole('button', { name: '继续编辑' }).click()
   await expect(createInstanceDrawer.getByLabel('名称')).toHaveValue('E2E Database')
   await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  const requestedCPU = createInstanceDrawer.getByLabel('CPU')
+  const requestedCPU = createInstanceDrawer.getByRole('spinbutton', { name: 'CPU', exact: true })
   await expect(requestedCPU).not.toHaveValue('')
   await expect(createInstanceDrawer.getByText('1 / 1 台兼容主机可承载当前资源')).toBeVisible()
   await requestedCPU.fill('100')
