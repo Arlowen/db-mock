@@ -47,8 +47,8 @@ export function InstancesPage() {
   const createRequested = params.get('create') === '1'
   const requestedTemplateID = params.get('template')
   const requestedImageID = params.get('image')
-  const requestedTemplateAvailable = !!requestedTemplateID && templates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable))
-  const requestedVersion = templates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable)
+  const requestedTemplateAvailable = !!requestedTemplateID && templates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
+  const requestedVersion = templates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
   const requestedImage = images.find((image) => image.id === requestedImageID)
   const requestedImageAvailable = !!requestedVersion && !!requestedImage && requestedImage.status === 'ready' && imageArtifactMatchesTemplate(requestedImage.imageRefs, requestedVersion) && requestedImage.architectures.some((architecture) => requestedVersion.architectures.includes(architecture))
   const createIntent = useCallback(() => {
@@ -75,7 +75,7 @@ export function InstancesPage() {
   const requestedMemoryGiB = Form.useWatch('memoryGiB', { form, preserve: true })
   const requestedDiskGiB = Form.useWatch('diskGiB', { form, preserve: true })
   const requestedHostPort = Form.useWatch('hostPort', { form, preserve: true })
-  const selected = useMemo(() => { for (const item of templates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable) return { template: item, version }; return undefined }, [templates, selectedVersionID])
+  const selected = useMemo(() => { for (const item of templates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable !== false) return { template: item, version }; return undefined }, [templates, selectedVersionID])
   const compatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && !host.maintenance && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
   const selectedHost = compatibleHosts.find((host) => host.id === selectedHostID)
   const resourceRequest = useMemo(() => ({ cpu: requestedCPU || 0, memory: Math.round((requestedMemoryGiB || 0) * 1024 ** 3), disk: Math.round((requestedDiskGiB || 0) * 1024 ** 3), port: requestedHostPort || undefined }), [requestedCPU, requestedDiskGiB, requestedHostPort, requestedMemoryGiB])
@@ -150,7 +150,7 @@ export function InstancesPage() {
     { title: t('environment'), dataIndex: 'environment', width: 125, render: (value: string) => <Tag>{translateCode(t, value)}</Tag> },
     { title: '', align: 'right' as const, fixed: 'right' as const, width: 88, render: (_: unknown, item: Instance) => { const action = canOperate ? instanceQuickAction(item.status) : undefined; const key = action ? `${item.id}:${action}` : ''; return <Space size={2}>{action && <Button type="text" loading={actioning === key} disabled={!!actioning && actioning !== key} aria-label={t(action)} title={t(action)} icon={action === 'stop' ? <PauseCircleOutlined /> : <PlayCircleOutlined />} onClick={() => void quickAction(item, action)} />}<Button type="text" aria-label={t('details')} title={t('details')} icon={<MoreOutlined />} onClick={() => navigate(`/instances/${item.id}`)} /></Space> } },
   ]
-  const versionOptions = templates.flatMap((item) => item.versions.filter((version) => version.selectable).map((version) => ({ value: version.id, searchText: `${item.name} ${item.nameZh} ${version.version} ${templateImageReferences(version).join(' ')}`, label: `${item.name} ${version.version}`, template: item, version })))
+  const versionOptions = templates.flatMap((item) => item.versions.filter((version) => version.selectable !== false).map((version) => ({ value: version.id, searchText: `${item.name} ${item.nameZh} ${version.version} ${templateImageReferences(version).join(' ')}`, label: `${item.name} ${version.version}`, template: item, version })))
   const filteredItems = useMemo(() => items.filter((item) => (!projectFilter || item.projectId === projectFilter) && (!hostFilter || item.hostId === hostFilter) && (!environmentFilter || item.environment === environmentFilter) && (!statusFilter || item.status === statusFilter) && `${item.name} ${item.templateName} ${item.hostName} ${JSON.stringify(item.labels)}`.toLowerCase().includes(search.toLowerCase())), [items, projectFilter, hostFilter, environmentFilter, statusFilter, search])
   const hasFilters = !!(search || projectFilter || hostFilter || environmentFilter || statusFilter)
   const resetPage = () => setPage(1)
@@ -449,7 +449,7 @@ export function InstanceDetailPage() {
     (runtimeAutoRestart ?? item.autoRestart) !== item.autoRestart ||
     (!!runtimeEnvironment && !sameStringMap(runtimeEnvironment, item.configuration?.extraEnvironment || {}))
   const runtimeReady = runtimeMinimumReady && runtimeCapacityReady && !!runtimeEnvironment && runtimeChanged
-  const upgradeVersions = currentTemplate?.versions.filter((version) => version.selectable && version.id !== item.templateVersionId &&
+  const upgradeVersions = currentTemplate?.versions.filter((version) => version.selectable !== false && version.id !== item.templateVersionId &&
     (!instanceHost?.architecture || version.architectures.includes(instanceHost.architecture))) ?? []
   const upgradeOptions = upgradeVersions.map((version) => ({ value: version.id, label: version.version }))
   const upgradeTarget = upgradeVersions.find((version) => version.id === upgradeVersion)

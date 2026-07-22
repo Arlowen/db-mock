@@ -38,7 +38,7 @@ export function CatalogPage() {
     {loading && <Card loading />}
     {!loading && filtered.length === 0 && <Card><EmptyState action={customEmpty ? canOperate ? showUpload : undefined : resetFilters} actionLabel={customEmpty ? canOperate ? t('uploadTemplate') : undefined : t('clearFilters')} description={t(customEmpty ? 'customCatalogEmptyDescription' : 'catalogEmptyDescription')} /></Card>}
     {!loading && filtered.length > 0 && <div className="catalog-grid">{filtered.map((item) => {
-      const version = item.versions.find((candidate) => candidate.selectable)
+      const version = item.versions.find((candidate) => candidate.selectable !== false)
       const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name
       const actions = [...(canOperate ? [<Button key="create" type="link" icon={<PlusOutlined />} disabled={!version} onClick={() => version && navigate(`/instances?create=1&template=${version.id}`)}>{t('create')}</Button>] : []), <Button key="details" type="link" onClick={() => setDetails(item)}>{t('details')}</Button>]
       if (canOperate && !item.builtin) actions.push(<Button key="delete" type="link" danger icon={<DeleteOutlined />} aria-label={t('deleteTemplateLabel', { name: displayName })} onClick={() => removeTemplate(item)}>{t('delete')}</Button>)
@@ -65,8 +65,8 @@ export function CatalogPage() {
 function TemplateDetailsModal({ template, canCreate, onClose, onCreate }: { template: DatabaseTemplate | null; canCreate: boolean; onClose: () => void; onCreate: (versionID: string) => void }) {
   const { t, i18n } = useTranslation()
   const [selectedVersionID, setSelectedVersionID] = useState<string>()
-  const selectableVersions = template?.versions.filter((item) => item.selectable) ?? []
-  useEffect(() => setSelectedVersionID(template?.versions.find((item) => item.selectable)?.id), [template])
+  const selectableVersions = template?.versions.filter((item) => item.selectable !== false) ?? []
+  useEffect(() => setSelectedVersionID(template?.versions.find((item) => item.selectable !== false)?.id), [template])
   const version = selectableVersions.find((item) => item.id === selectedVersionID) ?? selectableVersions[0]
   const riskReport = version?.riskReport ?? template?.riskReport ?? []
   const displayName = template ? i18n.language === 'zh-CN' ? template.nameZh || template.name : template.name : ''
