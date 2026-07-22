@@ -76,6 +76,7 @@ func main() {
 	hostService := hostops.NewService(target, docker, taskManager)
 	instanceService := instances.NewService(target, vault, docker, taskManager)
 	imageService := images.New(target, cfg.ArtifactDirectory, cfg.MaxUploadBytes)
+	imageService.StartUploadCleanup(root, logger)
 	if err := taskManager.Start(root); err != nil {
 		logger.Error("start task workers", "error", err)
 		os.Exit(1)

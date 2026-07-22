@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +21,16 @@ import (
 	"github.com/pika/db-mock/internal/store"
 )
 
+const (
+	incompleteUploadRetention = 7 * 24 * time.Hour
+	uploadCleanupInterval     = time.Hour
+)
+
 type Service struct {
 	store         *store.Store
 	directory     string
 	maxBytes      int64
+	uploadGate    sync.RWMutex
 	locks         sync.Map
 	artifactLocks [64]sync.Mutex
 }
@@ -72,6 +80,8 @@ func resolveUploadPolicy(values map[string]json.RawMessage, maxAllowedBytes int6
 }
 
 func (s *Service) WriteChunk(ctx context.Context, userID, id uuid.UUID, offset int64, source io.Reader, length int64) (domain.Upload, error) {
+	s.uploadGate.RLock()
+	defer s.uploadGate.RUnlock()
 	lock := s.lock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -114,6 +124,8 @@ func (s *Service) WriteChunk(ctx context.Context, userID, id uuid.UUID, offset i
 }
 
 func (s *Service) Complete(ctx context.Context, userID, id uuid.UUID, name string) (domain.ImageArtifact, error) {
+	s.uploadGate.RLock()
+	defer s.uploadGate.RUnlock()
 	lock := s.lock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -178,6 +190,8 @@ func (s *Service) Complete(ctx context.Context, userID, id uuid.UUID, name strin
 }
 
 func (s *Service) Cancel(ctx context.Context, userID, id uuid.UUID) error {
+	s.uploadGate.RLock()
+	defer s.uploadGate.RUnlock()
 	lock := s.lock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -249,4 +263,77 @@ func (s *Service) restoreArtifact(id uuid.UUID) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = s.store.RestoreImageArtifact(ctx, id)
+}
+
+// CleanupExpiredUploads removes upload sessions and temporary files that have
+// not been active since before the supplied cutoff. The exclusive gate keeps a
+// cleanup pass from racing an in-process chunk write, completion, or cancel.
+func (s *Service) CleanupExpiredUploads(ctx context.Context, before time.Time) (int, error) {
+	s.uploadGate.Lock()
+	defer s.uploadGate.Unlock()
+	paths, err := s.store.DeleteExpiredUploads(ctx, before)
+	if err != nil {
+		return 0, err
+	}
+	var cleanupErrors []error
+	for _, path := range paths {
+		if err = s.removeUploadTemporaryFile(path); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+		}
+	}
+	return len(paths), errors.Join(cleanupErrors...)
+}
+
+func (s *Service) removeUploadTemporaryFile(path string) error {
+	uploadDirectory, err := filepath.Abs(filepath.Join(s.directory, "uploads"))
+	if err != nil {
+		return fmt.Errorf("resolve managed upload directory: %w", err)
+	}
+	target, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve upload temporary file: %w", err)
+	}
+	base := filepath.Base(target)
+	if filepath.Dir(target) != uploadDirectory || !strings.HasSuffix(base, ".part") {
+		return errors.New("refusing to remove a file outside the managed upload directory")
+	}
+	if _, err = uuid.Parse(strings.TrimSuffix(base, ".part")); err != nil {
+		return errors.New("refusing to remove an invalid managed upload filename")
+	}
+	if err = os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove expired upload temporary file: %w", err)
+	}
+	return nil
+}
+
+// StartUploadCleanup performs an initial sweep and then repeats it hourly for
+// the lifetime of ctx. Completed upload records are also pruned because their
+// temporary files have already been promoted to the image store.
+func (s *Service) StartUploadCleanup(ctx context.Context, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	go func() {
+		run := func(now time.Time) {
+			count, err := s.CleanupExpiredUploads(ctx, now.Add(-incompleteUploadRetention))
+			if err != nil {
+				logger.Warn("clean expired image uploads", "error", err)
+				return
+			}
+			if count > 0 {
+				logger.Info("cleaned expired image uploads", "count", count)
+			}
+		}
+		run(time.Now().UTC())
+		ticker := time.NewTicker(uploadCleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				run(now.UTC())
+			}
+		}
+	}()
 }

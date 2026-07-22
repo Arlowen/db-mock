@@ -32,8 +32,11 @@ func (s *Store) GetUpload(ctx context.Context, id uuid.UUID) (domain.Upload, err
 }
 
 func (s *Store) UpdateUploadProgress(ctx context.Context, id uuid.UUID, received int64, status string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE uploads SET received_bytes=$2,status=$3,updated_at=now() WHERE id=$1`,
+	result, err := s.pool.Exec(ctx, `UPDATE uploads SET received_bytes=$2,status=$3,updated_at=now() WHERE id=$1`,
 		id, received, status)
+	if err == nil && result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	return err
 }
 
@@ -201,7 +204,8 @@ func (s *Store) RestoreImageArtifact(ctx context.Context, id uuid.UUID) error {
 }
 
 func (s *Store) DeleteExpiredUploads(ctx context.Context, before time.Time) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `DELETE FROM uploads WHERE updated_at<$1 AND status<>'complete' RETURNING temporary_path`, before)
+	rows, err := s.pool.Query(ctx, `DELETE FROM uploads WHERE updated_at<$1
+		AND status IN ('uploading','complete') RETURNING temporary_path`, before)
 	if err != nil {
 		return nil, err
 	}
