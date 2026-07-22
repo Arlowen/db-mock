@@ -22,6 +22,8 @@ describe('internationalization coverage', () => {
 
   it('keeps Chinese and English translation keys in sync', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+    expect(zh.displayName).toBe('昵称')
+    expect(en.displayName).toBe('Nickname')
   })
 
   it('keeps the English interface free of Chinese fallback text', () => {

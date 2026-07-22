@@ -581,7 +581,7 @@ export function ImagesPage() {
         <p className="ant-upload-hint">{t('imageArchiveFormats')}</p>
       </Upload.Dragger>
       <Form form={uploadForm} layout="vertical" requiredMark={false} className="image-upload-form" onValuesChange={() => setUploadDraftDirty(true)}>
-        <Form.Item name="name" label={t('displayName')} rules={[{ required: true, whitespace: true }]}><Input placeholder={t('imageDisplayNamePlaceholder')} disabled={uploading} /></Form.Item>
+        <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input placeholder={t('imageDisplayNamePlaceholder')} disabled={uploading} /></Form.Item>
         <Form.Item name="expectedSha256" label={`${t('expectedChecksum')} (${t('optional')})`} extra={t('checksumHint')} rules={[{ pattern: /^[a-fA-F0-9]{64}$/, message: t('invalidChecksum') }]}><Input className="checksum-input" placeholder={t('checksumPlaceholder')} disabled={uploading} /></Form.Item>
       </Form>
       <Alert type="info" showIcon message={t('resumableUpload')} description={<Space direction="vertical" size={2}><span>{t('resumableUploadHint')}</span><span>{t('imageUploadPolicyHint', { max: bytes(uploadSettings.maxBytes), chunk: bytes(uploadSettings.chunkBytes) })}</span></Space>} />

@@ -12,9 +12,9 @@ export function AuthPage({ setup }: { setup: boolean }) {
   const [form] = Form.useForm()
   const targetLocale = oppositeLocale(i18n.language)
   const switchLanguage = async () => { await applyLocale(targetLocale) }
-  const submit = async (values: { username: string; password: string; displayName?: string }) => {
+  const submit = async (values: { username: string; password: string }) => {
     try {
-      if (setup) await initialize({ username: values.username, password: values.password, displayName: values.displayName || values.username, locale: i18n.language })
+      if (setup) await initialize({ username: values.username, password: values.password, displayName: values.username, locale: i18n.language })
       else await login(values.username, values.password)
     } catch (error) { message.error(errorMessage(error)) }
   }
@@ -26,7 +26,6 @@ export function AuthPage({ setup }: { setup: boolean }) {
         {!setup && sessionExpired && <Alert type="warning" showIcon message={t('sessionExpiredTitle')} description={t('sessionExpiredHint')} />}
         <Form form={form} layout="vertical" onFinish={submit} requiredMark={false}>
           <Form.Item label={t('username')} name="username" rules={[{ required: true }]}><Input size="large" autoFocus /></Form.Item>
-          {setup && <Form.Item label={t('displayName')} name="displayName"><Input size="large" /></Form.Item>}
           <Form.Item label={t('password')} name="password" rules={[{ required: true }]}><Input.Password size="large" /></Form.Item>
           <Button htmlType="submit" type="primary" size="large" block>{setup ? t('initialize') : t('login')}</Button>
         </Form>
