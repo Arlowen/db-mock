@@ -143,21 +143,7 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active platfo
 			_ = m.store.ResolveAlerts(ctx, "host", host.ID, "disk_critical")
 		}
 	}
-	aggregated := make(map[uuid.UUID]domain.MetricSample)
-	for _, metric := range metrics {
-		id, parseErr := uuid.Parse(metric.InstanceID)
-		if parseErr != nil {
-			continue
-		}
-		item := aggregated[id]
-		item.HostID = host.ID
-		item.InstanceID = &id
-		item.CPUPercent += metric.CPUPercent
-		item.MemoryBytes += metric.MemoryBytes
-		item.MemoryPercent += metric.MemoryPercent
-		item.CollectedAt = now
-		aggregated[id] = item
-	}
+	aggregated := aggregateInstanceMetrics(host.ID, metrics, diskUsed, diskTotal, now)
 	for _, metric := range aggregated {
 		_ = m.store.AddMetric(ctx, metric)
 	}
@@ -172,6 +158,27 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active platfo
 	for _, instance := range instances {
 		m.reconcileInstance(ctx, active, host, instance, states[instance.ID.String()])
 	}
+}
+
+func aggregateInstanceMetrics(hostID uuid.UUID, metrics []hostops.ContainerMetric, diskUsed, diskTotal int64, collectedAt time.Time) map[uuid.UUID]domain.MetricSample {
+	result := make(map[uuid.UUID]domain.MetricSample)
+	for _, metric := range metrics {
+		id, err := uuid.Parse(metric.InstanceID)
+		if err != nil {
+			continue
+		}
+		item := result[id]
+		item.HostID = hostID
+		item.InstanceID = &id
+		item.CPUPercent += metric.CPUPercent
+		item.MemoryBytes += metric.MemoryBytes
+		item.MemoryPercent += metric.MemoryPercent
+		item.DiskUsedBytes = diskUsed
+		item.DiskTotalBytes = diskTotal
+		item.CollectedAt = collectedAt
+		result[id] = item
+	}
+	return result
 }
 
 func diskAlertType(active platformsettings.MonitoringPolicy, usagePercent float64) string {

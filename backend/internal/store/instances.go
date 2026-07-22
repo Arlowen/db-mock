@@ -393,9 +393,22 @@ func (s *Store) ListInstanceMetrics(ctx context.Context, instanceID uuid.UUID, s
 	if limit <= 0 || limit > 5000 {
 		limit = 1000
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id,host_id,instance_id,cpu_percent,memory_bytes,memory_percent,
-        disk_used_bytes,disk_total_bytes,collected_at FROM metric_samples WHERE instance_id=$1 AND collected_at>=$2
-        ORDER BY collected_at ASC LIMIT $3`, instanceID, since, limit)
+	rows, err := s.pool.Query(ctx, `WITH ordered AS (
+        SELECT id,host_id,instance_id,cpu_percent,memory_bytes,memory_percent,disk_used_bytes,disk_total_bytes,
+            collected_at,row_number() OVER (ORDER BY collected_at,id) AS sample_number,count(*) OVER () AS sample_count
+        FROM metric_samples WHERE instance_id=$1 AND collected_at>=$2
+    ), bucketed AS (
+        SELECT *,CASE WHEN sample_count<=$3 THEN sample_number
+            ELSE 1+((sample_number-1)*($3-1)/NULLIF(sample_count-1,0)) END AS sample_bucket
+        FROM ordered
+    ), sampled AS (
+        SELECT *,row_number() OVER (PARTITION BY sample_bucket ORDER BY
+            CASE WHEN sample_bucket=$3 THEN collected_at END DESC,
+            CASE WHEN sample_bucket<>$3 THEN collected_at END ASC,id ASC) AS bucket_rank
+        FROM bucketed
+    )
+    SELECT id,host_id,instance_id,cpu_percent,memory_bytes,memory_percent,disk_used_bytes,disk_total_bytes,collected_at
+    FROM sampled WHERE bucket_rank=1 ORDER BY collected_at ASC`, instanceID, since, limit)
 	if err != nil {
 		return nil, err
 	}

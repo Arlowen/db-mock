@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/hostops"
 	platformsettings "github.com/pika/db-mock/internal/settings"
 )
@@ -30,6 +32,31 @@ func TestDiskAlertTypeHonorsThresholdsAndSwitches(t *testing.T) {
 	active.Alerts.DiskWarning = false
 	if got := diskAlertType(active, 95); got != "" {
 		t.Fatalf("disabled disk alerts should suppress alert, got %q", got)
+	}
+}
+
+func TestAggregateInstanceMetricsIncludesBackingFilesystemUsage(t *testing.T) {
+	hostID := uuid.New()
+	instanceID := uuid.New()
+	collectedAt := time.Date(2026, 7, 22, 12, 30, 0, 0, time.UTC)
+	result := aggregateInstanceMetrics(hostID, []hostops.ContainerMetric{
+		{InstanceID: instanceID.String(), CPUPercent: 4.5, MemoryBytes: 1024, MemoryPercent: 2.5},
+		{InstanceID: instanceID.String(), CPUPercent: 5.5, MemoryBytes: 2048, MemoryPercent: 3.5},
+		{InstanceID: "not-an-instance-id", CPUPercent: 100},
+	}, 30*1024, 100*1024, collectedAt)
+
+	if len(result) != 1 {
+		t.Fatalf("aggregated metrics = %#v", result)
+	}
+	metric := result[instanceID]
+	if metric.HostID != hostID || metric.InstanceID == nil || *metric.InstanceID != instanceID {
+		t.Fatalf("metric identity = %#v", metric)
+	}
+	if metric.CPUPercent != 10 || metric.MemoryBytes != 3072 || metric.MemoryPercent != 6 {
+		t.Fatalf("container totals = %#v", metric)
+	}
+	if metric.DiskUsedBytes != 30*1024 || metric.DiskTotalBytes != 100*1024 || !metric.CollectedAt.Equal(collectedAt) {
+		t.Fatalf("backing filesystem metric = %#v", metric)
 	}
 }
 
