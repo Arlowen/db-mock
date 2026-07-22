@@ -191,12 +191,22 @@ func (s *Store) ClaimTask(ctx context.Context) (domain.Task, error) {
 	defer tx.Rollback(ctx)
 	var item domain.Task
 	err = tx.QueryRow(ctx, `SELECT `+taskColumns+` FROM tasks WHERE status='queued'
-        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(taskScan(&item)...)
+		AND (host_id IS NULL OR NOT EXISTS (
+			SELECT 1 FROM tasks AS running WHERE running.host_id=tasks.host_id AND running.status='running'
+		))
+		ORDER BY created_at FOR UPDATE OF tasks SKIP LOCKED LIMIT 1`).Scan(taskScan(&item)...)
 	if err != nil {
 		return domain.Task{}, translate(err)
 	}
 	// Serialize destructive tasks per host while still allowing parallel work on different hosts.
 	if item.HostID != nil {
+		// Lock the durable host row before rechecking active work. Without this lock,
+		// concurrent claim transactions can both observe no running task and start two
+		// destructive operations on the same host.
+		var lockedHostID uuid.UUID
+		if err := tx.QueryRow(ctx, "SELECT id FROM hosts WHERE id=$1 FOR NO KEY UPDATE", item.HostID).Scan(&lockedHostID); err != nil {
+			return domain.Task{}, translate(err)
+		}
 		var running bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE host_id=$1 AND status='running' AND id<>$2)`,
 			item.HostID, item.ID).Scan(&running); err != nil {
