@@ -860,7 +860,13 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 	}
 	defer func() {
 		if err != nil {
-			_ = s.store.UpdateInstanceState(context.Background(), instance.ID, "failed", "", err.Error())
+			message := err.Error()
+			if errors.Is(err, tasks.ErrCanceled) {
+				message = "Instance creation was canceled before the database was started"
+			}
+			recoveryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", "", message)
 		}
 	}()
 	if err = runtime.Stage(ctx, 5, "preflight", "Checking host and template", true); err != nil {
@@ -1087,7 +1093,12 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 		}
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		_ = runtime.Log(recoveryCtx, "warning", "Runtime configuration failed; restoring the previous Compose project")
+		canceled := errors.Is(err, tasks.ErrCanceled)
+		if canceled {
+			_ = runtime.Log(recoveryCtx, "info", "Runtime configuration change was canceled before it was applied")
+		} else {
+			_ = runtime.Log(recoveryCtx, "warning", "Runtime configuration failed; restoring the previous Compose project")
+		}
 		recoveryErrors := make([]string, 0, 3)
 		if projectTouched {
 			compose, environment, files, renderErr := s.renderRuntimeProject(previousInstance, template, version, previous.Configuration)
@@ -1104,6 +1115,9 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 			}
 		}
 		message := "Runtime configuration failed; previous configuration was restored"
+		if canceled {
+			message = "Runtime configuration change was canceled before it was applied"
+		}
 		status := stable.Status
 		if len(recoveryErrors) > 0 {
 			status = "failed"
@@ -1173,9 +1187,13 @@ func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task
 		if err == nil {
 			return
 		}
-		failure := instanceActionFailureState(action, previousStatus, previousDesired)
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if errors.Is(err, tasks.ErrCanceled) {
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, previousStatus, previousDesired, "")
+			return
+		}
+		failure := instanceActionFailureState(action, previousStatus, previousDesired)
 		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, failure.Status, failure.Desired, failure.Message)
 	}()
 	if err = s.store.UpdateInstanceState(ctx, instance.ID, instanceOperationStatus(action), previousDesired, ""); err != nil {
@@ -1230,9 +1248,13 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 		if err == nil {
 			return
 		}
-		failure := instanceActionFailureState("delete", previousStatus, previousDesired)
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if errors.Is(err, tasks.ErrCanceled) {
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, previousStatus, previousDesired, "")
+			return
+		}
+		failure := instanceActionFailureState("delete", previousStatus, previousDesired)
 		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, failure.Status, failure.Desired, failure.Message)
 	}()
 	if err = s.store.UpdateInstanceState(ctx, instance.ID, instanceOperationStatus("delete"), previousDesired, ""); err != nil {
@@ -1272,6 +1294,13 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if reuseRollbackSnapshot && instance.Status != "failed" && instance.TemplateVersionID == *payload.NewTemplateVersionID {
 		stable := upgradeStableState(previousStatus, previousDesired)
 		if err = runtime.Stage(ctx, 95, "finalize", "Finalizing an upgrade that was already applied before interruption", false); err != nil {
+			if errors.Is(err, tasks.ErrCanceled) {
+				recoveryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "")
+				_ = s.store.ResolveAlerts(recoveryCtx, "instance", instance.ID, "upgrade_failed")
+				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance, operationID)
+			}
 			return nil, err
 		}
 		if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
@@ -1287,6 +1316,13 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	operationStarted, templateUpdated := false, false
 	defer func() {
 		if err != nil {
+			if errors.Is(err, tasks.ErrCanceled) && !operationStarted {
+				recoveryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				stable := upgradeStableState(previousStatus, previousDesired)
+				_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "")
+				return
+			}
 			s.recoverUpgradeFailure(runtime, task, operationID, instance, host, oldVersion, previousStatus, previousDesired,
 				snapshot, targetVersion, operationStarted, templateUpdated)
 		}
@@ -1596,8 +1632,13 @@ func (s *Service) handleBackupCreate(ctx context.Context, runtime *tasks.Runtime
 		}
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
+		canceled := errors.Is(err, tasks.ErrCanceled)
 		if !backupReady {
-			_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, "failed", backupFailureMessage(err))
+			message := backupFailureMessage(err)
+			if canceled {
+				message = "Backup creation was canceled before the archive was created"
+			}
+			_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, "failed", message)
 		}
 		recovered := true
 		if operationStarted && stable.Status == "running" {
@@ -1606,7 +1647,11 @@ func (s *Service) handleBackupCreate(ctx context.Context, runtime *tasks.Runtime
 			}
 		}
 		if recovered {
-			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "Backup failed; original runtime state was restored")
+			message := "Backup failed; original runtime state was restored"
+			if canceled {
+				message = ""
+			}
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, message)
 		} else {
 			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, "Backup failed and the original runtime state could not be restored")
 		}
@@ -1726,6 +1771,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 		}
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
+		canceled := errors.Is(err, tasks.ErrCanceled)
 		if backupUsable {
 			_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, "ready", "")
 		} else {
@@ -1748,7 +1794,11 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 			}
 		}
 		if recovered {
-			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "Restore failed; the pre-restore database state was recovered")
+			message := "Restore failed; the pre-restore database state was recovered"
+			if canceled {
+				message = ""
+			}
+			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, message)
 			if snapshotReady {
 				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance, operationID)
 			}
@@ -1854,7 +1904,11 @@ func (s *Service) handleBackupDelete(ctx context.Context, runtime *tasks.Runtime
 		}
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, previousStatus, backupFailureMessage(err))
+		message := backupFailureMessage(err)
+		if errors.Is(err, tasks.ErrCanceled) {
+			message = ""
+		}
+		_ = s.store.SetInstanceBackupStatus(recoveryCtx, backup.ID, previousStatus, message)
 	}()
 	if err = s.store.SetInstanceBackupStatus(ctx, backup.ID, "deleting", ""); err != nil {
 		return nil, err

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isRecoverableInstanceStatus, selectRecoveryTasks } from './task-state'
+import { isRecoverableInstanceStatus, isTaskCancellationPending, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -50,6 +50,20 @@ describe('instance task recovery', () => {
   it('does not offer recovery for stable instance states', () => {
     for (const status of ['running', 'stopped', 'deleted']) {
       expect(isRecoverableInstanceStatus(status)).toBe(false)
+    }
+  })
+})
+
+describe('task cancellation state', () => {
+  it('shows a pending request only while the task is active', () => {
+    const running = task('running', 'running', '2026-07-19T00:02:00Z')
+    running.cancelAsked = true
+    expect(isTaskCancellationPending(running)).toBe(true)
+
+    for (const status of ['canceled', 'failed', 'succeeded', 'interrupted']) {
+      const finished = task(status, status, '2026-07-19T00:02:00Z')
+      finished.cancelAsked = true
+      expect(isTaskCancellationPending(finished)).toBe(false)
     }
   })
 })

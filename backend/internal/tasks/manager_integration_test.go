@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/url"
@@ -134,5 +135,171 @@ func TestRunPreservesExplicitTaskCancellation(t *testing.T) {
 	if finished.Status != "canceled" || finished.ErrorCode != "canceled" ||
 		finished.FinishedAt == nil || finished.Cancelable {
 		t.Fatalf("explicitly canceled task = %#v", finished)
+	}
+}
+
+func TestStageHonorsCancellationBeforeTheFirstNonCancelableStage(t *testing.T) {
+	ctx, pool := openManagerTest(t)
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'queued-cancel-worker','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	queued, err := target.CreateTask(ctx, store.TaskInput{Kind: "queued.cancel.test", ResourceType: "test",
+		RequestedBy: userID, Payload: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = target.RequestTaskCancel(ctx, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := target.ClaimTask(ctx)
+	if err != nil || claimed.ID != queued.ID {
+		t.Fatalf("claimed task = %#v, err=%v", claimed, err)
+	}
+
+	runtime := &Runtime{store: target, taskID: claimed}
+	if err = runtime.Stage(ctx, 20, "compose", "Starting destructive work", false); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("first non-cancelable stage error = %v, want %v", err, ErrCanceled)
+	}
+	stored, err := target.GetTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Stage != "starting" || stored.Progress != 1 || !stored.CancelAsked {
+		t.Fatalf("canceled task advanced past its first safe checkpoint: %#v", stored)
+	}
+}
+
+func TestStageRejectsCancellationAfterEnteringANonCancelableStage(t *testing.T) {
+	ctx, pool := openManagerTest(t)
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'late-cancel-worker','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	queued, err := target.CreateTask(ctx, store.TaskInput{Kind: "late.cancel.test", ResourceType: "test",
+		RequestedBy: userID, Payload: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := target.ClaimTask(ctx)
+	if err != nil || claimed.ID != queued.ID {
+		t.Fatalf("claimed task = %#v, err=%v", claimed, err)
+	}
+	runtime := &Runtime{store: target, taskID: claimed}
+	if err = runtime.Stage(ctx, 10, "prepare", "Preparing work", true); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtime.Stage(ctx, 50, "compose", "Applying irreversible work", false); err != nil {
+		t.Fatal(err)
+	}
+	if err = target.RequestTaskCancel(ctx, claimed.ID); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("cancellation after a non-cancelable stage = %v, want %v", err, domain.ErrConflict)
+	}
+	stored, err := target.GetTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Stage != "compose" || stored.Progress != 50 || stored.Cancelable || stored.CancelAsked {
+		t.Fatalf("non-cancelable stage was not persisted: %#v", stored)
+	}
+}
+
+func TestRunStopsAQueuedCancellationBeforeNonCancelableWork(t *testing.T) {
+	ctx, pool := openManagerTest(t)
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'queued-handler-worker','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	queued, err := target.CreateTask(ctx, store.TaskInput{Kind: "queued.handler.test", ResourceType: "test",
+		RequestedBy: userID, Payload: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = target.RequestTaskCancel(ctx, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := target.ClaimTask(ctx)
+	if err != nil || claimed.ID != queued.ID {
+		t.Fatalf("claimed task = %#v, err=%v", claimed, err)
+	}
+
+	manager := New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
+	workStarted := false
+	manager.Register("queued.handler.test", func(handlerContext context.Context, runtime *Runtime, _ domain.Task) (any, error) {
+		if stageErr := runtime.Stage(handlerContext, 10, "compose", "Applying non-cancelable work", false); stageErr != nil {
+			return nil, stageErr
+		}
+		workStarted = true
+		return nil, nil
+	})
+	manager.run(ctx, claimed)
+	if workStarted {
+		t.Fatal("non-cancelable work started after the task was canceled in the queue")
+	}
+	finished, err := target.GetTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "canceled" || finished.ErrorCode != "canceled" || finished.FinishedAt == nil {
+		t.Fatalf("queued cancellation result = %#v", finished)
+	}
+}
+
+func TestStageAndCancellationAtomicallyChooseOneWinner(t *testing.T) {
+	ctx, pool := openManagerTest(t)
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'cancel-race-worker','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	for iteration := range 40 {
+		queued, err := target.CreateTask(ctx, store.TaskInput{Kind: "cancel.race.test", ResourceType: "test",
+			RequestedBy: userID, Payload: map[string]any{"iteration": iteration}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claimed, err := target.ClaimTask(ctx)
+		if err != nil || claimed.ID != queued.ID {
+			t.Fatalf("iteration %d claimed task = %#v, err=%v", iteration, claimed, err)
+		}
+		runtime := &Runtime{store: target, taskID: claimed}
+		if err = runtime.Stage(ctx, 10, "prepare", "Preparing work", true); err != nil {
+			t.Fatal(err)
+		}
+
+		start := make(chan struct{})
+		stageResult, cancelResult := make(chan error, 1), make(chan error, 1)
+		go func() {
+			<-start
+			stageResult <- runtime.Stage(ctx, 50, "compose", "Applying irreversible work", false)
+		}()
+		go func() {
+			<-start
+			cancelResult <- target.RequestTaskCancel(ctx, claimed.ID)
+		}()
+		close(start)
+		stageErr, cancelErr := <-stageResult, <-cancelResult
+		stored, getErr := target.GetTask(ctx, claimed.ID)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		switch {
+		case stageErr == nil && errors.Is(cancelErr, domain.ErrConflict):
+			if stored.Stage != "compose" || stored.Cancelable || stored.CancelAsked {
+				t.Fatalf("iteration %d stage won with invalid task: %#v", iteration, stored)
+			}
+		case errors.Is(stageErr, ErrCanceled) && cancelErr == nil:
+			if stored.Stage != "prepare" || !stored.Cancelable || !stored.CancelAsked {
+				t.Fatalf("iteration %d cancellation won with invalid task: %#v", iteration, stored)
+			}
+		default:
+			t.Fatalf("iteration %d produced stage error %v and cancellation error %v", iteration, stageErr, cancelErr)
+		}
+		if err = target.FinishTask(ctx, claimed.ID, "canceled", nil, "canceled", "task canceled"); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

@@ -234,6 +234,25 @@ func (s *Store) UpdateTask(ctx context.Context, id uuid.UUID, progress int, stag
 	return err
 }
 
+func (s *Store) AdvanceTaskStage(ctx context.Context, id uuid.UUID, progress int, stage, message string, cancelable bool) (bool, error) {
+	result, err := s.pool.Exec(ctx, `UPDATE tasks SET progress=$2,stage=$3,message=$4,cancelable=$5,
+        updated_at=now() WHERE id=$1 AND status='running' AND cancel_asked=false`, id, progress, stage, message, cancelable)
+	if err != nil {
+		return false, err
+	}
+	if result.RowsAffected() > 0 {
+		return false, nil
+	}
+	task, err := s.GetTask(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if task.Status == "running" && task.CancelAsked {
+		return true, nil
+	}
+	return false, domain.ErrConflict
+}
+
 func (s *Store) FinishTask(ctx context.Context, id uuid.UUID, status string, result any, errorCode, errorMessage string) error {
 	encoded, err := json.Marshal(result)
 	if err != nil {

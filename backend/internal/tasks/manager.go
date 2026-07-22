@@ -151,15 +151,15 @@ func (m *Manager) enqueueWebhook(ctx context.Context, original domain.Task, stat
 var ErrCanceled = errors.New("task canceled")
 
 func (r *Runtime) Stage(ctx context.Context, progress int, stage, message string, cancelable bool) error {
-	task, err := r.store.GetTask(ctx, r.taskID.ID)
+	// Advancing the stage and closing its cancellation window must be one row
+	// update. If a cancellation wins that race, stop before the next external
+	// side effect; if this update wins, a later cancellation is rejected.
+	cancelRequested, err := r.store.AdvanceTaskStage(ctx, r.taskID.ID, progress, stage, message, cancelable)
 	if err != nil {
 		return err
 	}
-	if task.CancelAsked && cancelable {
+	if cancelRequested {
 		return ErrCanceled
-	}
-	if err := r.store.UpdateTask(ctx, r.taskID.ID, progress, stage, message, cancelable); err != nil {
-		return err
 	}
 	return r.Log(ctx, "info", message)
 }

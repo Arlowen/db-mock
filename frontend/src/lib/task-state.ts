@@ -1,11 +1,16 @@
 import type { Task } from './types'
 
 const activeStatuses = new Set(['queued', 'running', 'retrying'])
+const cancellationPendingStatuses = new Set(['queued', 'running'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
 const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'reconfiguring', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded'])
 
 export function isRecoverableInstanceStatus(status: string) {
   return recoverableInstanceStatuses.has(status)
+}
+
+export function isTaskCancellationPending(task: Task) {
+  return task.cancelAsked && cancellationPendingStatuses.has(task.status)
 }
 
 export function selectRecoveryTasks(tasks: Task[], recoverable: boolean) {
