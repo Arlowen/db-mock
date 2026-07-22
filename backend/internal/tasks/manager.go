@@ -16,6 +16,11 @@ import (
 
 type Handler func(context.Context, *Runtime, domain.Task) (any, error)
 
+const (
+	taskFinalizationTimeout       = 15 * time.Second
+	applicationStoppedTaskMessage = "The control service stopped while the task was running"
+)
+
 type Manager struct {
 	store    *store.Store
 	logger   *slog.Logger
@@ -81,41 +86,66 @@ func (m *Manager) worker(ctx context.Context, index int) {
 }
 
 func (m *Manager) run(parent context.Context, task domain.Task) {
+	runtime := &Runtime{store: m.store, taskID: task}
 	handler, ok := m.handlers[task.Kind]
 	if !ok {
-		_ = m.store.FinishTask(parent, task.ID, "failed", nil, "unknown_task_kind", "No task handler is registered")
-		m.enqueueWebhook(parent, task, "failed")
+		message := "No task handler is registered"
+		m.finish(parent, runtime, task, "failed", nil, "unknown_task_kind", message, "error", message)
 		return
 	}
-	runtime := &Runtime{store: m.store, taskID: task}
 	_ = runtime.Log(parent, "info", "Task started")
 	result, err := handler(parent, runtime, task)
 	if err != nil {
 		status := "failed"
 		code := "task_failed"
-		if errors.Is(err, context.Canceled) || errors.Is(err, ErrCanceled) {
+		message := redact(err.Error())
+		switch {
+		case errors.Is(err, ErrCanceled):
 			status = "canceled"
 			code = "canceled"
+		case errors.Is(err, context.Canceled) && parent.Err() != nil:
+			status = "interrupted"
+			code = "application_stopped"
+			message = applicationStoppedTaskMessage
 		}
-		_ = runtime.Log(parent, "error", redact(err.Error()))
-		_ = m.store.FinishTask(parent, task.ID, status, nil, code, redact(err.Error()))
-		m.enqueueWebhook(parent, task, status)
-		m.logger.Warn("task failed", "taskId", task.ID, "kind", task.Kind, "error", redact(err.Error()))
+		m.finish(parent, runtime, task, status, nil, code, message, "error", message)
+		m.logger.Warn("task finished with error", "taskId", task.ID, "kind", task.Kind, "status", status, "error", redact(err.Error()))
 		return
 	}
-	_ = runtime.Log(parent, "info", "Task completed")
-	_ = m.store.FinishTask(parent, task.ID, "succeeded", result, "", "")
-	m.enqueueWebhook(parent, task, "succeeded")
-	m.Wake()
+	if m.finish(parent, runtime, task, "succeeded", result, "", "", "info", "Task completed") {
+		m.Wake()
+	}
 }
 
-func (m *Manager) enqueueWebhook(ctx context.Context, original domain.Task, status string) {
+func (m *Manager) finish(parent context.Context, runtime *Runtime, task domain.Task, status string, result any,
+	errorCode, errorMessage, logLevel, logMessage string,
+) bool {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), taskFinalizationTimeout)
+	defer cancel()
+	if logMessage != "" {
+		if err := runtime.Log(ctx, logLevel, logMessage); err != nil {
+			m.logger.Error("write final task log", "taskId", task.ID, "kind", task.Kind, "status", status, "error", err)
+		}
+	}
+	if err := m.store.FinishTask(ctx, task.ID, status, result, errorCode, errorMessage); err != nil {
+		m.logger.Error("finish task", "taskId", task.ID, "kind", task.Kind, "status", status, "error", err)
+		return false
+	}
+	if err := m.enqueueWebhook(ctx, task, status); err != nil {
+		m.logger.Warn("enqueue task webhook", "taskId", task.ID, "kind", task.Kind, "status", status, "error", err)
+	}
+	return true
+}
+
+func (m *Manager) enqueueWebhook(ctx context.Context, original domain.Task, status string) error {
 	task, err := m.store.GetTask(ctx, original.ID)
 	if err != nil {
-		return
+		return err
 	}
-	_ = m.store.EnqueueWebhookEvent(ctx, "task.finished", task)
-	_ = m.store.EnqueueWebhookEvent(ctx, "task."+status, task)
+	return errors.Join(
+		m.store.EnqueueWebhookEvent(ctx, "task.finished", task),
+		m.store.EnqueueWebhookEvent(ctx, "task."+status, task),
+	)
 }
 
 var ErrCanceled = errors.New("task canceled")

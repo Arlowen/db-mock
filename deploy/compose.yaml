@@ -24,6 +24,7 @@ services:
       args:
         VERSION: ${DBMOCK_VERSION:-dev}
     restart: unless-stopped
+    stop_grace_period: 4m
     depends_on:
       postgres:
         condition: service_healthy

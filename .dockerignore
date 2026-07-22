@@ -8,5 +8,6 @@ backups
 frontend/node_modules
 frontend/test-results
 frontend/playwright-report
+backend/dbmock
 *.tar.gz
 *.tar.gz.enc

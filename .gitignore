@@ -12,6 +12,7 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 db-mock
+/backend/dbmock
 *.tar.gz
 *.tar.gz.enc
 __pycache__/

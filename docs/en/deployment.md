@@ -116,6 +116,10 @@ The command above is for the default HTTP deployment. With built-in TLS, use the
 The upgrade script creates a control-plane backup under `backups/` before it pulls and starts the new
 version. Only set `DBMOCK_SKIP_PRE_UPGRADE_BACKUP=true` when a separately verified recovery copy exists.
 
+During a normal stop or upgrade, Compose allows up to four minutes for in-flight database tasks to run
+their recovery steps and persist an interrupted state. Force-stop the controller only when incomplete
+recovery is an accepted risk; after restart, inspect and retry interrupted operations from the Tasks page.
+
 After signing in, use Settings to change the monitoring interval, metric retention, disk thresholds,
 and individual alert-type switches. Changes take effect on the next monitoring cycle without a
 restart. A password or private key rejected by the target host raises a dedicated alert that resolves

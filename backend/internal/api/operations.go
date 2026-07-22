@@ -82,7 +82,8 @@ type webhookRequest struct {
 var supportedWebhookEvents = map[string]bool{
 	"*": true, "alert.created": true, "instance.failed": true, "instance.restart_failed": true,
 	"host.offline": true, "host.disk_warning": true, "host.disk_critical": true,
-	"task.finished": true, "task.succeeded": true, "task.failed": true, "webhook.test": true,
+	"task.finished": true, "task.succeeded": true, "task.failed": true, "task.canceled": true,
+	"task.interrupted": true, "webhook.test": true,
 }
 
 func normalizeWebhook(input *webhookRequest) error {

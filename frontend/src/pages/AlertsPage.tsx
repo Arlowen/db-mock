@@ -19,7 +19,7 @@ import { normalizeWebhookEvents } from '../lib/webhook-events'
 
 const webhookEvents = [
   '*', 'alert.created', 'instance.failed', 'instance.restart_failed', 'host.offline', 'host.disk_warning',
-  'host.disk_critical', 'task.finished', 'task.succeeded', 'task.failed', 'webhook.test',
+  'host.disk_critical', 'task.finished', 'task.succeeded', 'task.failed', 'task.canceled', 'task.interrupted', 'webhook.test',
 ]
 
 function eventKey(value: string) {

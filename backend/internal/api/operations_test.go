@@ -15,7 +15,7 @@ func TestNormalizeWebhook(t *testing.T) {
 		wantURL    string
 		wantEvents []string
 	}{
-		{name: "specific events", input: webhookRequest{Name: " Engineering ", URL: " https://hooks.example.com/dbmock?token=one ", Events: []string{"alert.created", "alert.created", "task.failed"}}, valid: true, wantName: "Engineering", wantURL: "https://hooks.example.com/dbmock?token=one", wantEvents: []string{"alert.created", "task.failed"}},
+		{name: "specific events", input: webhookRequest{Name: " Engineering ", URL: " https://hooks.example.com/dbmock?token=one ", Events: []string{"alert.created", "alert.created", "task.failed", "task.canceled", "task.interrupted"}}, valid: true, wantName: "Engineering", wantURL: "https://hooks.example.com/dbmock?token=one", wantEvents: []string{"alert.created", "task.failed", "task.canceled", "task.interrupted"}},
 		{name: "wildcard replaces specifics", input: webhookRequest{Name: "All", URL: "http://hooks.internal:8080/events", Events: []string{"task.failed", "*"}}, valid: true, wantName: "All", wantURL: "http://hooks.internal:8080/events", wantEvents: []string{"*"}},
 		{name: "missing events", input: webhookRequest{Name: "None", URL: "https://hooks.example.com"}},
 		{name: "unsupported event", input: webhookRequest{Name: "Bad", URL: "https://hooks.example.com", Events: []string{"unknown.event"}}},
