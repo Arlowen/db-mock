@@ -10,9 +10,9 @@ button { font: inherit; }
 .app-layout > .ant-layout { min-width: 0; }
 .app-sider { position: sticky !important; top: 0; height: 100vh; border-right: 1px solid #e9edf3; box-shadow: 3px 0 18px rgb(20 45 90 / 3%); z-index: 10; }
 .app-sider .ant-layout-sider-children { display: flex; flex-direction: column; }
-.sidebar-brand { height: 64px; width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 18px; font-size: 19px; font-weight: 750; color: #15213a; cursor: pointer; white-space: nowrap; }
-.brand-mark { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #2563eb, #17a2b8); box-shadow: 0 8px 20px rgb(37 99 235 / 24%); font-size: 22px; flex: none; }
-.brand-mark.small { width: 36px; height: 36px; border-radius: 11px; font-size: 18px; }
+.sidebar-brand { height: 64px; width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 19px; font-weight: 750; color: #15213a; cursor: pointer; white-space: nowrap; }
+.brand-logo { width: 68px; height: 68px; object-fit: contain; flex: none; filter: drop-shadow(0 7px 12px rgb(24 60 120 / 16%)); }
+.brand-logo.small { width: 40px; height: 40px; filter: drop-shadow(0 3px 6px rgb(24 60 120 / 13%)); }
 .app-sider .ant-menu { border: 0 !important; padding: 2px 10px; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d8dee9 transparent; }
 .app-sider .ant-menu-item { height: 36px; line-height: 36px; margin-block: 2px; }
 .app-sider .ant-menu-item-group-title { padding: 9px 14px 3px; line-height: 18px; color: #98a2b3; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
