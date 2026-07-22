@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -158,6 +159,57 @@ func TestClaimTaskSkipsAHostThatAlreadyHasRunningWork(t *testing.T) {
 	}
 	if claimed.ID != idleQueued.ID || claimed.HostID == nil || *claimed.HostID != idleHostID {
 		t.Fatalf("claimed task = %#v, want idle-host task %s", claimed, idleQueued.ID)
+	}
+}
+
+func TestRetryTaskPersistsRollbackLineageAcrossAttempts(t *testing.T) {
+	ctx, pool := openInstanceStoreTest(t)
+	userID, hostID, resourceID := uuid.New(), uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'task-retry','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,
+		connection_address,data_root,status) VALUES($1,'retry-host','127.0.0.1','tester','password','sealed',
+		'127.0.0.1','/opt/dbmock','online')`, hostID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	original, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.upgrade", ResourceType: "instance",
+		ResourceID: &resourceID, RequestedBy: userID, HostID: &hostID, Payload: map[string]any{"instanceId": resourceID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE tasks SET status='interrupted' WHERE id=$1`, original.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	interruptedRetry, err := target.RetryTask(ctx, original.ID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var interrupted struct {
+		OperationID           *uuid.UUID `json:"operationId"`
+		ReuseRollbackSnapshot bool       `json:"reuseRollbackSnapshot"`
+	}
+	if err = json.Unmarshal(interruptedRetry.Payload, &interrupted); err != nil || interrupted.OperationID == nil ||
+		*interrupted.OperationID != original.ID || !interrupted.ReuseRollbackSnapshot {
+		t.Fatalf("interrupted retry payload = %s, err=%v", interruptedRetry.Payload, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE tasks SET status='failed' WHERE id=$1`, interruptedRetry.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	failedRetry, err := target.RetryTask(ctx, interruptedRetry.ID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed struct {
+		OperationID           *uuid.UUID `json:"operationId"`
+		ReuseRollbackSnapshot bool       `json:"reuseRollbackSnapshot"`
+	}
+	if err = json.Unmarshal(failedRetry.Payload, &failed); err != nil || failed.OperationID == nil ||
+		*failed.OperationID != original.ID || failed.ReuseRollbackSnapshot {
+		t.Fatalf("failed retry payload = %s, err=%v", failedRetry.Payload, err)
 	}
 }
 

@@ -192,7 +192,8 @@ stateDiagram-v2
   backups/<instance-uuid>/
     <backup-uuid>.tar.gz  # 0600，主机本地冷备份
   backups/.rollback/
-    <instance-uuid>.tar.gz  # 仅升级或恢复回滚期间存在
+    <instance-uuid>/
+      <operation-uuid>.tar.gz  # 仅对应升级或恢复操作链的回滚期间存在
 ```
 
 Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.instance`、
@@ -241,7 +242,9 @@ Compose 源文件只用于渲染，不作为附加文件复制。每次写入项
   失败恢复和成功提交都同时更新资源、配置、重启策略、稳定状态及期望状态。已停止实例只
   校验新 Compose，之后的手动启动使用 `docker compose up` 协调已保存配置，不复用陈旧容器参数。
 - 每个阶段设计为可重试或可检测已完成。进程重启后排队任务继续，运行中任务标记为
-  `interrupted` 并允许用户重试。
+  `interrupted` 并允许用户重试。升级与恢复快照按稳定的操作链 ID 隔离：中断重试复用原始
+  完整快照，不会用可能已部分修改的数据覆盖它；普通失败或取消后的重试则重新创建快照。
+  升级元数据已经提交但任务尚未写回成功时，重试只收敛稳定状态并清理该操作快照。
 - 审计记录与任务 ID 关联。
 
 ## 9. 监控与重启

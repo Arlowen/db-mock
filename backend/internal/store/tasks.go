@@ -292,6 +292,10 @@ func (s *Store) RetryTask(ctx context.Context, id uuid.UUID, userID uuid.UUID) (
 	if old.Status != "failed" && old.Status != "interrupted" && old.Status != "canceled" {
 		return domain.Task{}, domain.ErrConflict
 	}
+	payload, err := taskRetryPayload(old.Payload, old.ID, old.Status)
+	if err != nil {
+		return domain.Task{}, err
+	}
 	if old.ResourceID != nil {
 		active, activeErr := s.HasActiveResourceTask(ctx, old.ResourceType, *old.ResourceID)
 		if activeErr != nil {
@@ -302,7 +306,32 @@ func (s *Store) RetryTask(ctx context.Context, id uuid.UUID, userID uuid.UUID) (
 		}
 	}
 	return s.CreateTask(ctx, TaskInput{Kind: old.Kind, ResourceType: old.ResourceType, ResourceID: old.ResourceID,
-		RequestedBy: userID, HostID: old.HostID, Payload: old.Payload})
+		RequestedBy: userID, HostID: old.HostID, Payload: payload})
+}
+
+func taskRetryPayload(payload json.RawMessage, previousTaskID uuid.UUID, previousStatus string) (json.RawMessage, error) {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &values); err != nil || values == nil {
+		return nil, fmt.Errorf("%w: task payload is not a JSON object", domain.ErrInvalid)
+	}
+	operationID := previousTaskID
+	if encoded, ok := values["operationId"]; ok {
+		if err := json.Unmarshal(encoded, &operationID); err != nil || operationID == uuid.Nil {
+			return nil, fmt.Errorf("%w: task operation lineage is invalid", domain.ErrInvalid)
+		}
+	}
+	encodedOperationID, err := json.Marshal(operationID)
+	if err != nil {
+		return nil, err
+	}
+	values["operationId"] = encodedOperationID
+	if previousStatus == "interrupted" {
+		values["reuseRollbackSnapshot"] = json.RawMessage("true")
+	} else {
+		delete(values, "reuseRollbackSnapshot")
+	}
+	encoded, err := json.Marshal(values)
+	return json.RawMessage(encoded), err
 }
 
 func (s *Store) InterruptRunningTasks(ctx context.Context) error {

@@ -68,6 +68,8 @@ type ActionRequest struct {
 
 type ActionPayload struct {
 	InstanceID              uuid.UUID  `json:"instanceId"`
+	OperationID             *uuid.UUID `json:"operationId,omitempty"`
+	ReuseRollbackSnapshot   bool       `json:"reuseRollbackSnapshot,omitempty"`
 	NewTemplateVersionID    *uuid.UUID `json:"newTemplateVersionId,omitempty"`
 	BackupID                *uuid.UUID `json:"backupId,omitempty"`
 	BackupPolicyID          *uuid.UUID `json:"backupPolicyId,omitempty"`
@@ -610,6 +612,13 @@ func previousInstanceState(payload ActionPayload, instance domain.Instance) (str
 		}
 	}
 	return status, desired
+}
+
+func rollbackOperation(payload ActionPayload, task domain.Task) (uuid.UUID, bool) {
+	if payload.OperationID == nil || *payload.OperationID == uuid.Nil {
+		return task.ID, false
+	}
+	return *payload.OperationID, payload.ReuseRollbackSnapshot
 }
 
 func currentOrPreviousInstanceState(payload ActionPayload, instance domain.Instance) (string, string) {
@@ -1238,7 +1247,7 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 	if err = runtime.Stage(ctx, 70, "files", "Removing managed instance data", false); err != nil {
 		return nil, err
 	}
-	if err = s.docker.DeleteUpgradeSnapshot(ctx, host, instance); err != nil {
+	if err = s.docker.DeleteInstanceRollbackSnapshots(ctx, host, instance); err != nil {
 		return nil, err
 	}
 	if err = s.docker.RemoveProject(ctx, host, instance); err != nil {
@@ -1255,19 +1264,35 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if err != nil {
 		return nil, err
 	}
+	operationID, reuseRollbackSnapshot := rollbackOperation(payload, task)
 	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	if payload.NewTemplateVersionID == nil {
+		return nil, domain.ErrInvalid
+	}
+	if reuseRollbackSnapshot && instance.Status != "failed" && instance.TemplateVersionID == *payload.NewTemplateVersionID {
+		stable := upgradeStableState(previousStatus, previousDesired)
+		if err = runtime.Stage(ctx, 95, "finalize", "Finalizing an upgrade that was already applied before interruption", false); err != nil {
+			return nil, err
+		}
+		if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
+			return nil, err
+		}
+		_ = s.store.ResolveAlerts(ctx, "instance", instance.ID, "upgrade_failed")
+		if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance, operationID); cleanupErr != nil {
+			_ = runtime.Log(ctx, "warning", "Upgrade was already applied, but the temporary snapshot could not be removed")
+		}
+		return map[string]any{"instanceId": instance.ID, "version": oldVersion.Version, "alreadyApplied": true}, nil
+	}
 	var snapshot, targetVersion string
 	operationStarted, templateUpdated := false, false
 	defer func() {
 		if err != nil {
-			s.recoverUpgradeFailure(runtime, task, instance, host, oldVersion, previousStatus, previousDesired, snapshot, targetVersion, operationStarted, templateUpdated)
+			s.recoverUpgradeFailure(runtime, task, operationID, instance, host, oldVersion, previousStatus, previousDesired,
+				snapshot, targetVersion, operationStarted, templateUpdated)
 		}
 	}()
 	if err = s.store.UpdateInstanceState(ctx, instance.ID, instanceOperationStatus("upgrade"), previousDesired, ""); err != nil {
 		return nil, err
-	}
-	if payload.NewTemplateVersionID == nil {
-		return nil, domain.ErrInvalid
 	}
 	newTemplate, newVersion, err := s.store.GetTemplateVersion(ctx, *payload.NewTemplateVersionID)
 	if err != nil {
@@ -1296,7 +1321,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		return nil, err
 	}
 	operationStarted = true
-	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance, oldVersion.ImageReference)
+	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance, operationID, reuseRollbackSnapshot, oldVersion.ImageReference)
 	if err != nil {
 		return nil, err
 	}
@@ -1425,13 +1450,13 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		return nil, err
 	}
 	_ = s.store.ResolveAlerts(ctx, "instance", instance.ID, "upgrade_failed")
-	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance); cleanupErr != nil {
+	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance, operationID); cleanupErr != nil {
 		_ = runtime.Log(ctx, "warning", "Upgrade succeeded, but the temporary snapshot could not be removed")
 	}
 	return map[string]any{"instanceId": instance.ID, "version": newVersion.Version}, nil
 }
 
-func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task, instance domain.Instance, host domain.Host, oldVersion domain.TemplateVersion,
+func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task, operationID uuid.UUID, instance domain.Instance, host domain.Host, oldVersion domain.TemplateVersion,
 	previousStatus, previousDesired, snapshot, targetVersion string, operationStarted, templateUpdated bool) {
 	recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -1448,7 +1473,7 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 		}
 	}
 	if snapshot != "" && stopped {
-		if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, snapshot, oldVersion.ImageReference); restoreErr != nil {
+		if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, operationID, snapshot, oldVersion.ImageReference); restoreErr != nil {
 			recoveryErrors = append(recoveryErrors, "snapshot")
 		}
 	}
@@ -1471,7 +1496,7 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 			recoveryErrors = append(recoveryErrors, "state")
 		}
 		if recovered && snapshot != "" {
-			if cleanupErr := s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance); cleanupErr != nil {
+			if cleanupErr := s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance, operationID); cleanupErr != nil {
 				_ = runtime.Log(recoveryCtx, "warning", "Upgrade rollback succeeded, but the temporary snapshot could not be removed")
 			}
 		}
@@ -1673,6 +1698,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 	if payload.BackupID == nil {
 		return nil, domain.ErrInvalid
 	}
+	operationID, reuseRollbackSnapshot := rollbackOperation(payload, task)
 	backup, err := s.store.GetInstanceBackup(ctx, *payload.BackupID)
 	if err != nil || backup.InstanceID != instance.ID {
 		if err == nil {
@@ -1711,7 +1737,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 				recovered = false
 			}
 			if recovered && restoreStarted && snapshotReady {
-				if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, snapshot, version.ImageReference); restoreErr != nil {
+				if restoreErr := s.docker.RestoreUpgradeSnapshot(recoveryCtx, host, instance, operationID, snapshot, version.ImageReference); restoreErr != nil {
 					recovered = false
 				}
 			}
@@ -1724,7 +1750,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 		if recovered {
 			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "Restore failed; the pre-restore database state was recovered")
 			if snapshotReady {
-				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance)
+				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance, operationID)
 			}
 		} else {
 			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, "Restore failed and automatic rollback did not complete")
@@ -1752,7 +1778,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 		return nil, err
 	}
 	operationStarted = true
-	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance, version.ImageReference)
+	snapshot, err = s.docker.SnapshotForUpgrade(ctx, host, instance, operationID, reuseRollbackSnapshot, version.ImageReference)
 	if err != nil {
 		return nil, err
 	}
@@ -1791,7 +1817,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 	if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
 		return nil, err
 	}
-	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance); cleanupErr != nil {
+	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance, operationID); cleanupErr != nil {
 		_ = runtime.Log(ctx, "warning", "Restore succeeded, but the rollback snapshot could not be removed")
 	}
 	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "status": stable.Status}, nil

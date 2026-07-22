@@ -330,14 +330,15 @@ func TestDockerDataHelperUsesOnlyTheExistingIsolatedImage(t *testing.T) {
 
 func TestUpgradeSnapshotStreamsToProtectedExternalDirectory(t *testing.T) {
 	instanceID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	operationID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
 	host := domain.Host{DataRoot: "/opt/dbmock"}
 	instance := domain.Instance{ID: instanceID, RemoteDirectory: "/opt/dbmock/instances/" + instanceID.String(), ComposeProject: "dbmock_fixture"}
 	runner := &recordingRunner{}
-	snapshot, err := NewDocker(runner).SnapshotForUpgrade(context.Background(), host, instance, "postgres:17")
+	snapshot, err := NewDocker(runner).SnapshotForUpgrade(context.Background(), host, instance, operationID, false, "postgres:17")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/opt/dbmock/backups/.rollback/" + instanceID.String() + ".tar.gz"
+	want := "/opt/dbmock/backups/.rollback/" + instanceID.String() + "/" + operationID.String() + ".tar.gz"
 	if snapshot != want {
 		t.Fatalf("snapshot = %q, want %q", snapshot, want)
 	}
@@ -352,13 +353,102 @@ func TestUpgradeSnapshotStreamsToProtectedExternalDirectory(t *testing.T) {
 	if strings.Contains(runner.commands[0], instance.RemoteDirectory+"/upgrade-snapshot") {
 		t.Fatalf("snapshot must not be written inside the archived directory: %s", runner.commands[0])
 	}
+	if !strings.Contains(runner.commands[0], "rm -f -- "+ShellQuote(want)) {
+		t.Fatalf("a new operation must replace only its own snapshot: %s", runner.commands[0])
+	}
+
+	resumed := &recordingRunner{}
+	resumedSnapshot, err := NewDocker(resumed).SnapshotForUpgrade(context.Background(), host, instance, operationID, true, "postgres:17")
+	if err != nil || resumedSnapshot != want {
+		t.Fatalf("resumed snapshot = %q, err=%v", resumedSnapshot, err)
+	}
+	if len(resumed.commands) != 1 || !strings.Contains(resumed.commands[0], "test -s "+ShellQuote(want)) ||
+		strings.Contains(resumed.commands[0], "rm -f -- "+ShellQuote(want)+" ") {
+		t.Fatalf("an interrupted retry must preserve its completed snapshot: %#v", resumed.commands)
+	}
+
+	otherOperationID := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	otherSnapshot, err := NewDocker(&recordingRunner{}).SnapshotForUpgrade(context.Background(), host, instance, otherOperationID, false, "postgres:17")
+	if err != nil || otherSnapshot == want {
+		t.Fatalf("independent operation snapshot = %q, err=%v", otherSnapshot, err)
+	}
+	if err = NewDocker(&recordingRunner{}).RestoreUpgradeSnapshot(context.Background(), host, instance, operationID, otherSnapshot, "postgres:17"); err == nil {
+		t.Fatal("a snapshot from another operation must be rejected")
+	}
+	restoreRunner := &recordingRunner{}
+	if err = NewDocker(restoreRunner).RestoreUpgradeSnapshot(context.Background(), host, instance, operationID, want, "postgres:17"); err != nil {
+		t.Fatal(err)
+	}
+	if len(restoreRunner.commands) != 1 || !strings.Contains(restoreRunner.commands[0], "test ! -L "+ShellQuote(want)) {
+		t.Fatalf("restore did not validate its operation snapshot: %#v", restoreRunner.commands)
+	}
+	cleanupRunner := &recordingRunner{}
+	if err = NewDocker(cleanupRunner).DeleteUpgradeSnapshot(context.Background(), host, instance, operationID); err != nil {
+		t.Fatal(err)
+	}
+	if len(cleanupRunner.commands) != 1 || !strings.Contains(cleanupRunner.commands[0], "rm -f -- "+ShellQuote(want)) ||
+		strings.Contains(cleanupRunner.commands[0], "rm -rf") {
+		t.Fatalf("operation cleanup was broader than its snapshot: %#v", cleanupRunner.commands)
+	}
+	instanceCleanupRunner := &recordingRunner{}
+	if err = NewDocker(instanceCleanupRunner).DeleteInstanceRollbackSnapshots(context.Background(), host, instance); err != nil {
+		t.Fatal(err)
+	}
+	rollbackDirectory := "/opt/dbmock/backups/.rollback/" + instanceID.String()
+	if len(instanceCleanupRunner.commands) != 1 || !strings.Contains(instanceCleanupRunner.commands[0], "rm -rf -- "+ShellQuote(rollbackDirectory)) {
+		t.Fatalf("instance cleanup did not target its exact rollback directory: %#v", instanceCleanupRunner.commands)
+	}
 
 	failing := &recordingRunner{failFirst: true}
-	if snapshot, err = NewDocker(failing).SnapshotForUpgrade(context.Background(), host, instance, "postgres:17"); err == nil || snapshot != "" {
+	if snapshot, err = NewDocker(failing).SnapshotForUpgrade(context.Background(), host, instance, operationID, false, "postgres:17"); err == nil || snapshot != "" {
 		t.Fatalf("failed snapshot = %q, err = %v", snapshot, err)
 	}
 	if len(failing.commands) != 2 || !strings.Contains(failing.commands[1], ".tmp") {
 		t.Fatalf("failed snapshot did not clean its temporary archive: %#v", failing.commands)
+	}
+}
+
+func TestInterruptedSnapshotRetryPreservesTheOriginalArchive(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fakeDocker := filepath.Join(bin, "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+set -eu
+if [ "${1:-}" = "run" ]; then
+  printf '%s' "${FAKE_ARCHIVE_CONTENT:?}"
+fi
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_ARCHIVE_CONTENT", "original-before-interruption")
+
+	instanceID, operationID := uuid.New(), uuid.New()
+	host := domain.Host{DataRoot: root}
+	instance := domain.Instance{ID: instanceID, RemoteDirectory: filepath.Join(root, "instances", instanceID.String()), ComposeProject: "dbmock_fixture"}
+	docker := NewDocker(localShellRunner{})
+	snapshot, err := docker.SnapshotForUpgrade(context.Background(), host, instance, operationID, false, "postgres:17")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_ARCHIVE_CONTENT", "partially-modified-retry-state")
+	if _, err = docker.SnapshotForUpgrade(context.Background(), host, instance, operationID, true, "postgres:17"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(snapshot)
+	if err != nil || string(content) != "original-before-interruption" {
+		t.Fatalf("resumed snapshot = %q, err=%v", content, err)
+	}
+
+	if _, err = docker.SnapshotForUpgrade(context.Background(), host, instance, operationID, false, "postgres:17"); err != nil {
+		t.Fatal(err)
+	}
+	content, err = os.ReadFile(snapshot)
+	if err != nil || string(content) != "partially-modified-retry-state" {
+		t.Fatalf("fresh retry snapshot = %q, err=%v", content, err)
 	}
 }
 

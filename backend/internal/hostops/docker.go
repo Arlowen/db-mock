@@ -418,21 +418,40 @@ func dockerDataHelperCommand(image, volume, script string, interactive bool) (st
 	return command, nil
 }
 
-func (d *Docker) SnapshotForUpgrade(ctx context.Context, host domain.Host, instance domain.Instance, helperImage string) (string, error) {
+func rollbackSnapshotPath(host domain.Host, instance domain.Instance, operationID uuid.UUID) (string, error) {
 	if err := validateManagedDirectory(host.DataRoot, instance.RemoteDirectory); err != nil {
 		return "", err
 	}
-	snapshot := path.Join(host.DataRoot, "backups", ".rollback", instance.ID.String()+".tar.gz")
+	if instance.ID == uuid.Nil || operationID == uuid.Nil {
+		return "", errors.New("instance and operation IDs are required for a rollback snapshot")
+	}
+	return path.Join(host.DataRoot, "backups", ".rollback", instance.ID.String(), operationID.String()+".tar.gz"), nil
+}
+
+func (d *Docker) SnapshotForUpgrade(ctx context.Context, host domain.Host, instance domain.Instance, operationID uuid.UUID,
+	reuseExisting bool, helperImage string) (string, error) {
+	snapshot, err := rollbackSnapshotPath(host, instance, operationID)
+	if err != nil {
+		return "", err
+	}
 	temporary := snapshot + ".tmp"
 	directory := path.Dir(snapshot)
 	helper, err := dockerDataHelperCommand(helperImage, instance.RemoteDirectory+":/source:ro", archiveStreamScript("/source"), false)
 	if err != nil {
 		return "", err
 	}
+	create := "rm -f -- " + ShellQuote(snapshot) + " " + ShellQuote(temporary) + " && " + helper + " > " +
+		ShellQuote(temporary) + " && chmod 0600 " + ShellQuote(temporary) + " && mv -f -- " +
+		ShellQuote(temporary) + " " + ShellQuote(snapshot)
+	if reuseExisting {
+		create = "if [ -e " + ShellQuote(snapshot) + " ] || [ -L " + ShellQuote(snapshot) + " ]; then " +
+			"test ! -L " + ShellQuote(snapshot) + " && test -f " + ShellQuote(snapshot) + " && test -s " + ShellQuote(snapshot) +
+			" && chmod 0600 " + ShellQuote(snapshot) + "; else rm -f -- " + ShellQuote(temporary) + " && " + helper + " > " +
+			ShellQuote(temporary) + " && chmod 0600 " + ShellQuote(temporary) + " && mv -f -- " +
+			ShellQuote(temporary) + " " + ShellQuote(snapshot) + "; fi"
+	}
 	command := composeCommand(instance) + " stop --timeout 120 && umask 077 && mkdir -p " + ShellQuote(directory) +
-		" && chmod 0700 " + ShellQuote(directory) + " && rm -f -- " + ShellQuote(snapshot) + " " + ShellQuote(temporary) +
-		" && " + helper + " > " + ShellQuote(temporary) + " && chmod 0600 " +
-		ShellQuote(temporary) + " && mv -f -- " + ShellQuote(temporary) + " " + ShellQuote(snapshot)
+		" && test ! -L " + ShellQuote(directory) + " && chmod 0700 " + ShellQuote(directory) + " && " + create
 	_, err = d.runner.Run(ctx, host, command, nil)
 	if err != nil {
 		_, _ = d.runner.Run(context.Background(), host, "rm -f -- "+ShellQuote(temporary), nil)
@@ -441,29 +460,48 @@ func (d *Docker) SnapshotForUpgrade(ctx context.Context, host domain.Host, insta
 	return snapshot, nil
 }
 
-func (d *Docker) RestoreUpgradeSnapshot(ctx context.Context, host domain.Host, instance domain.Instance, snapshot, helperImage string) error {
-	if err := validateManagedDirectory(host.DataRoot, instance.RemoteDirectory); err != nil {
+func (d *Docker) RestoreUpgradeSnapshot(ctx context.Context, host domain.Host, instance domain.Instance, operationID uuid.UUID,
+	snapshot, helperImage string) error {
+	expected, err := rollbackSnapshotPath(host, instance, operationID)
+	if err != nil {
 		return err
 	}
-	if snapshot != path.Join(host.DataRoot, "backups", ".rollback", instance.ID.String()+".tar.gz") {
+	if snapshot != expected {
 		return errors.New("invalid upgrade snapshot path")
 	}
 	helper, err := dockerDataHelperCommand(helperImage, instance.RemoteDirectory+":/target", restoreStreamScript("/target"), true)
 	if err != nil {
 		return err
 	}
-	command := `set -eu; test -f ` + ShellQuote(snapshot) + `; ` + helper + ` < ` + ShellQuote(snapshot)
+	command := `set -eu; test ! -L ` + ShellQuote(snapshot) + `; test -f ` + ShellQuote(snapshot) + `; ` + helper + ` < ` + ShellQuote(snapshot)
 	_, err = d.runner.Run(ctx, host, command, nil)
 	return err
 }
 
-func (d *Docker) DeleteUpgradeSnapshot(ctx context.Context, host domain.Host, instance domain.Instance) error {
+func (d *Docker) DeleteUpgradeSnapshot(ctx context.Context, host domain.Host, instance domain.Instance, operationID uuid.UUID) error {
+	snapshot, err := rollbackSnapshotPath(host, instance, operationID)
+	if err != nil {
+		return err
+	}
+	directory := path.Dir(snapshot)
+	root := path.Dir(directory)
+	_, err = d.runner.Run(ctx, host, `set -eu; rm -f -- `+ShellQuote(snapshot)+` `+ShellQuote(snapshot+".tmp")+
+		`; rmdir `+ShellQuote(directory)+` 2>/dev/null || true; rmdir `+ShellQuote(root)+` 2>/dev/null || true`, nil)
+	return err
+}
+
+func (d *Docker) DeleteInstanceRollbackSnapshots(ctx context.Context, host domain.Host, instance domain.Instance) error {
 	if err := validateManagedDirectory(host.DataRoot, instance.RemoteDirectory); err != nil {
 		return err
 	}
-	directory := path.Join(host.DataRoot, "backups", ".rollback")
-	snapshot := path.Join(directory, instance.ID.String()+".tar.gz")
-	_, err := d.runner.Run(ctx, host, `set -eu; rm -f -- `+ShellQuote(snapshot)+` `+ShellQuote(snapshot+".tmp")+`; rmdir `+ShellQuote(directory)+` 2>/dev/null || true`, nil)
+	if instance.ID == uuid.Nil {
+		return errors.New("instance ID is required to remove rollback snapshots")
+	}
+	root := path.Join(host.DataRoot, "backups", ".rollback")
+	directory := path.Join(root, instance.ID.String())
+	legacy := path.Join(root, instance.ID.String()+".tar.gz")
+	_, err := d.runner.Run(ctx, host, `set -eu; rm -rf -- `+ShellQuote(directory)+`; rm -f -- `+
+		ShellQuote(legacy)+` `+ShellQuote(legacy+".tmp")+`; rmdir `+ShellQuote(root)+` 2>/dev/null || true`, nil)
 	return err
 }
 

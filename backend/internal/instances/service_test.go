@@ -16,6 +16,18 @@ import (
 
 func boolPointer(value bool) *bool { return &value }
 
+func TestRollbackOperationUsesStableRetryLineage(t *testing.T) {
+	taskID, operationID := uuid.New(), uuid.New()
+	got, reuse := rollbackOperation(ActionPayload{}, domain.Task{ID: taskID})
+	if got != taskID || reuse {
+		t.Fatalf("initial operation = %s, reuse=%v", got, reuse)
+	}
+	got, reuse = rollbackOperation(ActionPayload{OperationID: &operationID, ReuseRollbackSnapshot: true}, domain.Task{ID: taskID})
+	if got != operationID || !reuse {
+		t.Fatalf("retried operation = %s, reuse=%v", got, reuse)
+	}
+}
+
 func TestValidateInstanceAction(t *testing.T) {
 	versionID := uuid.New()
 	valid := []struct {
