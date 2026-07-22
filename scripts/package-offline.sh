@@ -23,7 +23,7 @@ output_dir="$root_dir/dist"
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/dbmock-offline.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT INT TERM
 
-mkdir -p "$output_dir" "$work_dir/dbmock-offline/images" "$work_dir/dbmock-offline/docs" "$work_dir/dbmock-offline/deploy/tls"
+mkdir -p "$output_dir" "$work_dir/dbmock-offline/images" "$work_dir/dbmock-offline/docs" "$work_dir/dbmock-offline/deploy/tls" "$work_dir/dbmock-offline/lib"
 case "${DBMOCK_OFFLINE_SKIP_PULL:-false}" in
   false)
     docker pull --platform "linux/$architecture" "$app_image"
@@ -43,6 +43,9 @@ cp "$root_dir/deploy/compose.yaml" "$work_dir/dbmock-offline/compose.yaml"
 cp "$root_dir/deploy/.env.example" "$work_dir/dbmock-offline/.env.example"
 cp "$root_dir/scripts/offline-install.sh" "$work_dir/dbmock-offline/"
 cp "$root_dir/scripts/offline-upgrade.sh" "$work_dir/dbmock-offline/upgrade.sh"
+cp "$root_dir/scripts/backup-platform.sh" "$work_dir/dbmock-offline/"
+cp "$root_dir/scripts/restore-platform.sh" "$work_dir/dbmock-offline/"
+cp "$root_dir/scripts/lib/platform-compose.sh" "$work_dir/dbmock-offline/lib/"
 cp "$root_dir/docs/zh/deployment.md" "$work_dir/dbmock-offline/docs/部署说明.md"
 cp "$root_dir/docs/en/deployment.md" "$work_dir/dbmock-offline/docs/deployment.md"
 awk -v app="$app_image" -v postgres="$postgres_image" '

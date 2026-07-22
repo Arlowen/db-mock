@@ -4,7 +4,9 @@
 deploy/.env
 data
 dist
+backups
 frontend/node_modules
 frontend/test-results
 frontend/playwright-report
 *.tar.gz
+*.tar.gz.enc

@@ -80,6 +80,9 @@ make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
+The upgrade script creates a control-plane backup under `backups/` before it pulls and starts the new
+version. Only set `DBMOCK_SKIP_PRE_UPGRADE_BACKUP=true` when a separately verified recovery copy exists.
+
 After signing in, use Settings to change the monitoring interval, metric retention, disk thresholds,
 and individual alert-type switches. Changes take effect on the next monitoring cycle without a
 restart. A password or private key rejected by the target host raises a dedicated alert that resolves
@@ -94,10 +97,51 @@ recoverable space, and clean a selected set manually. Only controller-side files
 instance reference and no actual distribution during the selected period are eligible. DB Mock never
 automatically removes images that Docker has already loaded on target hosts.
 
-PostgreSQL data, the credential master key, and uploaded images live in named Compose volumes. DB Mock
-does not provide built-in metadata backup. Do not manually delete `dbmock_postgres_data` or
-`dbmock_dbmock_data`; losing the master key makes stored SSH, registry, and database credentials
-unreadable.
+### Control-plane backup and restore
+
+PostgreSQL metadata, the credential master key, and uploaded artifacts live in named Compose volumes.
+Create a consistent backup with:
+
+```bash
+make backup
+# Or choose the destination explicitly.
+./scripts/backup-platform.sh /secure/path/dbmock-control-plane.tar.gz
+```
+
+The application briefly stops to freeze writes. If the stack was already stopped, the script starts only
+PostgreSQL temporarily and returns it to the stopped state afterward. The `0600` archive contains the master
+key that can decrypt every stored credential, so copy it immediately to restricted off-host storage. For
+production, encrypt it with a separate passphrase file and store that file independently:
+
+```bash
+openssl rand -base64 32 > /secure/path/dbmock-backup.pass
+chmod 600 /secure/path/dbmock-backup.pass
+DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
+  ./scripts/backup-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+```
+
+Validate an archive without changing the stack, then restore it explicitly:
+
+```bash
+DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
+  DBMOCK_RESTORE_VALIDATE_ONLY=true \
+  ./scripts/restore-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+
+DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
+  DBMOCK_RESTORE_CONFIRM=RESTORE \
+  ./scripts/restore-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+```
+
+Restore completely replaces the current PostgreSQL database and application data volume. Before overwriting
+them, the script creates a `dbmock-control-plane-pre-restore-*` safety backup. It starts the current application
+and waits for health; any restore or health failure triggers an automatic rollback. The safety backup remains
+after success until you archive or remove it according to your retention policy. In an extracted offline
+bundle, the scripts live at its root; use `./backup-platform.sh` and
+`./restore-platform.sh` with the same arguments and environment variables.
+Control-plane archives do not include `deploy/.env`, TLS certificates, or TLS private keys, so preserve those
+deployment files separately.
+Never manually remove `dbmock_postgres_data` or `dbmock_dbmock_data`; losing the master key makes stored SSH,
+registry, and database credentials unreadable.
 
 DB Mock never modifies host firewalls or cloud security groups. Operators must expose the selected
 instance ports according to their network policy.

@@ -1,4 +1,4 @@
-.PHONY: test backend-test frontend-test frontend build docker compose-config up down logs offline clean
+.PHONY: test backend-test frontend-test frontend build docker compose-config up down logs backup restore offline clean
 
 VERSION ?= dev
 COMPOSE_FILE ?= deploy/compose.yaml
@@ -33,6 +33,13 @@ down:
 
 logs:
 	$(COMPOSE) logs -f dbmock
+
+backup:
+	./scripts/backup-platform.sh
+
+restore:
+	@test -n "$(BACKUP)" || (echo "Usage: make restore BACKUP=/path/to/dbmock-control-plane-backup.tar.gz" >&2; exit 1)
+	DBMOCK_RESTORE_CONFIRM=RESTORE ./scripts/restore-platform.sh "$(BACKUP)"
 
 offline:
 	./scripts/package-offline.sh $(VERSION)

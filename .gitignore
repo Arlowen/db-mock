@@ -3,6 +3,7 @@
 deploy/.env
 data/
 /dist/
+/backups/
 frontend/node_modules/
 frontend/coverage/
 frontend/test-results/
@@ -12,5 +13,6 @@ frontend/vite.config.js
 frontend/vite.config.d.ts
 db-mock
 *.tar.gz
+*.tar.gz.enc
 __pycache__/
 *.pyc

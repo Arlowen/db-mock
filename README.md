@@ -18,6 +18,8 @@ DB Mock 是一个基于 Web 和 Docker Compose 的开源数据库实例管理平
   变量、升级和删除数据库实例；创建与升级均可选择直接拉取、私有仓库或离线镜像。
 - 为单机实例创建可校验的主机本地冷备份；支持按时区配置每日/每周自动备份和保留份数，
   恢复失败时自动回滚到操作前数据。
+- 控制平面可一致备份和恢复 PostgreSQL 元数据、主密钥及上传制品；支持加密归档、校验、
+  恢复前安全快照与失败自动回滚，升级前默认创建恢复点。
 - 运行配置变更会重新校验主机容量和 Compose；失败时恢复旧配置及原运行/停止状态。
 - 内置常见数据库模板，也可上传 Compose 模板包和 Docker 离线镜像，并扫描、人工清理
   长期未使用的控制端镜像归档。
@@ -69,6 +71,10 @@ cd ../backend && go run ./cmd/dbmock
 
 从仓库根目录运行 `make test` 执行后端和前端测试，`make build` 生成单文件服务，
 `make docker` 构建容器镜像。前端检查包含 TypeScript 类型检查和 Vitest 测试。
+
+运行 `make backup` 创建控制平面灾备归档；恢复前可先执行
+`DBMOCK_RESTORE_VALIDATE_ONLY=true ./scripts/restore-platform.sh <归档>` 校验。完整恢复步骤及
+加密配置见部署文档。
 
 ## 许可证
 

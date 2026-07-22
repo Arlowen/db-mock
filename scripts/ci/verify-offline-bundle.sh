@@ -20,6 +20,9 @@ for path in \
   images/postgres.tar \
   offline-install.sh \
   upgrade.sh \
+  backup-platform.sh \
+  restore-platform.sh \
+  lib/platform-compose.sh \
   docs/deployment.md \
   docs/部署说明.md
 do

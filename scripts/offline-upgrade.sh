@@ -12,5 +12,10 @@ else
   exit 1
 fi
 for archive in images/*.tar; do docker load -i "$archive"; done
+case "${DBMOCK_SKIP_PRE_UPGRADE_BACKUP:-false}" in
+  false) "$root_dir/backup-platform.sh" ;;
+  true) echo "WARNING: skipping the pre-upgrade control-plane backup." >&2 ;;
+  *) echo "DBMOCK_SKIP_PRE_UPGRADE_BACKUP must be true or false." >&2; exit 1 ;;
+esac
 docker compose --pull never up -d --remove-orphans --no-build
 docker compose ps

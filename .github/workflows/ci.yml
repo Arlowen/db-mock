@@ -99,6 +99,51 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           npm run test:e2e
+      - name: Verify control-plane backup and restore
+        env:
+          DBMOCK_PLATFORM_BACKUP_DIR: ${{ runner.temp }}
+        run: |
+          passphrase="${RUNNER_TEMP}/dbmock-control-plane-passphrase"
+          openssl rand -base64 32 > "$passphrase"
+          chmod 600 "$passphrase"
+          export DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE="$passphrase"
+          archive="${RUNNER_TEMP}/dbmock-control-plane-e2e.tar.gz.enc"
+          ./scripts/backup-platform.sh "$archive"
+          docker compose -f deploy/compose.yaml exec -T postgres \
+            psql -U dbmock -d dbmock -v ON_ERROR_STOP=1 \
+            -c "UPDATE users SET display_name='restore mutation' WHERE username='e2e-admin'"
+          docker compose -f deploy/compose.yaml exec -T dbmock \
+            sh -ec 'printf remove-after-restore > /var/lib/dbmock/restore-e2e-marker'
+          DBMOCK_RESTORE_CONFIRM=RESTORE ./scripts/restore-platform.sh "$archive"
+          test "$(docker compose -f deploy/compose.yaml exec -T postgres \
+            psql -U dbmock -d dbmock -Atc "SELECT display_name FROM users WHERE username='e2e-admin'")" = "E2E Admin"
+          docker compose -f deploy/compose.yaml exec -T dbmock \
+            sh -ec 'test ! -e /var/lib/dbmock/restore-e2e-marker'
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+          rollback_fixture="${RUNNER_TEMP}/rollback-fixture"
+          mkdir -p "$rollback_fixture"
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass "file:$passphrase" \
+            -in "$archive" -out "$rollback_fixture/plain.tar.gz"
+          tar -xzf "$rollback_fixture/plain.tar.gz" -C "$rollback_fixture" \
+            manifest database.dump app-data.tar
+          printf 'not a PostgreSQL dump' > "$rollback_fixture/database.dump"
+          database_sha=$(sha256sum "$rollback_fixture/database.dump" | awk '{print $1}')
+          sed -i "s/^database_sha256=.*/database_sha256=$database_sha/" "$rollback_fixture/manifest"
+          tar -C "$rollback_fixture" -czf "$rollback_fixture/invalid.tar.gz" \
+            manifest database.dump app-data.tar
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$passphrase" \
+            -in "$rollback_fixture/invalid.tar.gz" -out "$rollback_fixture/invalid.tar.gz.enc"
+          docker compose -f deploy/compose.yaml exec -T postgres \
+            psql -U dbmock -d dbmock -v ON_ERROR_STOP=1 \
+            -c "UPDATE users SET display_name='rollback state' WHERE username='e2e-admin'"
+          if DBMOCK_RESTORE_CONFIRM=RESTORE \
+            ./scripts/restore-platform.sh "$rollback_fixture/invalid.tar.gz.enc"; then
+            echo "an invalid PostgreSQL dump unexpectedly restored" >&2
+            exit 1
+          fi
+          test "$(docker compose -f deploy/compose.yaml exec -T postgres \
+            psql -U dbmock -d dbmock -Atc "SELECT display_name FROM users WHERE username='e2e-admin'")" = "rollback state"
+          curl -fsS http://127.0.0.1:8080/api/v1/health
       - name: Collect service logs
         if: failure()
         run: docker compose -f deploy/compose.yaml logs

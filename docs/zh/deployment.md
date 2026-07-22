@@ -77,6 +77,9 @@ make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
+升级脚本默认先把当前控制平面备份到 `backups/`，成功后才拉取并启动新版本。仅在已经通过
+其他方式确认存在可恢复副本时，才可显式设置 `DBMOCK_SKIP_PRE_UPGRADE_BACKUP=true` 跳过。
+
 登录后可在“系统设置”中调整监控采集间隔、指标保留时间、磁盘阈值以及各类告警开关；
 配置在下一轮监控生效，无需重启。SSH 密码或私钥被目标主机拒绝时会产生独立告警，更新
 主机凭据并重新检测成功后由系统自动解决。
@@ -89,9 +92,46 @@ curl -fsS http://127.0.0.1:8080/api/v1/health
 选择清理。平台只清理没有被现有实例引用、且在所选时间内没有实际分发记录的控制端文件；
 不会自动删除目标主机上已经由 Docker 加载的镜像。
 
-PostgreSQL 数据、主密钥和上传镜像分别保存在 Compose 命名卷中。平台没有内置元数据
-备份功能；不要手工删除 `dbmock_postgres_data` 或 `dbmock_dbmock_data`。主密钥丢失后，
-已保存的 SSH、仓库和数据库凭据无法解密。
+### 控制平面备份与恢复
+
+PostgreSQL 元数据、主密钥和上传制品位于 Compose 命名卷中。使用以下命令创建一致备份：
+
+```bash
+make backup
+# 或指定输出文件
+./scripts/backup-platform.sh /secure/path/dbmock-control-plane.tar.gz
+```
+
+备份期间应用会短暂停止以冻结写入；如果整套服务原本已停止，脚本只临时启动 PostgreSQL，
+结束后恢复停止状态。归档以 `0600` 创建，包含可解密全部已保存凭据的主密钥，必须立即复制
+到控制机之外的受限存储。生产环境建议使用独立口令文件加密，并与归档分开保存：
+
+```bash
+openssl rand -base64 32 > /secure/path/dbmock-backup.pass
+chmod 600 /secure/path/dbmock-backup.pass
+DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
+  ./scripts/backup-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+```
+
+先做只读校验，再执行恢复：
+
+```bash
+DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
+  DBMOCK_RESTORE_VALIDATE_ONLY=true \
+  ./scripts/restore-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+
+DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
+  DBMOCK_RESTORE_CONFIRM=RESTORE \
+  ./scripts/restore-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+```
+
+恢复会完全替换当前 PostgreSQL 数据库和应用数据卷。脚本在覆盖前自动创建
+`dbmock-control-plane-pre-restore-*` 安全备份，恢复当前版本应用并等待健康检查；任一步失败
+都会尝试自动回滚。成功后仍保留安全备份，确认业务数据无误后再按组织策略归档或删除。
+在离线包解压目录中，备份和恢复脚本位于根目录，分别使用 `./backup-platform.sh` 和
+`./restore-platform.sh`，其余参数与环境变量相同。
+归档不包含 `deploy/.env`、TLS 证书或私钥；灾备存储中应另行保存这些部署配置。不要手工删除
+`dbmock_postgres_data` 或 `dbmock_dbmock_data`，主密钥丢失后已保存凭据无法解密。
 
 DB Mock 不会自动修改防火墙或云安全组。数据库实例端口必须在目标主机端口池中，并由
 运维人员按网络策略开放。

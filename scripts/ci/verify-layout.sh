@@ -14,6 +14,9 @@ for path in \
   deploy/compose.yaml \
   deploy/.env.example \
   frontend/package.json \
+  scripts/backup-platform.sh \
+  scripts/restore-platform.sh \
+  scripts/lib/platform-compose.sh \
   scripts/ci/verify-offline-bundle.sh \
   scripts/ci/verify-oci-platforms.py \
   .github/workflows/ci.yml \
