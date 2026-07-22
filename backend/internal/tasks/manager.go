@@ -10,11 +10,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/store"
 )
 
 type Handler func(context.Context, *Runtime, domain.Task) (any, error)
+type CancellationPreparer func(context.Context, domain.Task) (*store.QueuedTaskRecovery, error)
 
 const (
 	taskFinalizationTimeout       = 15 * time.Second
@@ -22,12 +24,13 @@ const (
 )
 
 type Manager struct {
-	store    *store.Store
-	logger   *slog.Logger
-	workers  int
-	handlers map[string]Handler
-	wake     chan struct{}
-	wg       sync.WaitGroup
+	store                 *store.Store
+	logger                *slog.Logger
+	workers               int
+	handlers              map[string]Handler
+	cancellationPreparers map[string]CancellationPreparer
+	wake                  chan struct{}
+	wg                    sync.WaitGroup
 }
 
 type Runtime struct {
@@ -36,10 +39,35 @@ type Runtime struct {
 }
 
 func New(target *store.Store, logger *slog.Logger, workers int) *Manager {
-	return &Manager{store: target, logger: logger, workers: workers, handlers: make(map[string]Handler), wake: make(chan struct{}, 1)}
+	return &Manager{store: target, logger: logger, workers: workers, handlers: make(map[string]Handler),
+		cancellationPreparers: make(map[string]CancellationPreparer), wake: make(chan struct{}, 1)}
 }
 
 func (m *Manager) Register(kind string, handler Handler) { m.handlers[kind] = handler }
+func (m *Manager) RegisterCancellation(kind string, preparer CancellationPreparer) {
+	m.cancellationPreparers[kind] = preparer
+}
+
+func (m *Manager) CancelTask(ctx context.Context, id uuid.UUID) (domain.Task, error) {
+	task, err := m.store.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	var recovery *store.QueuedTaskRecovery
+	if task.Status == "queued" {
+		if prepare, ok := m.cancellationPreparers[task.Kind]; ok {
+			recovery, err = prepare(ctx, task)
+			if err != nil {
+				return domain.Task{}, err
+			}
+		}
+	}
+	task, err = m.store.CancelTask(ctx, id, recovery)
+	if err == nil && task.Status == "canceled" {
+		m.NotifyTaskFinished(ctx, task)
+	}
+	return task, err
+}
 
 func (m *Manager) Start(ctx context.Context) error {
 	if err := m.store.InterruptRunningTasks(ctx); err != nil {
@@ -146,6 +174,14 @@ func (m *Manager) enqueueWebhook(ctx context.Context, original domain.Task, stat
 		m.store.EnqueueWebhookEvent(ctx, "task.finished", task),
 		m.store.EnqueueWebhookEvent(ctx, "task."+status, task),
 	)
+}
+
+// NotifyTaskFinished publishes the same durable completion events used by a
+// worker for a task that was completed synchronously before execution.
+func (m *Manager) NotifyTaskFinished(ctx context.Context, task domain.Task) {
+	if err := m.enqueueWebhook(ctx, task, task.Status); err != nil {
+		m.logger.Warn("enqueue task webhook", "taskId", task.ID, "kind", task.Kind, "status", task.Status, "error", err)
+	}
 }
 
 var ErrCanceled = errors.New("task canceled")

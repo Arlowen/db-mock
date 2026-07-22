@@ -67,13 +67,18 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	if err = s.store.RequestTaskCancel(r.Context(), id); err != nil {
+	task, err := s.tasks.CancelTask(r.Context(), id)
+	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
 	_ = s.audit(r, actor, "task.cancel", "task", &id, "", nil, "success", "")
-	httpx.JSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+	status := http.StatusAccepted
+	if task.Status == "canceled" {
+		status = http.StatusOK
+	}
+	httpx.JSON(w, status, task)
 }
 func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))

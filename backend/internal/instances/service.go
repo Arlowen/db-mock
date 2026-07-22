@@ -67,29 +67,31 @@ type ActionRequest struct {
 }
 
 type ActionPayload struct {
-	InstanceID              uuid.UUID  `json:"instanceId"`
-	OperationID             *uuid.UUID `json:"operationId,omitempty"`
-	ReuseRollbackSnapshot   bool       `json:"reuseRollbackSnapshot,omitempty"`
-	NewTemplateVersionID    *uuid.UUID `json:"newTemplateVersionId,omitempty"`
-	BackupID                *uuid.UUID `json:"backupId,omitempty"`
-	BackupPolicyID          *uuid.UUID `json:"backupPolicyId,omitempty"`
-	ScheduledFor            *time.Time `json:"scheduledFor,omitempty"`
-	PreviousBackupStatus    string     `json:"previousBackupStatus,omitempty"`
-	ImageSource             string     `json:"imageSource,omitempty"`
-	ImageArtifactID         *uuid.UUID `json:"imageArtifactId,omitempty"`
-	RegistryID              *uuid.UUID `json:"registryId,omitempty"`
-	PreviousStatus          string     `json:"previousStatus,omitempty"`
-	PreviousDesiredState    string     `json:"previousDesiredState,omitempty"`
-	TargetCPU               float64    `json:"targetCpu,omitempty"`
-	TargetMemoryBytes       int64      `json:"targetMemoryBytes,omitempty"`
-	TargetDiskBytes         int64      `json:"targetDiskBytes,omitempty"`
-	EncryptedTargetConfig   string     `json:"encryptedTargetConfig,omitempty"`
-	PreviousCPU             float64    `json:"previousCpu,omitempty"`
-	PreviousMemoryBytes     int64      `json:"previousMemoryBytes,omitempty"`
-	PreviousDiskBytes       int64      `json:"previousDiskBytes,omitempty"`
-	EncryptedPreviousConfig string     `json:"encryptedPreviousConfig,omitempty"`
-	TargetAutoRestart       *bool      `json:"targetAutoRestart,omitempty"`
-	PreviousAutoRestart     *bool      `json:"previousAutoRestart,omitempty"`
+	InstanceID                    uuid.UUID  `json:"instanceId"`
+	OperationID                   *uuid.UUID `json:"operationId,omitempty"`
+	ReuseRollbackSnapshot         bool       `json:"reuseRollbackSnapshot,omitempty"`
+	NewTemplateVersionID          *uuid.UUID `json:"newTemplateVersionId,omitempty"`
+	BackupID                      *uuid.UUID `json:"backupId,omitempty"`
+	BackupPolicyID                *uuid.UUID `json:"backupPolicyId,omitempty"`
+	ScheduledFor                  *time.Time `json:"scheduledFor,omitempty"`
+	PreviousBackupStatus          string     `json:"previousBackupStatus,omitempty"`
+	ImageSource                   string     `json:"imageSource,omitempty"`
+	ImageArtifactID               *uuid.UUID `json:"imageArtifactId,omitempty"`
+	RegistryID                    *uuid.UUID `json:"registryId,omitempty"`
+	PreviousStatus                string     `json:"previousStatus,omitempty"`
+	PreviousDesiredState          string     `json:"previousDesiredState,omitempty"`
+	TargetCPU                     float64    `json:"targetCpu,omitempty"`
+	TargetMemoryBytes             int64      `json:"targetMemoryBytes,omitempty"`
+	TargetDiskBytes               int64      `json:"targetDiskBytes,omitempty"`
+	EncryptedTargetConfig         string     `json:"encryptedTargetConfig,omitempty"`
+	PreviousCPU                   float64    `json:"previousCpu,omitempty"`
+	PreviousMemoryBytes           int64      `json:"previousMemoryBytes,omitempty"`
+	PreviousDiskBytes             int64      `json:"previousDiskBytes,omitempty"`
+	EncryptedPreviousConfig       string     `json:"encryptedPreviousConfig,omitempty"`
+	TargetAutoRestart             *bool      `json:"targetAutoRestart,omitempty"`
+	PreviousAutoRestart           *bool      `json:"previousAutoRestart,omitempty"`
+	PreviousBackupPolicyEnabled   *bool      `json:"previousBackupPolicyEnabled,omitempty"`
+	PreviousBackupPolicyNextRunAt *time.Time `json:"previousBackupPolicyNextRunAt,omitempty"`
 }
 
 type instanceConfiguration struct {
@@ -116,7 +118,91 @@ func NewService(target *store.Store, vault *appcrypto.Vault, docker *hostops.Doc
 	manager.Register("instance.backup", service.handleBackupCreate)
 	manager.Register("instance.restore", service.handleBackupRestore)
 	manager.Register("instance.backup.delete", service.handleBackupDelete)
+	for _, kind := range []string{"instance.create", "instance.start", "instance.stop", "instance.restart",
+		"instance.delete", "instance.upgrade", "instance.reconfigure", "instance.backup", "instance.restore",
+		"instance.backup.delete"} {
+		manager.RegisterCancellation(kind, service.prepareQueuedTaskCancellation)
+	}
 	return service
+}
+
+func (s *Service) prepareQueuedTaskCancellation(ctx context.Context, task domain.Task) (*store.QueuedTaskRecovery, error) {
+	var payload ActionPayload
+	if err := tasks.DecodePayload(task, &payload); err != nil {
+		return nil, err
+	}
+	instance, err := s.store.GetInstance(ctx, payload.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
+	stable := upgradeStableState(previousStatus, previousDesired)
+	recovery := store.QueuedTaskRecovery{InstanceID: &payload.InstanceID,
+		InstanceStatus: stable.Status, InstanceDesiredState: stable.Desired}
+	if payload.OperationID != nil {
+		recovery.PreserveResources = true
+		return &recovery, nil
+	}
+
+	switch task.Kind {
+	case "instance.create":
+		recovery.InstanceStatus = "failed"
+		recovery.InstanceDesiredState = ""
+		recovery.InstanceStatusMessage = "Instance creation was canceled before the database was started"
+	case "instance.start", "instance.stop", "instance.restart":
+		recovery.InstanceStatus, recovery.InstanceDesiredState = previousStatus, previousDesired
+	case "instance.delete":
+		recovery.InstanceStatus, recovery.InstanceDesiredState = previousStatus, previousDesired
+		if payload.PreviousBackupPolicyEnabled != nil {
+			recovery.DeletePolicy = &store.BackupPolicyState{Enabled: *payload.PreviousBackupPolicyEnabled,
+				NextRunAt: payload.PreviousBackupPolicyNextRunAt}
+		}
+	case "instance.upgrade":
+	case "instance.reconfigure":
+		previousConfiguration, openErr := s.openRuntimeConfiguration(instance.ID, payload.EncryptedPreviousConfig)
+		if openErr != nil {
+			return nil, openErr
+		}
+		_, previousAutoRestart := taskRestartPolicies(payload, instance)
+		configuration := runtimeConfiguration(payload.PreviousCPU, payload.PreviousMemoryBytes,
+			payload.PreviousDiskBytes, previousConfiguration, previousAutoRestart)
+		recovery.RuntimeConfiguration = &configuration
+	case "instance.backup":
+		if payload.BackupID == nil {
+			return nil, domain.ErrInvalid
+		}
+		recovery.BackupID = payload.BackupID
+		recovery.BackupStatus = "failed"
+		recovery.BackupStatusMessage = "Backup creation was canceled before the archive was created"
+		recovery.BackupPolicyID = payload.BackupPolicyID
+	case "instance.restore":
+		if payload.BackupID == nil {
+			return nil, domain.ErrInvalid
+		}
+		recovery.BackupID = payload.BackupID
+		recovery.BackupStatus = "ready"
+	case "instance.backup.delete":
+		if payload.BackupID == nil {
+			return nil, domain.ErrInvalid
+		}
+		recovery.InstanceStatus, recovery.InstanceDesiredState = instance.Status, instance.DesiredState
+		recovery.BackupID = payload.BackupID
+		recovery.BackupStatus = payload.PreviousBackupStatus
+		if recovery.BackupStatus != "ready" && recovery.BackupStatus != "failed" {
+			recovery.BackupStatus = "ready"
+		}
+	default:
+		return nil, fmt.Errorf("%w: unknown instance task kind", domain.ErrInvalid)
+	}
+	return &recovery, nil
+}
+
+func deleteBackupPolicyState(payload ActionPayload) *store.BackupPolicyState {
+	if payload.PreviousBackupPolicyEnabled == nil {
+		return nil
+	}
+	return &store.BackupPolicyState{Enabled: *payload.PreviousBackupPolicyEnabled,
+		NextRunAt: payload.PreviousBackupPolicyNextRunAt}
 }
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRequest) (domain.Instance, domain.Task, error) {
@@ -1066,7 +1152,7 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 	if err != nil {
 		return nil, err
 	}
-	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
 	stable := upgradeStableState(previousStatus, previousDesired)
 	targetConfiguration, err := s.openRuntimeConfiguration(instance.ID, payload.EncryptedTargetConfig)
 	if err != nil {
@@ -1079,6 +1165,13 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 	targetAutoRestart, previousAutoRestart := taskRestartPolicies(payload, instance)
 	target := runtimeConfiguration(payload.TargetCPU, payload.TargetMemoryBytes, payload.TargetDiskBytes, targetConfiguration, targetAutoRestart)
 	previous := runtimeConfiguration(payload.PreviousCPU, payload.PreviousMemoryBytes, payload.PreviousDiskBytes, previousConfiguration, previousAutoRestart)
+	if payload.OperationID != nil {
+		// Retrying did not reserve the target configuration. Rollback must return
+		// to the configuration present when this attempt started, not a stale
+		// snapshot from the original failed task.
+		previous = runtimeConfiguration(instance.CPU, instance.MemoryBytes, instance.ReservedDiskBytes,
+			instance.Configuration, instance.AutoRestart)
+	}
 	if (instance.Status == "running" || instance.Status == "stopped") && instanceHasRuntimeConfiguration(instance, target) {
 		return runtimeConfigurationResult(instance.ID, instance.Status, target), nil
 	}
@@ -1182,7 +1275,7 @@ func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task
 	if err != nil {
 		return nil, err
 	}
-	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
 	defer func() {
 		if err == nil {
 			return
@@ -1243,13 +1336,17 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 	if err != nil {
 		return nil, err
 	}
-	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
+	operationStarted := false
 	defer func() {
 		if err == nil {
 			return
 		}
 		recoveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if !operationStarted && payload.OperationID == nil {
+			_ = s.store.RestoreInstanceBackupPolicyAfterDelete(recoveryCtx, instance.ID, deleteBackupPolicyState(payload))
+		}
 		if errors.Is(err, tasks.ErrCanceled) {
 			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, previousStatus, previousDesired, "")
 			return
@@ -1263,6 +1360,7 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 	if err = runtime.Stage(ctx, 10, "compose", "Stopping and removing Compose project", false); err != nil {
 		return nil, err
 	}
+	operationStarted = true
 	if err = s.docker.ComposeDown(ctx, host, instance); err != nil {
 		return nil, fmt.Errorf("stop Compose project before deleting managed data: %w", err)
 	}
@@ -1287,7 +1385,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		return nil, err
 	}
 	operationID, reuseRollbackSnapshot := rollbackOperation(payload, task)
-	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	previousStatus, previousDesired := currentOrPreviousInstanceState(payload, instance)
 	if payload.NewTemplateVersionID == nil {
 		return nil, domain.ErrInvalid
 	}

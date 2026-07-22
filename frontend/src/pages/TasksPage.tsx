@@ -123,9 +123,13 @@ export function TasksPage() {
         notifyTask(retried)
         setParams(continueTo ? { task: retried.id, continue: continueTo } : { task: retried.id })
       } else {
-        await api(`/tasks/${item.id}/cancel`, { method: 'POST', body: {} })
-        message.success(t('cancelRequested'))
-        if (taskID === item.id) await loadDetail(item.id)
+        const canceled = await api<Task>(`/tasks/${item.id}/cancel`, { method: 'POST', body: {} })
+        message.success(t(canceled.status === 'canceled' ? 'taskCanceledImmediately' : 'cancelRequested'))
+        setItems((current) => current.map((task) => task.id === canceled.id ? canceled : task))
+        if (taskID === item.id) {
+          setSelected(canceled)
+          await loadDetail(item.id)
+        }
       }
       await load()
     } catch (error) {
@@ -163,13 +167,13 @@ export function TasksPage() {
     { title: t('resource'), width: 160, render: (_: unknown, task: Task) => { const resource = resourceLink(task); return <div className="task-resource"><Tag>{translateCode(t, task.resourceType, 'resourceType')}</Tag>{resource.path ? <Button type="link" onClick={() => resource.path && navigate(resource.path)} icon={resource.icon}>{resource.label}</Button> : <Typography.Text>{resource.label}</Typography.Text>}</div> } },
     { title: t('progress'), width: 160, render: (_: unknown, task: Task) => <Progress percent={task.progress} status={task.status === 'failed' ? 'exception' : task.status === 'succeeded' ? 'success' : undefined} size="small" /> },
     { title: t('stage'), width: 220, render: (_: unknown, task: Task) => { const summary = taskSummary(task); return <div className="task-stage-cell"><Typography.Text strong>{translateCode(t, task.stage)}</Typography.Text><Typography.Text type={task.status === 'failed' ? 'danger' : 'secondary'} ellipsis={{ tooltip: summary }}>{summary}</Typography.Text></div> } },
-    { title: t('actions'), width: 110, align: 'right' as const, render: (_: unknown, task: Task) => { const retryKey = `${task.id}:retry`; const cancelKey = `${task.id}:cancel`; if (!canOperate || (!canRetry(task) && !canCancel(task))) return <Typography.Text type="secondary">—</Typography.Text>; return <Space className="task-table-actions">{canRetry(task) && <Button size="small" loading={actioning === retryKey} disabled={!!actioning && actioning !== retryKey} icon={<RedoOutlined />} onClick={() => void action(task, 'retry')}>{t('retry')}</Button>}{canCancel(task) && <Popconfirm title={t('cancelTask')} description={t('cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(task, 'cancel')}><Button size="small" danger loading={actioning === cancelKey} disabled={!!actioning && actioning !== cancelKey} icon={<CloseCircleOutlined />}>{t('cancel')}</Button></Popconfirm>}</Space> } },
+    { title: t('actions'), width: 110, align: 'right' as const, render: (_: unknown, task: Task) => { const retryKey = `${task.id}:retry`; const cancelKey = `${task.id}:cancel`; if (!canOperate || (!canRetry(task) && !canCancel(task))) return <Typography.Text type="secondary">—</Typography.Text>; return <Space className="task-table-actions">{canRetry(task) && <Button size="small" loading={actioning === retryKey} disabled={!!actioning && actioning !== retryKey} icon={<RedoOutlined />} onClick={() => void action(task, 'retry')}>{t('retry')}</Button>}{canCancel(task) && <Popconfirm title={t('cancelTask')} description={t(task.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(task, 'cancel')}><Button size="small" danger loading={actioning === cancelKey} disabled={!!actioning && actioning !== cancelKey} icon={<CloseCircleOutlined />}>{t('cancel')}</Button></Popconfirm>}</Space> } },
   ]
 
   const selectedResource = selected ? resourceLink(selected) : undefined
   const selectedRecoveryHost = selected?.errorCode === 'ssh_timeout' && selected.hostId ? hosts.find((host) => host.id === selected.hostId) : undefined
   const inspectRecoveryHost = () => { if (!selectedRecoveryHost) return; closeDetail(); navigate(`/hosts?host=${selectedRecoveryHost.id}`) }
-  const drawerFooter = selected ? <div className="task-drawer-footer"><Space><Button disabled={!selectedResource?.path} icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>{canOperate && <Space>{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t('cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const drawerFooter = selected ? <div className="task-drawer-footer"><Space><Button disabled={!selectedResource?.path} icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>{canOperate && <Space>{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} actions={<Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>} />

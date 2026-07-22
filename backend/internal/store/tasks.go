@@ -115,6 +115,12 @@ func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, i
 	if currentStatus != expectedStatus {
 		return domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the operation", domain.ErrConflict)
 	}
+	if operationStatus == "deleting" {
+		payload, err = captureDeleteBackupPolicy(ctx, tx, instanceID, payload)
+		if err != nil {
+			return domain.Task{}, err
+		}
+	}
 	if err = lockTaskSourceReferences(ctx, tx, input.Kind, payload); err != nil {
 		return domain.Task{}, err
 	}
@@ -138,6 +144,34 @@ func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, i
 		return domain.Task{}, err
 	}
 	return item, nil
+}
+
+func captureDeleteBackupPolicy(ctx context.Context, tx pgx.Tx, instanceID uuid.UUID, payload []byte) ([]byte, error) {
+	var enabled bool
+	var nextRunAt *time.Time
+	err := tx.QueryRow(ctx, `SELECT enabled,next_run_at FROM instance_backup_policies
+		WHERE instance_id=$1 FOR UPDATE`, instanceID).Scan(&enabled, &nextRunAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return payload, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var values map[string]json.RawMessage
+	if err = json.Unmarshal(payload, &values); err != nil || values == nil {
+		return nil, fmt.Errorf("%w: task payload is not a JSON object", domain.ErrInvalid)
+	}
+	values["previousBackupPolicyEnabled"], err = json.Marshal(enabled)
+	if err != nil {
+		return nil, err
+	}
+	if nextRunAt != nil {
+		values["previousBackupPolicyNextRunAt"], err = json.Marshal(nextRunAt)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(values)
 }
 
 func taskInsertError(err error) error {
