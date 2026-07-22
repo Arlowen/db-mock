@@ -29,6 +29,12 @@ the first platform account.
 timezone in System settings; the runtime setting immediately controls audit, task, alert, and monitoring
 timestamps without a service restart.
 
+Process-level configuration is strict. Durations use Go duration syntax such as `720h`, task worker
+concurrency must be between `1` and `32`, and the upload hard ceiling must stay within the supported range.
+An invalid value prevents startup and names the offending variable instead of silently using a default.
+`DBMOCK_PUBLIC_URL` must be the exact browser-facing HTTP or HTTPS origin without user information, a path,
+query parameters, or a fragment.
+
 The application container serves both the API and embedded Web UI. The stack contains DB Mock and
 PostgreSQL only; no Nginx or separate frontend service is required.
 
@@ -70,7 +76,17 @@ DBMOCK_TLS_CERT_FILE=/etc/dbmock/tls/server.crt
 DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
 ```
 
-Run `make up` again. The certificate and key must be configured together.
+Run `make up` again. The certificate and key must be configured together, and the public URL must use
+HTTPS. DB Mock reads and validates the matching key pair before it connects to PostgreSQL or starts workers.
+The certificate directory must be searchable and both files readable by the container's `dbmock` user. On
+Linux its stable UID/GID is `100:101`, so the private key can remain readable only by its owner and that group.
+Container health checks and disaster-recovery probes automatically switch to internal HTTPS; only these
+container-local probes skip hostname verification.
+
+A reverse proxy may terminate TLS instead. Leave `DBMOCK_TLS_CERT_FILE` and `DBMOCK_TLS_KEY_FILE` empty,
+set `DBMOCK_PUBLIC_URL` to the browser-facing `https://` origin, and preserve the original `Host` header.
+Set `DBMOCK_BIND_ADDRESS` to `127.0.0.1` or a private address reachable only by the proxy. An HTTPS public
+URL enables Secure session cookies and HSTS whether TLS terminates in DB Mock or at the proxy.
 
 ## Upgrade and operations
 
@@ -79,6 +95,10 @@ Run `make up` again. The certificate and key must be configured together.
 make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
+
+The command above is for the default HTTP deployment. With built-in TLS, use the public HTTPS URL and let
+`curl` validate the production CA chain, for example
+`curl -fsS https://dbmock.example.com:8080/api/v1/health`.
 
 The upgrade script creates a control-plane backup under `backups/` before it pulls and starts the new
 version. Only set `DBMOCK_SKIP_PRE_UPGRADE_BACKUP=true` when a separately verified recovery copy exists.

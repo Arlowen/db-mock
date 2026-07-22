@@ -27,6 +27,11 @@ make up
 `DBMOCK_TIMEZONE` 是首次初始化使用的 IANA 时区默认值。创建首个账号后，请在“系统设置”中调整时区；
 该运行时设置会立即统一影响审计、任务、告警和监控时间展示，无需重启服务。
 
+进程级配置采用严格校验：时长使用 Go duration 格式（例如 `720h`），任务并发数必须在
+`1-32`，上传硬上限必须在支持范围内。无法解析或超出范围的值会让应用拒绝启动，并在日志中
+指出具体变量名，不会静默退回默认值。`DBMOCK_PUBLIC_URL` 必须是浏览器实际访问的单个
+HTTP/HTTPS origin，不能包含账号、路径、查询参数或片段。
+
 应用容器同时提供 API 和内嵌 Web 页面，Compose 中只有 DB Mock 与 PostgreSQL 两个服务，
 不需要 Nginx 或独立前端容器。
 
@@ -67,7 +72,16 @@ DBMOCK_TLS_CERT_FILE=/etc/dbmock/tls/server.crt
 DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
 ```
 
-重新执行 `make up`。证书和私钥必须同时配置。
+重新执行 `make up`。证书和私钥必须同时配置，公开地址必须使用 HTTPS；应用会在连接
+PostgreSQL 和启动后台任务前读取并校验证书/私钥是否匹配。
+证书目录必须允许容器内的 `dbmock` 用户进入，证书与私钥必须可读；在 Linux 上该用户的
+固定 UID/GID 为 `100:101`，可将私钥保留为仅所有者和该组可读。容器健康检查与灾备恢复
+探针会自动改用内部 HTTPS，并仅在容器内部探针中跳过主机名校验。
+
+也可以由反向代理终止 TLS。此时保持 `DBMOCK_TLS_CERT_FILE` 和 `DBMOCK_TLS_KEY_FILE`
+为空，把 `DBMOCK_PUBLIC_URL` 设置为浏览器访问的 `https://` origin，并让代理保留原始
+`Host`。建议同时把 `DBMOCK_BIND_ADDRESS` 设置为 `127.0.0.1` 或只允许代理访问的私网地址。
+无论 HTTPS 在应用还是代理处终止，HTTPS 公开地址都会启用 Secure 会话 Cookie 和 HSTS。
 
 ## 升级和运维
 
@@ -76,6 +90,9 @@ DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
 make logs
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
+
+上面的健康检查命令适用于默认 HTTP；内置 TLS 部署应使用公开 HTTPS 地址并让 `curl` 按
+生产 CA 链校验证书，例如 `curl -fsS https://dbmock.example.com:8080/api/v1/health`。
 
 升级脚本默认先把当前控制平面备份到 `backups/`，成功后才拉取并启动新版本。仅在已经通过
 其他方式确认存在可恢复副本时，才可显式设置 `DBMOCK_SKIP_PRE_UPGRADE_BACKUP=true` 跳过。

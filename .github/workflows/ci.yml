@@ -148,6 +148,39 @@ jobs:
           test "$(docker compose -f deploy/compose.yaml exec -T postgres \
             psql -U dbmock -d dbmock -Atc "SELECT display_name FROM users WHERE username='e2e-admin'")" = "rollback state"
           curl -fsS http://127.0.0.1:8080/api/v1/health
+      - name: Verify built-in TLS health checks
+        run: |
+          mkdir -p deploy/tls
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj '/CN=localhost' \
+            -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+            -keyout deploy/tls/server.key -out deploy/tls/server.crt
+          chmod 644 deploy/tls/server.crt deploy/tls/server.key
+          export DBMOCK_PUBLIC_URL=https://localhost:8080
+          export DBMOCK_TLS_CERT_FILE=/etc/dbmock/tls/server.crt
+          export DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
+          docker compose -f deploy/compose.yaml up -d --force-recreate dbmock
+          for attempt in $(seq 1 30); do
+            if curl --cacert deploy/tls/server.crt -fsS \
+              https://127.0.0.1:8080/api/v1/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl --cacert deploy/tls/server.crt -fsS -D - -o /dev/null \
+            https://127.0.0.1:8080/api/v1/health | tr -d '\r' | grep -iFx \
+            'strict-transport-security: max-age=31536000'
+          for attempt in $(seq 1 20); do
+            if docker compose -f deploy/compose.yaml ps --format '{{.Health}}' dbmock | grep -Fx healthy; then
+              break
+            fi
+            sleep 2
+          done
+          docker compose -f deploy/compose.yaml ps --format '{{.Health}}' dbmock | grep -Fx healthy
+          platform_compose_file=deploy/compose.yaml
+          platform_env_file=deploy/.env
+          . scripts/lib/platform-compose.sh
+          DBMOCK_RESTORE_HEALTH_ATTEMPTS=2 platform_wait_application
       - name: Collect service logs
         if: failure()
         run: docker compose -f deploy/compose.yaml logs

@@ -83,8 +83,7 @@ func main() {
 	instanceService.StartBackupScheduler(root, logger)
 	monitor.New(target, docker, logger, cfg.MonitorInterval, cfg.MetricsRetention).Start(root)
 	webhooks.New(target, vault, logger).Start(root)
-	secureCookie := cfg.TLSCertFile != ""
-	authService := auth.New(target, cfg.SessionDuration, secureCookie)
+	authService := auth.New(target, cfg.SessionDuration, cfg.SecureCookies)
 	api.Version = version
 	handler := api.New(cfg, target, vault, authService, hostService, docker, instanceService, imageService, taskManager, logger).Handler()
 	server := &http.Server{Addr: cfg.ListenAddress, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
@@ -92,8 +91,8 @@ func main() {
 		MaxHeaderBytes: 1 << 20}
 	serverErrors := make(chan error, 1)
 	go func() {
-		logger.Info("DB Mock listening", "address", cfg.ListenAddress, "version", version, "tls", secureCookie)
-		if secureCookie {
+		logger.Info("DB Mock listening", "address", cfg.ListenAddress, "version", version, "tls", cfg.TLSCertFile != "", "secureCookies", cfg.SecureCookies)
+		if cfg.TLSCertFile != "" {
 			serverErrors <- server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
 		} else {
 			serverErrors <- server.ListenAndServe()

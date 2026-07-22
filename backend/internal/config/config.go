@@ -2,9 +2,11 @@ package config
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,33 +30,71 @@ type Config struct {
 	MaxUploadBytes      int64
 	TaskWorkers         int
 	Timezone            string
-	Development         bool
+	SecureCookies       bool
 	AutoGenerateKeyFile string
 }
 
 func Load() (Config, error) {
+	sessionDuration, err := envDuration("DBMOCK_SESSION_DURATION", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	monitorInterval, err := envDuration("DBMOCK_MONITOR_INTERVAL", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	metricsRetention, err := envDuration("DBMOCK_METRICS_RETENTION", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	maxUploadBytes, err := envInt64("DBMOCK_MAX_UPLOAD_BYTES", 50*1024*1024*1024)
+	if err != nil {
+		return Config{}, err
+	}
+	taskWorkers, err := envInt64("DBMOCK_TASK_WORKERS", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	publicURL, secureCookies, err := parsePublicURL(env("DBMOCK_PUBLIC_URL", "http://localhost:8080"))
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		ListenAddress:       env("DBMOCK_LISTEN_ADDRESS", ":8080"),
 		DatabaseURL:         env("DBMOCK_DATABASE_URL", "postgres://dbmock:dbmock@localhost:5432/dbmock?sslmode=disable"),
 		ArtifactDirectory:   env("DBMOCK_ARTIFACT_DIR", "./data/artifacts"),
-		PublicURL:           strings.TrimRight(env("DBMOCK_PUBLIC_URL", "http://localhost:8080"), "/"),
+		PublicURL:           publicURL,
 		TLSCertFile:         os.Getenv("DBMOCK_TLS_CERT_FILE"),
 		TLSKeyFile:          os.Getenv("DBMOCK_TLS_KEY_FILE"),
-		SessionDuration:     envDuration("DBMOCK_SESSION_DURATION", 30*24*time.Hour),
-		MonitorInterval:     envDuration("DBMOCK_MONITOR_INTERVAL", 30*time.Second),
-		MetricsRetention:    envDuration("DBMOCK_METRICS_RETENTION", 7*24*time.Hour),
-		MaxUploadBytes:      envInt64("DBMOCK_MAX_UPLOAD_BYTES", 50*1024*1024*1024),
-		TaskWorkers:         int(envInt64("DBMOCK_TASK_WORKERS", 4)),
+		SessionDuration:     sessionDuration,
+		MonitorInterval:     monitorInterval,
+		MetricsRetention:    metricsRetention,
+		MaxUploadBytes:      maxUploadBytes,
+		TaskWorkers:         int(taskWorkers),
 		Timezone:            strings.TrimSpace(env("DBMOCK_TIMEZONE", "Asia/Shanghai")),
-		Development:         envBool("DBMOCK_DEVELOPMENT", false),
+		SecureCookies:       secureCookies,
 		AutoGenerateKeyFile: env("DBMOCK_MASTER_KEY_FILE", "./data/master.key"),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		return Config{}, errors.New("DBMOCK_TLS_CERT_FILE and DBMOCK_TLS_KEY_FILE must be configured together")
 	}
+	if cfg.TLSCertFile != "" && !cfg.SecureCookies {
+		return Config{}, errors.New("DBMOCK_PUBLIC_URL must use https when built-in TLS is enabled")
+	}
+	if cfg.TLSCertFile != "" {
+		if _, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+			return Config{}, fmt.Errorf("load DBMOCK_TLS_CERT_FILE and DBMOCK_TLS_KEY_FILE: %w", err)
+		}
+	}
 	if cfg.TaskWorkers < 1 || cfg.TaskWorkers > 32 {
 		return Config{}, errors.New("DBMOCK_TASK_WORKERS must be between 1 and 32")
+	}
+	if cfg.MonitorInterval < 5*time.Second || cfg.MonitorInterval > time.Hour {
+		return Config{}, errors.New("DBMOCK_MONITOR_INTERVAL must be between 5s and 1h")
+	}
+	if cfg.MetricsRetention < 24*time.Hour || cfg.MetricsRetention > 365*24*time.Hour || cfg.MetricsRetention%(24*time.Hour) != 0 {
+		return Config{}, errors.New("DBMOCK_METRICS_RETENTION must be a whole number of days between 24h and 8760h")
 	}
 	if cfg.MaxUploadBytes < platformsettings.MinUploadBytes || cfg.MaxUploadBytes > platformsettings.MaxUploadBytes {
 		return Config{}, fmt.Errorf("DBMOCK_MAX_UPLOAD_BYTES must be between %d and %d bytes", platformsettings.MinUploadBytes, platformsettings.MaxUploadBytes)
@@ -113,38 +153,57 @@ func env(name, fallback string) string {
 	return fallback
 }
 
-func envDuration(name string, fallback time.Duration) time.Duration {
-	value := os.Getenv(name)
+func envDuration(name string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be a valid duration: %w", name, err)
 	}
-	return parsed
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero", name)
+	}
+	return parsed, nil
 }
 
-func envInt64(name string, fallback int64) int64 {
-	value := os.Getenv(name)
+func envInt64(name string, fallback int64) (int64, error) {
+	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be a base-10 integer: %w", name, err)
 	}
-	return parsed
+	return parsed, nil
 }
 
-func envBool(name string, fallback bool) bool {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
+func parsePublicURL(value string) (string, bool, error) {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.Hostname() == "" {
+		return "", false, errors.New("DBMOCK_PUBLIC_URL must be an absolute http or https URL")
 	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", false, errors.New("DBMOCK_PUBLIC_URL must use the http or https scheme")
 	}
-	return parsed
+	if parsed.User != nil {
+		return "", false, errors.New("DBMOCK_PUBLIC_URL must not contain user information")
+	}
+	if port := parsed.Port(); port != "" {
+		value, portErr := strconv.Atoi(port)
+		if portErr != nil || value < 1 || value > 65535 {
+			return "", false, errors.New("DBMOCK_PUBLIC_URL port must be between 1 and 65535")
+		}
+	}
+	if (parsed.Path != "" && parsed.Path != "/") || parsed.RawPath != "" {
+		return "", false, errors.New("DBMOCK_PUBLIC_URL must not contain a path")
+	}
+	if parsed.ForceQuery || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", false, errors.New("DBMOCK_PUBLIC_URL must not contain a query or fragment")
+	}
+	parsed.Path = ""
+	return strings.TrimRight(parsed.String(), "/"), parsed.Scheme == "https", nil
 }

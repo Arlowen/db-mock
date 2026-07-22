@@ -64,7 +64,13 @@ platform_wait_application() {
   esac
   attempt=1
   while [ "$attempt" -le "$attempts" ]; do
-    if platform_compose exec -T dbmock wget -qO- http://127.0.0.1:8080/api/v1/health >/dev/null 2>&1; then
+    if platform_compose exec -T dbmock sh -ec '
+      if [ -n "${DBMOCK_TLS_CERT_FILE:-}" ]; then
+        wget --no-check-certificate -qO- https://127.0.0.1:8080/api/v1/health
+      else
+        wget -qO- http://127.0.0.1:8080/api/v1/health
+      fi
+    ' >/dev/null 2>&1; then
       return 0
     fi
     sleep 2

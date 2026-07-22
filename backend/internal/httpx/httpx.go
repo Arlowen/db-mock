@@ -112,7 +112,7 @@ func (w *statusWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
-func RequestMiddleware(logger *slog.Logger, publicURL string) func(http.Handler) http.Handler {
+func RequestMiddleware(logger *slog.Logger, publicURL string, secureTransport bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestID := r.Header.Get("X-Request-ID")
@@ -127,6 +127,9 @@ func RequestMiddleware(logger *slog.Logger, publicURL string) func(http.Handler)
 			w.Header().Set("X-Frame-Options", "DENY")
 			w.Header().Set("Referrer-Policy", "same-origin")
 			w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			if secureTransport {
+				w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+			}
 			ctx := auth.WithRequestID(r.Context(), requestID)
 			started := time.Now()
 			writer := &statusWriter{ResponseWriter: w}

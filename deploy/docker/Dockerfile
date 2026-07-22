@@ -22,12 +22,12 @@ COPY --from=frontend /src/backend/web/dist ./web/dist
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/dbmock ./cmd/dbmock
 
 FROM ${ALPINE_IMAGE}
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S dbmock && adduser -S -G dbmock -h /var/lib/dbmock dbmock
+RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 101 dbmock && adduser -S -D -u 100 -G dbmock -h /var/lib/dbmock dbmock
 WORKDIR /var/lib/dbmock
 COPY --from=backend /out/dbmock /usr/local/bin/dbmock
 RUN mkdir -p /var/lib/dbmock/artifacts && chown -R dbmock:dbmock /var/lib/dbmock
 USER dbmock
 EXPOSE 8080
 VOLUME ["/var/lib/dbmock"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:8080/api/v1/health >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD if [ -n "${DBMOCK_TLS_CERT_FILE:-}" ]; then wget --no-check-certificate -qO- https://127.0.0.1:8080/api/v1/health >/dev/null; else wget -qO- http://127.0.0.1:8080/api/v1/health >/dev/null; fi
 ENTRYPOINT ["/usr/local/bin/dbmock"]
