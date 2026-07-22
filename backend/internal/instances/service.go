@@ -256,19 +256,26 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if request.CPU < version.MinCPU || request.MemoryBytes < version.MinMemoryBytes || request.DiskBytes < version.MinDiskBytes {
 		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: resources are below template minimum", domain.ErrInvalid)
 	}
-	host, hostPort, err := s.selectHost(ctx, request.HostID, version, request.CPU, request.MemoryBytes, request.DiskBytes, request.HostPort)
+	deploymentArchitectures := version.Architectures
+	var artifact *domain.ImageArtifact
+	if request.ImageArtifactID != nil {
+		selectedArtifact, getErr := s.store.GetImageArtifact(ctx, *request.ImageArtifactID)
+		if getErr != nil {
+			return domain.Instance{}, domain.Task{}, getErr
+		}
+		deploymentArchitectures, err = artifactDeploymentArchitectures(selectedArtifact, version)
+		if err != nil {
+			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
+		}
+		artifact = &selectedArtifact
+	}
+	host, hostPort, err := s.selectHost(ctx, request.HostID, deploymentArchitectures, request.CPU, request.MemoryBytes, request.DiskBytes, request.HostPort)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
 	request.HostPort = hostPort
-	if request.ImageArtifactID != nil {
-		artifact, getErr := s.store.GetImageArtifact(ctx, *request.ImageArtifactID)
-		if getErr != nil {
-			return domain.Instance{}, domain.Task{}, getErr
-		}
-		if !artifactSupportsVersion(artifact, host, version) {
-			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
-		}
+	if artifact != nil && !artifactSupportsVersion(*artifact, host, version) {
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
 	}
 	if request.RegistryID != nil {
 		registry, getErr := s.store.GetRegistry(ctx, *request.RegistryID)
@@ -590,19 +597,36 @@ func validateUpgradeImageSelection(source string, artifactID, registryID *uuid.U
 }
 
 func artifactSupportsVersion(artifact domain.ImageArtifact, host domain.Host, version domain.TemplateVersion) bool {
-	if artifact.Status != "ready" || !supports(artifact.Architectures, host.Architecture) {
+	if !supports(artifact.Architectures, host.Architecture) {
 		return false
+	}
+	_, err := artifactDeploymentArchitectures(artifact, version)
+	return err == nil
+}
+
+func artifactDeploymentArchitectures(artifact domain.ImageArtifact, version domain.TemplateVersion) ([]string, error) {
+	if artifact.Status != "ready" {
+		return nil, fmt.Errorf("%w: offline image is not ready", domain.ErrConflict)
 	}
 	references, err := templates.RequiredImageReferences(version)
 	if err != nil {
-		return false
+		return nil, err
 	}
 	for _, reference := range references {
 		if !contains(artifact.ImageRefs, reference) {
-			return false
+			return nil, fmt.Errorf("%w: offline image does not contain every image required by the template", domain.ErrConflict)
 		}
 	}
-	return true
+	architectures := make([]string, 0, len(version.Architectures))
+	for _, architecture := range version.Architectures {
+		if supports(artifact.Architectures, architecture) {
+			architectures = append(architectures, architecture)
+		}
+	}
+	if len(architectures) == 0 {
+		return nil, fmt.Errorf("%w: offline image and template do not share a supported architecture", domain.ErrConflict)
+	}
+	return architectures, nil
 }
 
 func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, request ActionRequest) (string, *uuid.UUID, *uuid.UUID, domain.TemplateVersion, error) {
@@ -800,7 +824,7 @@ func (s *Service) Connection(ctx context.Context, id uuid.UUID) (domain.Instance
 	return templates.Connection(template, version, instance, instance.ConnectionAddress, string(plain)), nil
 }
 
-func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version domain.TemplateVersion, cpu float64, memory, disk int64, port int) (domain.Host, int, error) {
+func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, architectures []string, cpu float64, memory, disk int64, port int) (domain.Host, int, error) {
 	if requested != nil {
 		host, err := s.store.GetHost(ctx, *requested)
 		if err != nil {
@@ -809,8 +833,8 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 		if host.Status != "online" || host.Maintenance {
 			return domain.Host{}, 0, fmt.Errorf("%w: host is not available for deployments", domain.ErrConflict)
 		}
-		if !supports(version.Architectures, host.Architecture) {
-			return domain.Host{}, 0, fmt.Errorf("%w: host architecture is incompatible", domain.ErrConflict)
+		if !supports(architectures, host.Architecture) {
+			return domain.Host{}, 0, fmt.Errorf("%w: host architecture is incompatible with the template or selected image", domain.ErrConflict)
 		}
 		reservation, err := s.store.HostReservations(ctx, host.ID)
 		if err != nil {
@@ -839,7 +863,7 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, version 
 	}
 	var candidates []candidate
 	for _, host := range hosts {
-		if host.Status != "online" || host.Maintenance || !supports(version.Architectures, host.Architecture) {
+		if host.Status != "online" || host.Maintenance || !supports(architectures, host.Architecture) {
 			continue
 		}
 		reservation, err := s.store.HostReservations(ctx, host.ID)

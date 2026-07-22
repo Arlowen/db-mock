@@ -531,7 +531,7 @@ func TestValidateUpgradeImageSelection(t *testing.T) {
 
 func TestArtifactSupportsVersionRequiresEveryImageAndHostArchitecture(t *testing.T) {
 	host := domain.Host{Architecture: "arm64"}
-	version := domain.TemplateVersion{ImageReference: "database:17.1",
+	version := domain.TemplateVersion{ImageReference: "database:17.1", Architectures: []string{"arm64"},
 		Manifest: json.RawMessage(`{"imageReferences":["database:17.1","exporter:2"]}`)}
 	artifact := domain.ImageArtifact{Status: "ready", Architectures: []string{"amd64", "arm64"}, ImageRefs: []string{"database:17.1", "exporter:2"}}
 	if !artifactSupportsVersion(artifact, host, version) {
@@ -550,6 +550,30 @@ func TestArtifactSupportsVersionRequiresEveryImageAndHostArchitecture(t *testing
 	artifact.ImageRefs = []string{"database:17.1"}
 	if artifactSupportsVersion(artifact, host, version) {
 		t.Fatal("expected archive without a required sidecar image reference to be rejected")
+	}
+}
+
+func TestArtifactDeploymentArchitecturesIntersectsTemplateAndArchive(t *testing.T) {
+	version := domain.TemplateVersion{ImageReference: "database:17.1", Architectures: []string{"amd64", "arm64"},
+		Manifest: json.RawMessage(`{"imageReferences":["database:17.1","exporter:2"]}`)}
+	artifact := domain.ImageArtifact{Status: "ready", Architectures: []string{"arm64"},
+		ImageRefs: []string{"database:17.1", "exporter:2"}}
+	architectures, err := artifactDeploymentArchitectures(artifact, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(architectures) != 1 || architectures[0] != "arm64" {
+		t.Fatalf("deployment architectures = %#v, want [arm64]", architectures)
+	}
+
+	artifact.Architectures = []string{"ppc64le"}
+	if _, err = artifactDeploymentArchitectures(artifact, version); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected disjoint architectures to conflict, got %v", err)
+	}
+	artifact.Architectures = []string{"arm64"}
+	artifact.ImageRefs = []string{"database:17.1"}
+	if _, err = artifactDeploymentArchitectures(artifact, version); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected a missing sidecar image to conflict, got %v", err)
 	}
 }
 

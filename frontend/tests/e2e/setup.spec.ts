@@ -541,6 +541,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(addRegistryDialog).not.toBeVisible()
 
   const imageID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const wrongArchitectureImageID = 'abababab-abab-4bab-8bab-abababababab'
   const unusedImageID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   const registryID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   let registryName = 'Engineering Harbor'
@@ -552,8 +553,10 @@ test('initializes the platform and switches the embedded interface language', as
   const unusedImageCreatedAt = new Date(Date.now() - 60 * 86400000).toISOString()
   const registryUpdatedAt = new Date().toISOString()
   const unusedImage = { id: unusedImageID, name: 'Legacy Redis offline', filename: 'redis-6.tar', sizeBytes: 67108864, sha256: 'c'.repeat(64), format: 'docker-archive', imageRefs: ['redis:6'], architectures: ['amd64'], status: 'ready', usedByCount: 0, createdAt: unusedImageCreatedAt }
+  const wrongArchitectureImage = { id: wrongArchitectureImageID, name: 'PostgreSQL 17 arm64 only', filename: 'postgresql-17-arm64.tar.gz', sizeBytes: 125829120, sha256: 'b'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['arm64'], status: 'ready', usedByCount: 1, createdAt: imageCreatedAt }
   let unusedImageDeleted = false
-  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['amd64'], status: 'ready', usedByCount: 2, createdAt: imageCreatedAt }, ...(unusedImageDeleted ? [] : [unusedImage])] } }))
+  let includeWrongArchitectureImage = false
+  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['amd64'], status: 'ready', usedByCount: 2, createdAt: imageCreatedAt }, ...(includeWrongArchitectureImage ? [wrongArchitectureImage] : []), ...(unusedImageDeleted ? [] : [unusedImage])] } }))
   await page.route('**/api/v1/images/unused?olderThanDays=*', async (route) => route.fulfill({ json: { items: unusedImageDeleted ? [] : [unusedImage], totalBytes: unusedImageDeleted ? 0 : unusedImage.sizeBytes, olderThanDays: 30, cutoff: new Date(Date.now() - 30 * 86400000).toISOString() } }))
   await page.route('**/api/v1/images/cleanup', async (route) => {
     const body = route.request().postDataJSON()
@@ -600,6 +603,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(imageDrawer.getByText('被 2 个数据库实例使用').first()).toBeVisible()
   await expect(imageDrawer.getByRole('button', { name: '删除' })).toBeDisabled()
   await expect(imageDrawer.getByText('a'.repeat(64))).toBeVisible()
+  includeWrongArchitectureImage = true
   await imageDrawer.getByRole('button', { name: '创建数据库' }).click()
   await expect(page).toHaveURL(new RegExp(`/instances\\?create=1&template=.+&image=${imageID}$`))
   const createFromImageDrawer = page.getByRole('dialog', { name: '创建数据库' })
@@ -609,6 +613,9 @@ test('initializes the platform and switches the embedded interface language', as
   await createFromImageDrawer.getByRole('button', { name: '下一步' }).click()
   await expect(createFromImageDrawer.getByRole('radio', { name: '离线镜像' })).toBeChecked()
   await expect(createFromImageDrawer.getByText(/PostgreSQL 17 offline · 120 MiB · amd64/)).toBeVisible()
+  await createFromImageDrawer.getByRole('combobox', { name: '离线镜像' }).click()
+  await expect(page.getByRole('option', { name: /PostgreSQL 17 arm64 only/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await createFromImageDrawer.getByRole('button', { name: /取\s*消/ }).click()
   await page.getByRole('dialog', { name: '放弃未保存的数据库配置？' }).getByRole('button', { name: '放弃更改' }).click()
   await page.goto('/images')

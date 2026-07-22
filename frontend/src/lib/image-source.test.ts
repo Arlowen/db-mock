@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { imageArtifactMatchesTemplate, imageRegistryHost, isRegistryURL, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
+import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, isRegistryURL, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
 
 describe('image source matching', () => {
   it('resolves Docker Hub shorthand and explicit registries', () => {
@@ -40,5 +40,11 @@ describe('image source matching', () => {
       imageReferences: ['registry.example.test/database:1', 'ghcr.io/example/exporter:2'],
     } }
     expect(registryMatchesTemplate('https://registry.example.test', version)).toBe(false)
+  })
+
+  it('requires an offline archive to support at least one eligible host architecture', () => {
+    expect(imageArtifactSupportsAnyArchitecture(['arm64'], ['amd64', 'arm64'])).toBe(true)
+    expect(imageArtifactSupportsAnyArchitecture(['arm64'], ['amd64'])).toBe(false)
+    expect(imageArtifactSupportsAnyArchitecture([], ['amd64'])).toBe(false)
   })
 })

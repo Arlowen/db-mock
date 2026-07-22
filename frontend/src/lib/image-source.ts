@@ -41,6 +41,10 @@ export function imageArtifactMatchesTemplate(imageReferences: string[], version:
   return templateImageReferences(version).every((reference) => imageReferences.includes(reference))
 }
 
+export function imageArtifactSupportsAnyArchitecture(imageArchitectures: string[], targetArchitectures: string[]): boolean {
+  return targetArchitectures.some((architecture) => imageArchitectures.includes(architecture))
+}
+
 export function registryMatchesTemplate(registryURL: string, version: Pick<TemplateVersion, 'imageReference' | 'manifest'>): boolean {
   return templateImageReferences(version).every((reference) => registryMatchesImage(registryURL, reference))
 }
