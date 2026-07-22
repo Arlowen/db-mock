@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS instance_backups (
     host_id uuid NOT NULL REFERENCES hosts(id) ON DELETE RESTRICT,
     template_version_id uuid NOT NULL REFERENCES template_versions(id) ON DELETE RESTRICT,
     name text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 120),
+    creation_type text NOT NULL DEFAULT 'manual' CHECK (creation_type IN ('manual','scheduled')),
     status text NOT NULL DEFAULT 'creating' CHECK (status IN ('creating','ready','restoring','deleting','failed')),
     remote_path text NOT NULL CHECK (remote_path <> ''),
     size_bytes bigint NOT NULL DEFAULT 0 CHECK (size_bytes >= 0),

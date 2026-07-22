@@ -1,5 +1,5 @@
-import { CheckCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import { CheckCircleOutlined, ClockCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
+import { Alert, App, AutoComplete, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -15,13 +15,15 @@ import { instanceQuickAction } from '../lib/instance-actions'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { isRecoverableInstanceStatus, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
-import type { DatabaseTemplate, Host, ImageArtifact, Instance, InstanceBackup, Project, Registry, Task } from '../lib/types'
+import { commonTimezones, isValidTimezone } from '../lib/timezone'
+import type { DatabaseTemplate, Host, ImageArtifact, Instance, InstanceBackup, InstanceBackupPolicy, Project, Registry, Task } from '../lib/types'
 import { bytes } from '../lib/types'
 
 type ImageSource = 'public' | 'registry' | 'offline'
 
 interface CreateValues { name: string; projectId?: string; environment: string; templateVersionId: string; hostId?: string; cpu: number; memoryGiB: number; diskGiB: number; hostPort?: number; bindAddress: string; username?: string; password?: string; databaseName?: string; autoRestart: boolean; imageSource: ImageSource; imageArtifactId?: string; registryId?: string; labels?: string; extraEnvironment?: string }
 interface RuntimeValues { cpu: number; memoryGiB: number; diskGiB: number; extraEnvironment: string }
+interface BackupPolicyValues { enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; hour: number; minute: number; timezone: string; retentionCount: number }
 
 function parseStringMap(value?: string): Record<string, string> | undefined {
   try {
@@ -280,6 +282,7 @@ export function InstanceDetailPage() {
   const [images, setImages] = useState<ImageArtifact[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
   const [backups, setBackups] = useState<InstanceBackup[]>([])
+  const [backupPolicy, setBackupPolicy] = useState<InstanceBackupPolicy | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirm, setConfirm] = useState('')
@@ -290,6 +293,8 @@ export function InstanceDetailPage() {
   const [upgradeRegistryID, setUpgradeRegistryID] = useState<string>()
   const [runtimeOpen, setRuntimeOpen] = useState(false)
   const [backupCreateOpen, setBackupCreateOpen] = useState(false)
+  const [backupPolicyOpen, setBackupPolicyOpen] = useState(false)
+  const [backupPolicySaving, setBackupPolicySaving] = useState(false)
   const [backupName, setBackupName] = useState('')
   const [backupAction, setBackupAction] = useState<{ type: 'restore' | 'delete'; backup: InstanceBackup }>()
   const [backupConfirm, setBackupConfirm] = useState('')
@@ -299,6 +304,9 @@ export function InstanceDetailPage() {
   const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab || '') ? requestedTab! : 'overview')
   const [editForm] = Form.useForm()
   const [runtimeForm] = Form.useForm<RuntimeValues>()
+  const [backupPolicyForm] = Form.useForm<BackupPolicyValues>()
+  const backupPolicyEnabled = Form.useWatch('enabled', backupPolicyForm)
+  const backupPolicyFrequency = Form.useWatch('frequency', backupPolicyForm)
   const runtimeCPU = Form.useWatch('cpu', runtimeForm)
   const runtimeMemoryGiB = Form.useWatch('memoryGiB', runtimeForm)
   const runtimeDiskGiB = Form.useWatch('diskGiB', runtimeForm)
@@ -307,7 +315,7 @@ export function InstanceDetailPage() {
     try {
       const instance = await api<Instance>(`/instances/${id}`)
       setItem(instance)
-      const [catalog, projectList, hostList, instanceList, imageList, registryList, backupList, taskList] = await Promise.allSettled([
+      const [catalog, projectList, hostList, instanceList, imageList, registryList, backupList, policyResult, taskList] = await Promise.allSettled([
         api<{ items: DatabaseTemplate[] }>('/templates'),
         api<{ items: Project[] }>('/projects'),
         api<{ items: Host[] }>('/hosts'),
@@ -315,6 +323,7 @@ export function InstanceDetailPage() {
         api<{ items: ImageArtifact[] }>('/images'),
         api<{ items: Registry[] }>('/registries'),
         api<{ items: InstanceBackup[] }>(`/instances/${id}/backups`),
+        api<{ policy: InstanceBackupPolicy | null }>(`/instances/${id}/backup-policy`),
         api<{ items: Task[] }>(`/tasks?resourceType=instance&resourceId=${encodeURIComponent(id)}`),
       ])
       if (catalog.status === 'fulfilled') setTemplates(catalog.value.items)
@@ -324,8 +333,9 @@ export function InstanceDetailPage() {
       if (imageList.status === 'fulfilled') setImages(imageList.value.items)
       if (registryList.status === 'fulfilled') setRegistries(registryList.value.items)
       if (backupList.status === 'fulfilled') setBackups(backupList.value.items)
+      if (policyResult.status === 'fulfilled') setBackupPolicy(policyResult.value.policy)
       if (taskList.status === 'fulfilled') setTasks(taskList.value.items)
-      const failedRequest = [catalog, projectList, hostList, instanceList, imageList, registryList, backupList, taskList].find((result) => result.status === 'rejected')
+      const failedRequest = [catalog, projectList, hostList, instanceList, imageList, registryList, backupList, policyResult, taskList].find((result) => result.status === 'rejected')
       setPageError(failedRequest?.status === 'rejected' ? errorMessage(failedRequest.reason) : '')
     } catch (error) { setPageError(errorMessage(error)) } finally { setPageLoading(false) }
   }, [id])
@@ -386,6 +396,33 @@ export function InstanceDetailPage() {
       extraEnvironment: JSON.stringify(item.configuration?.extraEnvironment || {}, null, 2),
     })
     setRuntimeOpen(true)
+  }
+  const showBackupPolicy = () => {
+    backupPolicyForm.setFieldsValue({
+      enabled: backupPolicy?.enabled ?? true,
+      frequency: backupPolicy?.frequency ?? 'daily',
+      weekday: backupPolicy?.weekday ?? 0,
+      hour: backupPolicy?.hour ?? 2,
+      minute: backupPolicy?.minute ?? 0,
+      timezone: backupPolicy?.timezone || timezone,
+      retentionCount: backupPolicy?.retentionCount ?? 7,
+    })
+    setBackupPolicyOpen(true)
+  }
+  const saveBackupPolicy = async () => {
+    try {
+      const values = await backupPolicyForm.validateFields()
+      setBackupPolicySaving(true)
+      const result = await api<{ policy: InstanceBackupPolicy }>(`/instances/${id}/backup-policy`, {
+        method: 'PUT', body: { ...values, weekday: values.frequency === 'weekly' ? values.weekday : 0 },
+      })
+      setBackupPolicy(result.policy)
+      setBackupPolicyOpen(false)
+      message.success(t('backupPolicySaved'))
+      await load()
+    } catch (error) {
+      if (error instanceof Error) message.error(errorMessage(error))
+    } finally { setBackupPolicySaving(false) }
   }
   const saveEdit = async () => { try { setEditSaving(true); const values = await editForm.validateFields(); const labels: Record<string, string> = {}; String(values.labels || '').split(',').forEach((part) => { const separator = part.indexOf('='); const key = separator >= 0 ? part.slice(0, separator) : part; const value = separator >= 0 ? part.slice(separator + 1) : ''; if (key.trim()) labels[key.trim()] = value.trim() || 'true' }); await api(`/instances/${id}`, { method: 'PATCH', body: { name: values.name, projectId: values.projectId || null, environment: values.environment, labels, autoRestart: !!values.autoRestart } }); message.success(t('saved')); setEditOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } finally { setEditSaving(false) } }
   if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
@@ -472,10 +509,18 @@ export function InstanceDetailPage() {
   const canUpgrade = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
   const canReconfigure = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
   const canCreateBackup = !operationTask && ['running', 'stopped'].includes(item.status)
+  const backupScheduleTime = backupPolicy ? `${String(backupPolicy.hour).padStart(2, '0')}:${String(backupPolicy.minute).padStart(2, '0')}` : ''
+  const backupScheduleSummary = backupPolicy?.enabled
+    ? backupPolicy.frequency === 'weekly'
+      ? t('backupScheduleWeeklySummary', { weekday: t(`weekday_${backupPolicy.weekday}`), time: backupScheduleTime, timezone: backupPolicy.timezone })
+      : t('backupScheduleDailySummary', { time: backupScheduleTime, timezone: backupPolicy.timezone })
+    : t('backupScheduleDisabled')
+  const backupScheduleWaiting = !!backupPolicy?.enabled && !!backupPolicy.nextRunAt && new Date(backupPolicy.nextRunAt).getTime() <= Date.now()
   const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'delete', icon: <DeleteOutlined />, label: t('delete'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
   const backupColumns = [
     { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => <><Typography.Text strong>{value}</Typography.Text>{backup.errorMessage && <><br /><Typography.Text type="danger">{backup.errorMessage}</Typography.Text></>}</> },
     { title: t('status'), dataIndex: 'status', width: 110, render: (value: string) => <StatusTag value={value} /> },
+    { title: t('source'), dataIndex: 'creationType', width: 105, render: (value: InstanceBackup['creationType']) => <Tag>{t(value === 'scheduled' ? 'scheduledBackup' : 'manualBackup')}</Tag> },
     { title: t('version'), dataIndex: 'templateVersion', width: 105 },
     { title: t('size'), dataIndex: 'sizeBytes', width: 105, render: (value: number) => value > 0 ? bytes(value) : '—' },
     { title: t('sha256'), dataIndex: 'sha256', width: 165, render: (value: string) => value ? <Typography.Text code copyable={{ text: value }}>{value.slice(0, 12)}…</Typography.Text> : '—' },
@@ -485,7 +530,24 @@ export function InstanceDetailPage() {
   ]
   const backupsTab = <Card title={t('backups')} extra={<Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={() => { setBackupName(''); setBackupCreateOpen(true) }}>{t('createBackup')}</Button>}>
     <Alert className="backup-storage-alert" type="info" showIcon message={t('coldBackupNotice')} description={t('coldBackupNoticeHint')} />
-    <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1140 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
+    <Card size="small" className="backup-policy-card">
+      <div className="backup-policy-summary">
+        <div className={`backup-policy-icon ${backupPolicy?.enabled ? 'is-enabled' : ''}`}><ClockCircleOutlined /></div>
+        <div className="backup-policy-copy">
+          <Space wrap><Typography.Text strong>{t('automaticBackups')}</Typography.Text><Tag color={backupPolicy?.enabled ? 'green' : 'default'}>{backupPolicy?.enabled ? t('enabled') : t('disabled')}</Tag></Space>
+          <Typography.Text type="secondary">{backupScheduleSummary}</Typography.Text>
+          {backupPolicy?.enabled && <Typography.Text type="secondary">{t('backupRetentionSummary', { count: backupPolicy.retentionCount })}</Typography.Text>}
+        </div>
+        <Button icon={<EditOutlined />} onClick={showBackupPolicy}>{t('configure')}</Button>
+      </div>
+      {backupPolicy?.enabled && backupPolicy.nextRunAt && <Descriptions className="backup-policy-facts" size="small" column={{ xs: 1, md: 3 }} items={[
+        { key: 'next', label: t('nextBackupRun'), children: backupScheduleWaiting ? <Typography.Text type="warning">{t('backupScheduleWaiting')}</Typography.Text> : formatDateTime(backupPolicy.nextRunAt, i18n.language, timezone) },
+        { key: 'last', label: t('lastBackupRun'), children: backupPolicy.lastRunAt ? formatDateTime(backupPolicy.lastRunAt, i18n.language, timezone) : t('notRunYet') },
+        { key: 'owner', label: t('configuredBy'), children: backupPolicy.configuredByUsername },
+      ]} />}
+      {backupPolicy?.lastStatus === 'failed' && <Alert className="backup-policy-error" type="error" showIcon message={t('lastScheduledBackupFailed')} description={backupPolicy.lastError || t('viewTaskForDetails')} action={backupPolicy.lastTaskId ? <Button size="small" onClick={() => navigate(`/tasks?task=${backupPolicy.lastTaskId}`)}>{t('viewTask')}</Button> : undefined} />}
+    </Card>
+    <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1240 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
   </Card>
   return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} actions={<><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : showDelete() }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></>} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{operationPanel}<Tabs activeKey={activeTab} onChange={changeTab} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backups.length})`, children: backupsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')}><Form form={editForm} layout="vertical"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((project) => ({ value: project.id, label: project.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} /></Form.Item><Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item><Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item></Form></Modal>
@@ -528,6 +590,25 @@ export function InstanceDetailPage() {
           {upgradeCompatibleRegistries.length === 0 ? <Alert type="warning" showIcon message={t('noMatchingUpgradeRegistries')} description={t('noMatchingRegistriesHint', { host: imageRegistryHost(upgradeTarget.imageReference) })} action={<Button size="small" onClick={() => navigate('/images?tab=registries')}>{t('addRegistry')}</Button>} /> : upgradeRegistry && <Alert type={upgradeRegistry.status === 'online' ? 'success' : 'info'} showIcon message={t('registryMatchesImageSource', { host: imageRegistryHost(upgradeTarget.imageReference) })} description={upgradeRegistry.statusMessage ? t(upgradeRegistry.statusMessage) : t('registryWillBeVerifiedOnTarget')} />}
         </>}
       </div>}
+    </Modal>
+    <Modal title={t('automaticBackups')} open={backupPolicyOpen} onCancel={() => { if (!backupPolicySaving) setBackupPolicyOpen(false) }} onOk={() => void saveBackupPolicy()} confirmLoading={backupPolicySaving} okText={t('save')} width={640} destroyOnHidden>
+      <Alert className="backup-modal-alert" type="warning" showIcon message={t('scheduledBackupDowntimeWarning')} description={t('scheduledBackupDowntimeHint')} />
+      <Form form={backupPolicyForm} layout="vertical" requiredMark={false}>
+        <Form.Item name="enabled" label={t('automaticBackups')} valuePropName="checked"><Switch checkedChildren={t('enabled')} unCheckedChildren={t('disabled')} /></Form.Item>
+        <Row gutter={16}>
+          <Col xs={24} sm={backupPolicyFrequency === 'weekly' ? 12 : 24}><Form.Item name="frequency" label={t('frequency')} rules={[{ required: true }]}><Select options={[{ value: 'daily', label: t('daily') }, { value: 'weekly', label: t('weekly') }]} /></Form.Item></Col>
+          {backupPolicyFrequency === 'weekly' && <Col xs={24} sm={12}><Form.Item name="weekday" label={t('weekday')} rules={[{ required: true }]}><Select options={Array.from({ length: 7 }, (_, value) => ({ value, label: t(`weekday_${value}`) }))} /></Form.Item></Col>}
+        </Row>
+        <Row gutter={16}>
+          <Col xs={24} sm={8}><Form.Item name="hour" label={t('hour')} rules={[{ required: true }]}><Select options={Array.from({ length: 24 }, (_, value) => ({ value, label: String(value).padStart(2, '0') }))} /></Form.Item></Col>
+          <Col xs={24} sm={8}><Form.Item name="minute" label={t('minute')} rules={[{ required: true }]}><Select options={[0, 15, 30, 45].map((value) => ({ value, label: String(value).padStart(2, '0') }))} /></Form.Item></Col>
+          <Col xs={24} sm={8}><Form.Item name="retentionCount" label={t('retentionCount')} rules={[{ required: true, type: 'number', min: 1, max: 100 }]}><InputNumber min={1} max={100} style={{ width: '100%' }} /></Form.Item></Col>
+        </Row>
+        <Form.Item name="timezone" label={t('timezone')} rules={[{ required: true }, { validator: (_, value) => isValidTimezone(value) ? Promise.resolve() : Promise.reject(new Error(t('timezoneInvalid'))) }]}>
+          <AutoComplete options={commonTimezones.map((value) => ({ value }))} filterOption={(input, option) => String(option?.value || '').toLowerCase().includes(input.toLowerCase())} />
+        </Form.Item>
+        <Alert type={backupPolicyEnabled ? 'info' : 'success'} showIcon message={backupPolicyEnabled ? t('backupPolicyEnabledHint') : t('backupPolicyDisabledHint')} description={backupPolicyEnabled ? t('backupRetentionOnlyScheduledHint') : undefined} />
+      </Form>
     </Modal>
     <Modal title={t('createBackup')} open={backupCreateOpen} onCancel={() => { if (!actioning) { setBackupCreateOpen(false); setBackupName('') } }} onOk={() => void createBackup()} confirmLoading={actioning === 'backup-create'} okText={t('createBackup')}>
       <Alert className="backup-modal-alert" type="warning" showIcon message={t('backupDowntimeWarning')} description={t('backupDowntimeWarningHint')} />

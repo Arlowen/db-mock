@@ -11,13 +11,13 @@ import (
 	"github.com/pika/db-mock/internal/domain"
 )
 
-const backupColumns = `b.id,b.instance_id,b.host_id,b.template_version_id,tv.version,b.name,b.status,
+const backupColumns = `b.id,b.instance_id,b.host_id,b.template_version_id,tv.version,b.name,b.creation_type,b.status,
     b.remote_path,b.size_bytes,b.sha256,b.error_message,b.created_by,u.username,b.created_at,
     b.completed_at,b.updated_at`
 
 func backupScan(item *domain.InstanceBackup) []any {
 	return []any{&item.ID, &item.InstanceID, &item.HostID, &item.TemplateVersionID, &item.TemplateVersion,
-		&item.Name, &item.Status, &item.RemotePath, &item.SizeBytes, &item.SHA256, &item.ErrorMessage,
+		&item.Name, &item.CreationType, &item.Status, &item.RemotePath, &item.SizeBytes, &item.SHA256, &item.ErrorMessage,
 		&item.CreatedBy, &item.CreatedByUsername, &item.CreatedAt, &item.CompletedAt, &item.UpdatedAt}
 }
 
@@ -78,10 +78,13 @@ func (s *Store) CreateInstanceBackupTask(ctx context.Context, input TaskInput, b
 		return backup, domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the backup", domain.ErrConflict)
 	}
 	backup.HostID, backup.TemplateVersionID, backup.Status = hostID, versionID, "creating"
-	err = tx.QueryRow(ctx, `INSERT INTO instance_backups(id,instance_id,host_id,template_version_id,name,status,
-        remote_path,created_by) VALUES($1,$2,$3,$4,$5,'creating',$6,$7)
-        RETURNING created_at,updated_at`, backup.ID, backup.InstanceID, backup.HostID, backup.TemplateVersionID,
-		backup.Name, backup.RemotePath, backup.CreatedBy).Scan(&backup.CreatedAt, &backup.UpdatedAt)
+	if backup.CreationType == "" {
+		backup.CreationType = "manual"
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO instance_backups(id,instance_id,host_id,template_version_id,name,creation_type,status,
+		remote_path,created_by) VALUES($1,$2,$3,$4,$5,$6,'creating',$7,$8)
+		RETURNING created_at,updated_at`, backup.ID, backup.InstanceID, backup.HostID, backup.TemplateVersionID,
+		backup.Name, backup.CreationType, backup.RemotePath, backup.CreatedBy).Scan(&backup.CreatedAt, &backup.UpdatedAt)
 	if err != nil {
 		return backup, domain.Task{}, translate(err)
 	}

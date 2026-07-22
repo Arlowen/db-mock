@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -23,12 +24,78 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.Patch("/{id}", s.updateInstance)
 	r.Get("/{id}/backups", s.listInstanceBackups)
 	r.Post("/{id}/backups", s.createInstanceBackup)
+	r.Get("/{id}/backup-policy", s.getInstanceBackupPolicy)
+	r.Put("/{id}/backup-policy", s.updateInstanceBackupPolicy)
 	r.Post("/{id}/backups/{backupId}/restore", s.restoreInstanceBackup)
 	r.Post("/{id}/backups/{backupId}/delete", s.deleteInstanceBackup)
 	r.Post("/{id}/actions/{action}", s.instanceAction)
 	r.Get("/{id}/connection", s.instanceConnection)
 	r.Get("/{id}/logs", s.instanceLogs)
 	r.Get("/{id}/metrics", s.instanceMetrics)
+}
+
+func (s *Server) getInstanceBackupPolicy(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	policy, err := s.instances.GetBackupPolicy(r.Context(), id)
+	if errors.Is(err, domain.ErrNotFound) {
+		if _, instanceErr := s.store.GetInstance(r.Context(), id); instanceErr != nil {
+			httpx.Error(w, r, instanceErr)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"policy": nil})
+		return
+	}
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"policy": policy})
+}
+
+func (s *Server) updateInstanceBackupPolicy(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var input instances.BackupPolicyInput
+	if err = httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	before, beforeErr := s.store.GetInstanceBackupPolicy(r.Context(), id)
+	if beforeErr != nil && !errors.Is(beforeErr, domain.ErrNotFound) {
+		httpx.Error(w, r, beforeErr)
+		return
+	}
+	instance, err := s.store.GetInstance(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	policy, err := s.instances.UpdateBackupPolicy(r.Context(), actor.User.ID, id, input, time.Now())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	changes := map[string]any{
+		"enabled": map[string]any{"from": before.Enabled, "to": policy.Enabled},
+		"schedule": map[string]any{
+			"from": map[string]any{"frequency": before.Frequency, "weekday": before.Weekday, "hour": before.Hour,
+				"minute": before.Minute, "timezone": before.Timezone},
+			"to": map[string]any{"frequency": policy.Frequency, "weekday": policy.Weekday, "hour": policy.Hour,
+				"minute": policy.Minute, "timezone": policy.Timezone},
+		},
+		"retentionCount": map[string]any{"from": before.RetentionCount, "to": policy.RetentionCount},
+	}
+	_ = s.auditWithChanges(r, actor, "instance.backup_policy.update", "instance", &id, instance.Name, nil,
+		"success", "", changes)
+	httpx.JSON(w, http.StatusOK, map[string]any{"policy": policy})
 }
 
 func (s *Server) listInstanceBackups(w http.ResponseWriter, r *http.Request) {

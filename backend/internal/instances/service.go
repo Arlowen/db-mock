@@ -69,6 +69,8 @@ type ActionPayload struct {
 	InstanceID              uuid.UUID  `json:"instanceId"`
 	NewTemplateVersionID    *uuid.UUID `json:"newTemplateVersionId,omitempty"`
 	BackupID                *uuid.UUID `json:"backupId,omitempty"`
+	BackupPolicyID          *uuid.UUID `json:"backupPolicyId,omitempty"`
+	ScheduledFor            *time.Time `json:"scheduledFor,omitempty"`
 	PreviousBackupStatus    string     `json:"previousBackupStatus,omitempty"`
 	ImageSource             string     `json:"imageSource,omitempty"`
 	ImageArtifactID         *uuid.UUID `json:"imageArtifactId,omitempty"`
@@ -386,7 +388,7 @@ func (s *Service) CreateBackup(ctx context.Context, userID, instanceID uuid.UUID
 	backup, task, err := s.store.CreateInstanceBackupTask(ctx, store.TaskInput{Kind: "instance.backup",
 		ResourceType: "instance", ResourceID: &resourceID, RequestedBy: userID, HostID: &instance.HostID,
 		Payload: payload}, domain.InstanceBackup{ID: backupID, InstanceID: instance.ID, Name: name,
-		RemotePath: remotePath, CreatedBy: userID}, instance.Status)
+		CreationType: "manual", RemotePath: remotePath, CreatedBy: userID}, instance.Status)
 	if err != nil {
 		return backup, task, err
 	}
@@ -1481,6 +1483,22 @@ func backupFailureMessage(err error) string {
 }
 
 func (s *Service) handleBackupCreate(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
+	var scheduledPayload ActionPayload
+	if decodeErr := tasks.DecodePayload(task, &scheduledPayload); decodeErr == nil && scheduledPayload.BackupPolicyID != nil {
+		_ = s.store.TrackInstanceBackupPolicyTask(ctx, *scheduledPayload.BackupPolicyID, task.ID)
+		defer func() {
+			status, message := "succeeded", ""
+			if err != nil {
+				status, message = "failed", backupFailureMessage(err)
+				if errors.Is(err, context.Canceled) || errors.Is(err, tasks.ErrCanceled) {
+					status = "canceled"
+				}
+			}
+			recordCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = s.store.FinishInstanceBackupPolicyTask(recordCtx, *scheduledPayload.BackupPolicyID, task.ID, status, message)
+		}()
+	}
 	payload, instance, host, _, version, err := s.load(ctx, task)
 	if err != nil {
 		return nil, err
@@ -1566,7 +1584,46 @@ func (s *Service) handleBackupCreate(ctx context.Context, runtime *tasks.Runtime
 	if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
 		return nil, err
 	}
-	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "sizeBytes": archive.SizeBytes, "sha256": archive.SHA256}, nil
+	cleanupTaskIDs := make([]uuid.UUID, 0)
+	if payload.BackupPolicyID != nil {
+		policy, policyErr := s.store.GetInstanceBackupPolicy(ctx, *payload.BackupPolicyID)
+		if policyErr == nil && policy.Enabled {
+			cleanupTaskIDs, err = s.enqueueBackupRetentionCleanup(ctx, task.RequestedBy, instance.ID, policy.RetentionCount)
+			if err != nil {
+				_ = runtime.Log(ctx, "warning", "Backup succeeded, but automatic retention cleanup could not be queued: "+backupFailureMessage(err))
+				err = nil
+			}
+		} else if policyErr != nil && !errors.Is(policyErr, domain.ErrNotFound) {
+			_ = runtime.Log(ctx, "warning", "Backup succeeded, but the current retention policy could not be loaded: "+backupFailureMessage(policyErr))
+		}
+	}
+	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "sizeBytes": archive.SizeBytes,
+		"sha256": archive.SHA256, "retentionCleanupTaskIds": cleanupTaskIDs}, nil
+}
+
+func (s *Service) enqueueBackupRetentionCleanup(ctx context.Context, userID, instanceID uuid.UUID, keep int) ([]uuid.UUID, error) {
+	backups, err := s.store.ListScheduledBackupsBeyondRetention(ctx, instanceID, keep)
+	if err != nil {
+		return nil, err
+	}
+	taskIDs := make([]uuid.UUID, 0, len(backups))
+	user, _ := s.store.GetUser(ctx, userID)
+	for _, backup := range backups {
+		_, task, deleteErr := s.DeleteBackup(ctx, userID, instanceID, backup.ID)
+		if deleteErr != nil {
+			if errors.Is(deleteErr, domain.ErrConflict) || errors.Is(deleteErr, domain.ErrNotFound) {
+				continue
+			}
+			return taskIDs, deleteErr
+		}
+		taskIDs = append(taskIDs, task.ID)
+		_ = s.store.AddAudit(ctx, store.AuditInput{UserID: &userID, Username: user.Username,
+			Action: "instance.backup.retention_delete", ResourceType: "backup", ResourceID: &backup.ID,
+			ResourceName: backup.Name, TaskID: &task.ID, Result: "success",
+			Changes: map[string]any{"instanceId": instanceID, "retentionCount": keep},
+			Message: "Scheduled backup exceeded the configured retention count"})
+	}
+	return taskIDs, nil
 }
 
 func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {

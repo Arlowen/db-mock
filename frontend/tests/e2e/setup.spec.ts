@@ -281,9 +281,11 @@ test('initializes the platform and switches the embedded interface language', as
   let submittedUpgradeBody: Record<string, unknown> | undefined
   let submittedRuntimeBody: Record<string, unknown> | undefined
   let submittedBackupBody: Record<string, unknown> | undefined
+  let submittedBackupPolicyBody: Record<string, unknown> | undefined
   let submittedRestoreBody: Record<string, unknown> | undefined
   let submittedBackupDeleteBody: Record<string, unknown> | undefined
   let instanceBackups: Array<Record<string, unknown>> = []
+  let instanceBackupPolicy: Record<string, unknown> | null = null
   await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
     id: '54545454-5454-4545-8545-545454545454', slug: 'postgresql', name: 'PostgreSQL', nameZh: 'PostgreSQL', description: '', category: 'relational', tier: 'standard', builtin: true, icon: '', riskReport: [], versions: [
       { id: '55555555-5555-4555-8555-555555555555', templateId: '54545454-5454-4545-8545-545454545454', version: '17', imageReference: 'postgres:17', architectures: ['amd64', 'arm64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
@@ -303,10 +305,16 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [instanceResponse()] } }))
   await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: instanceResponse() }))
   await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: relatedTasks } }))
+  await page.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { policy: instanceBackupPolicy } })
+    submittedBackupPolicyBody = route.request().postDataJSON()
+    instanceBackupPolicy = { instanceId: instanceID, ...submittedBackupPolicyBody, nextRunAt: new Date(Date.now() + 86400000).toISOString(), configuredBy: '12121212-1212-4121-8121-121212121212', configuredByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    await route.fulfill({ json: { policy: instanceBackupPolicy } })
+  })
   await page.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ json: { items: instanceBackups } })
     submittedBackupBody = route.request().postDataJSON()
-    const backup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: String(submittedBackupBody?.name || 'Generated backup'), status: 'creating', sizeBytes: 0, createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    const backup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: String(submittedBackupBody?.name || 'Generated backup'), creationType: 'manual', status: 'creating', sizeBytes: 0, createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     instanceBackups = [backup]
     await route.fulfill({ status: 202, json: { backup, task: { id: '61616161-6161-4161-8161-616161616161', kind: 'instance.backup', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
   })
@@ -382,6 +390,20 @@ test('initializes the platform and switches the embedded interface language', as
   await page.reload()
 
   await page.getByRole('tab', { name: /\u5907\u4efd \(0\)/ }).click()
+  await expect(page.getByText('尚未启用自动备份')).toBeVisible()
+  await page.getByRole('button', { name: '配置' }).click()
+  const backupPolicyDialog = page.getByRole('dialog', { name: '自动冷备份' })
+  await expect(backupPolicyDialog.getByText('自动备份会短暂停止运行中的数据库')).toBeVisible()
+  await backupPolicyDialog.getByRole('combobox', { name: '频率' }).click()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await backupPolicyDialog.getByRole('combobox', { name: '星期' }).click()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await backupPolicyDialog.getByRole('button', { name: /保\s*存/ }).click()
+  await expect.poll(() => submittedBackupPolicyBody).toEqual({ enabled: true, frequency: 'weekly', weekday: 1, hour: 2, minute: 0, timezone: 'Asia/Shanghai', retentionCount: 7 })
+  await expect(page.getByText('每周一 02:00（Asia/Shanghai）')).toBeVisible()
+  await expect(page.getByText('仅自动清理计划备份，保留最近 7 份')).toBeVisible()
   await expect(page.getByText('\u8be5\u5b9e\u4f8b\u8fd8\u6ca1\u6709\u5907\u4efd\u3002\u5728\u53d1\u5e03\u3001\u8fc1\u79fb\u6216\u98ce\u9669\u64cd\u4f5c\u524d\u521b\u5efa\u4e00\u4efd\u53ef\u6062\u590d\u5feb\u7167\u3002')).toBeVisible()
   await page.getByRole('button', { name: '\u521b\u5efa\u5907\u4efd' }).click()
   const createBackupDialog = page.getByRole('dialog', { name: '\u521b\u5efa\u5907\u4efd' })
@@ -471,6 +493,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}`)
   await page.unroute(`**/api/v1/instances/${instanceID}/actions/upgrade`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/backup-policy`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`)
   await page.unroute('**/api/v1/tasks?resourceType=instance&resourceId=**')

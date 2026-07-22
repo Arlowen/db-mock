@@ -128,6 +128,12 @@ func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, i
 	if _, err = tx.Exec(ctx, `UPDATE instances SET status=$2,status_message='',updated_at=now() WHERE id=$1`, instanceID, operationStatus); err != nil {
 		return domain.Task{}, err
 	}
+	if operationStatus == "deleting" {
+		if _, err = tx.Exec(ctx, `UPDATE instance_backup_policies SET enabled=false,next_run_at=NULL,
+            updated_at=now() WHERE instance_id=$1`, instanceID); err != nil {
+			return domain.Task{}, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.Task{}, err
 	}
@@ -290,9 +296,14 @@ func (s *Store) RetryTask(ctx context.Context, id uuid.UUID, userID uuid.UUID) (
 }
 
 func (s *Store) InterruptRunningTasks(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `UPDATE tasks SET status='interrupted',stage='interrupted',cancelable=false,
+	_, err := s.pool.Exec(ctx, `WITH interrupted AS (
+        UPDATE tasks SET status='interrupted',stage='interrupted',cancelable=false,
         error_code='application_restarted',error_message='The control service restarted while the task was running',
-        finished_at=now(),updated_at=now() WHERE status='running'`)
+		finished_at=now(),updated_at=now() WHERE status='running' RETURNING id
+    )
+    UPDATE instance_backup_policies SET last_status='failed',
+        last_error='The control service restarted while the scheduled backup was running',updated_at=now()
+    WHERE last_task_id IN (SELECT id FROM interrupted)`)
 	return err
 }
 

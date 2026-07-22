@@ -73,6 +73,7 @@ erDiagram
     TEMPLATE_VERSIONS ||--o{ INSTANCES : pins
     INSTANCES ||--o{ METRIC_SAMPLES : emits
     INSTANCES ||--o{ INSTANCE_BACKUPS : owns
+    INSTANCES ||--o| INSTANCE_BACKUP_POLICIES : schedules
     INSTANCES ||--o{ ALERTS : raises
     TASKS }o--|| USERS : requested_by
     WEBHOOKS ||--o{ WEBHOOK_DELIVERIES : receives
@@ -196,6 +197,12 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 临时容器禁用网络、根文件系统只读并使用 `--pull never`，从而既能访问数据库 UID 持有的
 文件，也不会破坏离线语义。这种本地副本可防止误操作与升级回归，不能代替跨主机灾备。
 
+自动备份策略按实例保存每日/每周频率、当地执行时刻、IANA 时区、保留份数和下一次 UTC
+执行时间。轻量调度器每 30 秒扫描到期策略；入队事务先锁实例再锁策略，同时创建计划备份、
+实例任务、`backing_up` 状态并推进下一次执行时间。实例忙碌时事务不写任何部分状态，策略
+保持到期并在后续扫描补跑。任务执行前后记录策略最近任务与结果；成功后重新读取当前策略，
+只为超出保留数的 `scheduled` 备份创建删除任务，`manual` 备份不参与自动清理。
+
 ## 8. 任务一致性
 
 - API 在数据库事务中创建资源意图和任务，HTTP 立即返回 `202 Accepted`。
@@ -203,6 +210,8 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 - 同一主机的破坏性 Compose 任务串行执行；不同主机可以并行。
 - 备份创建、恢复和删除与实例生命周期任务共用同一主机串行约束。恢复入队时锁定
   实例与备份记录，并在同一事务内进入 `restoring`，防止并发删除或其他实例操作。
+- 自动备份到期入队锁定实例与策略，并与 `backing_up` 状态、备份元数据、任务和下次执行
+  时间在同一事务提交；删除实例的事务会同时关闭计划，避免删除与调度竞态。
 - 运行配置变更的任务、目标资源预留与 `reconfiguring` 状态在同一事务写入；失败恢复和
   成功提交都同时更新资源、配置、稳定状态及期望状态。
 - 每个阶段设计为可重试或可检测已完成。进程重启后排队任务继续，运行中任务标记为
