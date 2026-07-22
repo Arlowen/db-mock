@@ -12,6 +12,7 @@ import (
 	appcrypto "github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/store"
+	"github.com/pika/db-mock/internal/templates"
 )
 
 func boolPointer(value bool) *bool { return &value }
@@ -161,6 +162,50 @@ func TestPrepareRuntimeConfigurationPreservesImageSelection(t *testing.T) {
 	}
 	if configuration.ExtraEnvironment["TZ"] != "Asia/Shanghai" {
 		t.Fatalf("environment was not updated: %#v", configuration.ExtraEnvironment)
+	}
+}
+
+func TestTemplateParametersPersistAcrossReconfigureAndConvergeOnUpgrade(t *testing.T) {
+	manifest, err := json.Marshal(templates.Manifest{Parameters: []templates.TemplateParameter{
+		{Key: "mode", Type: "select", Environment: "DB_MODE", Label: "Mode", Required: true,
+			Default: "safe", Options: []templates.TemplateParameterOption{{Value: "safe"}, {Value: "fast"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := domain.TemplateVersion{Manifest: manifest, MinCPU: 1, MinMemoryBytes: 1024, MinDiskBytes: 2048,
+		ImageReference: "database:1", ComposeTemplate: "services:\n  database:\n    image: {{ .Image }}\n    environment:\n{{ .ExtraEnvironment }}"}
+	instance := domain.Instance{ID: uuid.New(), CPU: 1, MemoryBytes: 1024, ReservedDiskBytes: 2048,
+		HostPort: 5432, BindAddress: "0.0.0.0", RemoteDirectory: "/opt/dbmock/instances/test",
+		Configuration: json.RawMessage(`{"extraEnvironment":{"LANG":"C.UTF-8"},"templateParameters":{"mode":"fast"}}`)}
+
+	target, raw, err := prepareRuntimeConfiguration(domain.Template{Slug: "custom"}, version, instance, ActionRequest{
+		CPU: 2, MemoryBytes: 2048, DiskBytes: 4096, ExtraEnvironment: map[string]string{"LANG": "en_US.UTF-8"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var configuration instanceConfiguration
+	if err = json.Unmarshal(raw, &configuration); err != nil {
+		t.Fatal(err)
+	}
+	if target.CPU != 2 || configuration.TemplateParameters["mode"] != "fast" || configuration.ExtraEnvironment["LANG"] != "en_US.UTF-8" {
+		t.Fatalf("reconfigured template values = target:%#v configuration:%#v", target, configuration)
+	}
+	_, environment, err := resolveTemplateEnvironment(version, configuration, true)
+	if err != nil || environment["DB_MODE"] != "fast" || environment["LANG"] != "en_US.UTF-8" {
+		t.Fatalf("rendered environment = %#v, %v", environment, err)
+	}
+
+	targetManifest, _ := json.Marshal(templates.Manifest{Parameters: []templates.TemplateParameter{
+		{Key: "cache", Type: "boolean", Environment: "CACHE_ENABLED", Label: "Cache", Default: true},
+	}})
+	upgraded, environment, err := resolveTemplateEnvironment(domain.TemplateVersion{Manifest: targetManifest}, configuration, false)
+	if err != nil || len(upgraded.TemplateParameters) != 1 || upgraded.TemplateParameters["cache"] != true || environment["CACHE_ENABLED"] != "true" {
+		t.Fatalf("upgraded template values = configuration:%#v environment:%#v err:%v", upgraded, environment, err)
+	}
+	if _, exists := upgraded.TemplateParameters["mode"]; exists {
+		t.Fatalf("a parameter removed by the target version survived: %#v", upgraded.TemplateParameters)
 	}
 }
 

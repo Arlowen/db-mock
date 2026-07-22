@@ -26,20 +26,22 @@ type PackageManifest struct {
 		Icon        string `yaml:"icon"`
 	} `yaml:"metadata"`
 	Spec struct {
-		Version       string   `yaml:"version"`
-		Image         string   `yaml:"image"`
-		Architectures []string `yaml:"architectures"`
-		ComposeFile   string   `yaml:"composeFile"`
-		DefaultPort   int      `yaml:"defaultPort"`
-		MinCPU        float64  `yaml:"minCpu"`
-		MinMemory     int64    `yaml:"minMemoryBytes"`
-		MinDisk       int64    `yaml:"minDiskBytes"`
-		Username      string   `yaml:"username"`
-		Database      string   `yaml:"database"`
-		Scheme        string   `yaml:"scheme"`
-		JDBCScheme    string   `yaml:"jdbcScheme"`
-		HostTuning    []string `yaml:"hostTuning"`
-		UpgradeScript string   `yaml:"upgradeScript"`
+		Version          string              `yaml:"version"`
+		Image            string              `yaml:"image"`
+		Architectures    []string            `yaml:"architectures"`
+		ComposeFile      string              `yaml:"composeFile"`
+		DefaultPort      int                 `yaml:"defaultPort"`
+		MinCPU           float64             `yaml:"minCpu"`
+		MinMemory        int64               `yaml:"minMemoryBytes"`
+		MinDisk          int64               `yaml:"minDiskBytes"`
+		Username         string              `yaml:"username"`
+		Database         string              `yaml:"database"`
+		Scheme           string              `yaml:"scheme"`
+		JDBCScheme       string              `yaml:"jdbcScheme"`
+		HostTuning       []string            `yaml:"hostTuning"`
+		UpgradeScript    string              `yaml:"upgradeScript"`
+		Parameters       []TemplateParameter `yaml:"parameters"`
+		ResourceProfiles []ResourceProfile   `yaml:"resourceProfiles"`
 	} `yaml:"spec"`
 }
 
@@ -183,6 +185,14 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 	if manifest.Spec.MinCPU <= 0 || manifest.Spec.MinMemory <= 0 || manifest.Spec.MinDisk <= 0 {
 		return ValidatedPackage{}, errors.New("positive minimum resources are required")
 	}
+	parameters, err := NormalizeTemplateParameters(manifest.Spec.Parameters)
+	if err != nil {
+		return ValidatedPackage{}, err
+	}
+	resourceProfiles, err := NormalizeResourceProfiles(manifest.Spec.ResourceProfiles, manifest.Spec.MinCPU, manifest.Spec.MinMemory, manifest.Spec.MinDisk)
+	if err != nil {
+		return ValidatedPackage{}, err
+	}
 	composeName, err := packageComposePath(manifest)
 	if err != nil {
 		return ValidatedPackage{}, errors.New("composeFile must be inside the template package")
@@ -204,6 +214,9 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 	if len(compose) > 2*1024*1024 {
 		return ValidatedPackage{}, errors.New("compose file is too large")
 	}
+	if len(parameters) > 0 && !strings.Contains(string(compose), "{{ .ExtraEnvironment }}") {
+		return ValidatedPackage{}, errors.New("templates with parameters must render {{ .ExtraEnvironment }} inside a service environment block")
+	}
 	upgradeScript := ""
 	if manifest.Spec.UpgradeScript != "" {
 		upgradeScript = path.Clean(manifest.Spec.UpgradeScript)
@@ -213,10 +226,6 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 		if _, ok := files[upgradeScript]; !ok {
 			return ValidatedPackage{}, fmt.Errorf("upgradeScript %s is missing", upgradeScript)
 		}
-	}
-	var composeDocument any
-	if err := yaml.Unmarshal(compose, &composeDocument); err != nil {
-		return ValidatedPackage{}, fmt.Errorf("parse Compose YAML: %w", err)
 	}
 	risks := AnalyzeCompose(compose)
 	if risks == nil {
@@ -239,13 +248,18 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 		seenArchitectures[architecture] = struct{}{}
 		architectures = append(architectures, architecture)
 	}
-	imageReferences, err := ComposeImageReferences(slug, string(compose), manifest.Spec.Image)
+	_, _, err = ResolveTemplateParameters(parameters, templateParameterValidationValues(parameters), nil, true)
+	if err != nil {
+		return ValidatedPackage{}, fmt.Errorf("validate template parameters: %w", err)
+	}
+	imageReferences, err := ComposeImageReferences(slug, string(compose), manifest.Spec.Image, templateParameterPlacementEnvironment(parameters))
 	if err != nil {
 		return ValidatedPackage{}, fmt.Errorf("validate Compose images: %w", err)
 	}
 	manifestJSON, _ := json.Marshal(Manifest{Username: manifest.Spec.Username, Database: manifest.Spec.Database,
 		Scheme: manifest.Spec.Scheme, JDBCScheme: manifest.Spec.JDBCScheme, ContainerPort: manifest.Spec.DefaultPort,
-		HostTuning: manifest.Spec.HostTuning, UpgradeScript: upgradeScript, ImageReferences: imageReferences})
+		HostTuning: manifest.Spec.HostTuning, UpgradeScript: upgradeScript, ImageReferences: imageReferences,
+		Parameters: parameters, ResourceProfiles: resourceProfiles})
 	return ValidatedPackage{Template: store.TemplateInput{Slug: slug, Name: manifest.Metadata.Name,
 		NameZH: manifest.Metadata.NameZH, Description: manifest.Metadata.Description, Category: manifest.Metadata.Category,
 		Tier: "custom", Builtin: false, Icon: manifest.Metadata.Icon, RiskReport: riskJSON}, Version: store.TemplateVersionInput{

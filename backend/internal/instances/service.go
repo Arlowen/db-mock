@@ -34,24 +34,25 @@ type Service struct {
 }
 
 type CreateRequest struct {
-	Name              string            `json:"name"`
-	ProjectID         *uuid.UUID        `json:"projectId"`
-	HostID            *uuid.UUID        `json:"hostId"`
-	TemplateVersionID uuid.UUID         `json:"templateVersionId"`
-	Environment       string            `json:"environment"`
-	Labels            map[string]string `json:"labels"`
-	AutoRestart       *bool             `json:"autoRestart"`
-	CPU               float64           `json:"cpu"`
-	MemoryBytes       int64             `json:"memoryBytes"`
-	DiskBytes         int64             `json:"diskBytes"`
-	HostPort          int               `json:"hostPort"`
-	BindAddress       string            `json:"bindAddress"`
-	Username          string            `json:"username"`
-	Password          string            `json:"password"`
-	DatabaseName      string            `json:"databaseName"`
-	ExtraEnvironment  map[string]string `json:"extraEnvironment"`
-	ImageArtifactID   *uuid.UUID        `json:"imageArtifactId"`
-	RegistryID        *uuid.UUID        `json:"registryId"`
+	Name               string            `json:"name"`
+	ProjectID          *uuid.UUID        `json:"projectId"`
+	HostID             *uuid.UUID        `json:"hostId"`
+	TemplateVersionID  uuid.UUID         `json:"templateVersionId"`
+	Environment        string            `json:"environment"`
+	Labels             map[string]string `json:"labels"`
+	AutoRestart        *bool             `json:"autoRestart"`
+	CPU                float64           `json:"cpu"`
+	MemoryBytes        int64             `json:"memoryBytes"`
+	DiskBytes          int64             `json:"diskBytes"`
+	HostPort           int               `json:"hostPort"`
+	BindAddress        string            `json:"bindAddress"`
+	Username           string            `json:"username"`
+	Password           string            `json:"password"`
+	DatabaseName       string            `json:"databaseName"`
+	ExtraEnvironment   map[string]string `json:"extraEnvironment"`
+	TemplateParameters map[string]any    `json:"templateParameters"`
+	ImageArtifactID    *uuid.UUID        `json:"imageArtifactId"`
+	RegistryID         *uuid.UUID        `json:"registryId"`
 }
 
 type ActionRequest struct {
@@ -95,9 +96,24 @@ type ActionPayload struct {
 }
 
 type instanceConfiguration struct {
-	ExtraEnvironment map[string]string `json:"extraEnvironment,omitempty"`
-	ImageArtifactID  *uuid.UUID        `json:"imageArtifactId"`
-	RegistryID       *uuid.UUID        `json:"registryId"`
+	ExtraEnvironment   map[string]string `json:"extraEnvironment,omitempty"`
+	TemplateParameters map[string]any    `json:"templateParameters,omitempty"`
+	ImageArtifactID    *uuid.UUID        `json:"imageArtifactId"`
+	RegistryID         *uuid.UUID        `json:"registryId"`
+}
+
+func resolveTemplateEnvironment(version domain.TemplateVersion, configuration instanceConfiguration, strict bool) (instanceConfiguration, map[string]string, error) {
+	manifest, err := templates.ParseManifest(version.Manifest)
+	if err != nil {
+		return instanceConfiguration{}, nil, err
+	}
+	values, environment, err := templates.ResolveTemplateParameters(manifest.Parameters,
+		configuration.TemplateParameters, configuration.ExtraEnvironment, strict)
+	if err != nil {
+		return instanceConfiguration{}, nil, err
+	}
+	configuration.TemplateParameters = values
+	return configuration, environment, nil
 }
 
 type instanceStateTarget struct {
@@ -267,6 +283,10 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
+	parameterValues, _, err := templates.ResolveTemplateParameters(manifest.Parameters, request.TemplateParameters, request.ExtraEnvironment, true)
+	if err != nil {
+		return domain.Instance{}, domain.Task{}, err
+	}
 	if request.Username == "" {
 		request.Username = manifest.Username
 	}
@@ -296,7 +316,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	}
 	labels, _ := json.Marshal(request.Labels)
 	configuration, _ := json.Marshal(instanceConfiguration{ExtraEnvironment: request.ExtraEnvironment,
-		ImageArtifactID: request.ImageArtifactID, RegistryID: request.RegistryID})
+		TemplateParameters: parameterValues, ImageArtifactID: request.ImageArtifactID, RegistryID: request.RegistryID})
 	short := strings.ReplaceAll(instanceID.String(), "-", "")
 	instance, task, err := s.store.CreateInstanceTask(ctx, store.InstanceInput{ID: instanceID, Name: request.Name, ProjectID: request.ProjectID,
 		HostID: host.ID, TemplateVersionID: version.ID, Environment: request.Environment, Labels: labels, AutoRestart: autoRestart,
@@ -422,6 +442,10 @@ func prepareRuntimeConfiguration(template domain.Template, version domain.Templa
 		return domain.Instance{}, nil, fmt.Errorf("%w: runtime configuration has not changed", domain.ErrConflict)
 	}
 	current.ExtraEnvironment = request.ExtraEnvironment
+	current, renderedEnvironment, err := resolveTemplateEnvironment(version, current, true)
+	if err != nil {
+		return domain.Instance{}, nil, err
+	}
 	configuration, err := json.Marshal(current)
 	if err != nil {
 		return domain.Instance{}, nil, err
@@ -430,7 +454,7 @@ func prepareRuntimeConfiguration(template domain.Template, version domain.Templa
 	target.CPU, target.MemoryBytes, target.ReservedDiskBytes = request.CPU, request.MemoryBytes, request.DiskBytes
 	target.AutoRestart = targetAutoRestart
 	target.Configuration = configuration
-	if _, err = templates.RenderCompose(template, version, target, current.ExtraEnvironment); err != nil {
+	if _, err = templates.RenderCompose(template, version, target, renderedEnvironment); err != nil {
 		return domain.Instance{}, nil, fmt.Errorf("%w: %v", domain.ErrInvalid, err)
 	}
 	return target, configuration, nil
@@ -609,6 +633,13 @@ func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, 
 	if major(currentVersion.Version) != major(targetVersion.Version) && targetManifest.UpgradeScript == "" {
 		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: major version upgrades require a template-specific migration", domain.ErrConflict)
 	}
+	var configuration instanceConfiguration
+	if err = json.Unmarshal(instance.Configuration, &configuration); err != nil {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+	}
+	if _, _, err = resolveTemplateEnvironment(targetVersion, configuration, false); err != nil {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: target template parameters are incompatible: %v", domain.ErrConflict, err)
+	}
 	host, err := s.store.GetHost(ctx, instance.HostID)
 	if err != nil {
 		return "", nil, nil, domain.TemplateVersion{}, err
@@ -619,8 +650,6 @@ func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, 
 
 	source, artifactID, registryID := request.ImageSource, request.ImageArtifactID, request.RegistryID
 	if source == "" {
-		var configuration instanceConfiguration
-		_ = json.Unmarshal(instance.Configuration, &configuration)
 		if configuration.ImageArtifactID != nil {
 			artifact, artifactErr := s.store.GetImageArtifact(ctx, *configuration.ImageArtifactID)
 			if artifactErr == nil && artifactSupportsVersion(artifact, host, targetVersion) {
@@ -1085,7 +1114,11 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 	if err != nil {
 		return nil, err
 	}
-	compose, err := templates.RenderCompose(template, version, instance, configuration.ExtraEnvironment)
+	configuration, renderedEnvironment, err := resolveTemplateEnvironment(version, configuration, true)
+	if err != nil {
+		return nil, err
+	}
+	compose, err := templates.RenderCompose(template, version, instance, renderedEnvironment)
 	if err != nil {
 		return nil, err
 	}
@@ -1180,7 +1213,11 @@ func (s *Service) renderRuntimeProject(instance domain.Instance, template domain
 	if err := json.Unmarshal(configuration, &settings); err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
 	}
-	compose, err := templates.RenderCompose(template, version, instance, settings.ExtraEnvironment)
+	_, renderedEnvironment, err := resolveTemplateEnvironment(version, settings, true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	compose, err := templates.RenderCompose(template, version, instance, renderedEnvironment)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1512,12 +1549,18 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		return nil, err
 	}
 	var configuration instanceConfiguration
-	_ = json.Unmarshal(instance.Configuration, &configuration)
+	if err = json.Unmarshal(instance.Configuration, &configuration); err != nil {
+		return nil, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+	}
+	configuration, renderedEnvironment, err := resolveTemplateEnvironment(newVersion, configuration, false)
+	if err != nil {
+		return nil, err
+	}
 	plain, err := s.vault.Open(instance.EncryptedPassword, "instance:"+instance.ID.String())
 	if err != nil {
 		return nil, err
 	}
-	compose, err := templates.RenderCompose(newTemplate, newVersion, instance, configuration.ExtraEnvironment)
+	compose, err := templates.RenderCompose(newTemplate, newVersion, instance, renderedEnvironment)
 	if err != nil {
 		return nil, err
 	}

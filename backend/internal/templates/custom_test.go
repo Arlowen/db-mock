@@ -186,6 +186,97 @@ func TestValidatePackageStoresImmutableVersionRiskReport(t *testing.T) {
 	}
 }
 
+func TestValidatePackageStoresParameterFormAndResourceProfiles(t *testing.T) {
+	manifest := strings.Replace(validCustomManifest, "  scheme: postgresql\n", `  scheme: postgresql
+  parameters:
+    - key: timezone
+      type: select
+      environment: TZ
+      label: Time zone
+      labelZh: 时区
+      required: true
+      default: UTC
+      options:
+        - value: UTC
+          label: UTC
+        - value: Asia/Shanghai
+          label: Shanghai
+          labelZh: 上海
+  resourceProfiles:
+    - name: development
+      label: Development
+      labelZh: 开发
+      cpu: 1
+      memoryBytes: 1073741824
+      diskBytes: 10737418240
+`, 1)
+	filename := writeTemplatePackageWithEntries(t, manifest, map[string]string{
+		"docker-compose.yml": `services:
+  database:
+    image: "{{ .Image }}"
+    environment:
+      DBMOCK_STATIC: "true"
+{{ .ExtraEnvironment }}    labels:
+      dbmock.instance: "{{ .InstanceID }}"
+    healthcheck:
+      test: ["CMD", "true"]
+`,
+	})
+	validated, err := ValidatePackage(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored Manifest
+	if err = json.Unmarshal(validated.Version.Manifest, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Parameters) != 1 || stored.Parameters[0].Environment != "TZ" || stored.Parameters[0].Default != "UTC" {
+		t.Fatalf("stored parameters = %#v", stored.Parameters)
+	}
+	if len(stored.ResourceProfiles) != 1 || stored.ResourceProfiles[0].Name != "development" {
+		t.Fatalf("stored profiles = %#v", stored.ResourceProfiles)
+	}
+}
+
+func TestValidatePackageRequiresEnvironmentPlaceholderForParameters(t *testing.T) {
+	manifest := strings.Replace(validCustomManifest, "  scheme: postgresql\n", `  scheme: postgresql
+  parameters:
+    - key: timezone
+      type: text
+      environment: TZ
+      label: Time zone
+`, 1)
+	if _, err := ValidatePackage(writeTemplatePackage(t, manifest)); err == nil || !strings.Contains(err.Error(), "ExtraEnvironment") {
+		t.Fatalf("expected a missing environment placeholder error, got %v", err)
+	}
+}
+
+func TestValidatePackageRequiresParameterPlaceholderInsideServiceEnvironment(t *testing.T) {
+	manifest := strings.Replace(validCustomManifest, "  scheme: postgresql\n", `  scheme: postgresql
+  parameters:
+    - key: timezone
+      type: text
+      environment: TZ
+      label: Time zone
+      default: UTC
+`, 1)
+	filename := writeTemplatePackageWithEntries(t, manifest, map[string]string{
+		"docker-compose.yml": `services:
+  database:
+    image: "{{ .Image }}"
+    environment:
+      DBMOCK_STATIC: "true"
+    labels:
+{{ .ExtraEnvironment }}      dbmock.instance: "{{ .InstanceID }}"
+    healthcheck:
+      test: ["CMD", "true"]
+`,
+	})
+	if _, err := ValidatePackage(filename); err == nil || !strings.Contains(err.Error(), "inside a service environment block") {
+		t.Fatalf("expected an incorrectly placed environment placeholder error, got %v", err)
+	}
+}
+
 func TestValidatePackageStoresEveryServiceImage(t *testing.T) {
 	filename := writeTemplatePackageWithEntries(t, validCustomManifest, map[string]string{
 		"docker-compose.yml": `services:

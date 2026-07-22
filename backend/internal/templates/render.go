@@ -33,19 +33,24 @@ type RenderContext struct {
 }
 
 type Manifest struct {
-	Username        string            `json:"username" yaml:"username"`
-	Database        string            `json:"database" yaml:"database"`
-	Scheme          string            `json:"scheme" yaml:"scheme"`
-	JDBCScheme      string            `json:"jdbcScheme" yaml:"jdbcScheme"`
-	ContainerPort   int               `json:"containerPort" yaml:"containerPort"`
-	HostTuning      []string          `json:"hostTuning" yaml:"hostTuning"`
-	UpgradeScript   string            `json:"upgradeScript,omitempty" yaml:"upgradeScript,omitempty"`
-	Environment     map[string]string `json:"environment" yaml:"environment"`
-	ImageReferences []string          `json:"imageReferences,omitempty" yaml:"imageReferences,omitempty"`
+	Username         string              `json:"username" yaml:"username"`
+	Database         string              `json:"database" yaml:"database"`
+	Scheme           string              `json:"scheme" yaml:"scheme"`
+	JDBCScheme       string              `json:"jdbcScheme" yaml:"jdbcScheme"`
+	ContainerPort    int                 `json:"containerPort" yaml:"containerPort"`
+	HostTuning       []string            `json:"hostTuning" yaml:"hostTuning"`
+	UpgradeScript    string              `json:"upgradeScript,omitempty" yaml:"upgradeScript,omitempty"`
+	Environment      map[string]string   `json:"environment" yaml:"environment"`
+	ImageReferences  []string            `json:"imageReferences,omitempty" yaml:"imageReferences,omitempty"`
+	Parameters       []TemplateParameter `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	ResourceProfiles []ResourceProfile   `json:"resourceProfiles,omitempty" yaml:"resourceProfiles,omitempty"`
 }
 
 func ParseManifest(raw json.RawMessage) (Manifest, error) {
 	var result Manifest
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return result, nil
+	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return result, err
 	}
@@ -69,19 +74,24 @@ func RequiredImageReferences(version domain.TemplateVersion) ([]string, error) {
 // ComposeImageReferences renders a template with safe placeholder values and
 // extracts every service image. It is used at catalog/package ingestion time so
 // runtime image validation never has to guess about multi-service Compose files.
-func ComposeImageReferences(templateSlug, composeTemplate, primaryImage string) ([]string, error) {
+func ComposeImageReferences(templateSlug, composeTemplate, primaryImage string, environment ...map[string]string) ([]string, error) {
 	template := domain.Template{Slug: templateSlug}
 	version := domain.TemplateVersion{ImageReference: primaryImage, ComposeTemplate: composeTemplate}
 	instance := domain.Instance{ID: uuid.MustParse("00000000-0000-4000-8000-000000000001"), HostPort: 5432,
 		BindAddress: "127.0.0.1", CPU: 1, MemoryBytes: 1024 * 1024 * 1024, AutoRestart: true,
 		RemoteDirectory: "/opt/dbmock/instances/template-validation"}
-	rendered, err := RenderCompose(template, version, instance, nil)
+	var extraEnvironment map[string]string
+	if len(environment) > 0 {
+		extraEnvironment = environment[0]
+	}
+	rendered, err := RenderCompose(template, version, instance, extraEnvironment)
 	if err != nil {
 		return nil, err
 	}
 	var document struct {
 		Services map[string]struct {
-			Image string `yaml:"image"`
+			Image       string    `yaml:"image"`
+			Environment yaml.Node `yaml:"environment"`
 		} `yaml:"services"`
 	}
 	if err = yaml.Unmarshal(rendered, &document); err != nil {
@@ -103,6 +113,25 @@ func ComposeImageReferences(templateSlug, composeTemplate, primaryImage string) 
 		}
 		references = append(references, image)
 	}
+	if len(extraEnvironment) > 0 {
+		keys := make([]string, 0, len(extraEnvironment))
+		for key := range extraEnvironment {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			found := false
+			for _, service := range document.Services {
+				if composeEnvironmentContains(service.Environment, key, extraEnvironment[key]) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("compose must render environment %q inside a service environment block", key)
+			}
+		}
+	}
 	references, err = uniqueImageReferences(references)
 	if err != nil {
 		return nil, err
@@ -118,6 +147,28 @@ func ComposeImageReferences(templateSlug, composeTemplate, primaryImage string) 
 		}
 	}
 	return ordered, nil
+}
+
+func composeEnvironmentContains(node yaml.Node, key, value string) bool {
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return composeEnvironmentContains(*node.Alias, key, value)
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			if node.Content[index].Value == key && node.Content[index+1].Value == value {
+				return true
+			}
+		}
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			name, rendered, found := strings.Cut(item.Value, "=")
+			if found && name == key && rendered == value {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func uniqueImageReferences(references []string) ([]string, error) {

@@ -36,6 +36,38 @@ spec:
   jdbcScheme: postgresql
   hostTuning: []
   upgradeScript: scripts/upgrade.sh # optional, runs after the upgraded Compose stack starts
+  parameters: # optional, non-secret per-instance options
+    - key: timezone
+      type: select
+      environment: TZ
+      label: Time zone
+      labelZh: 时区
+      description: Container time zone
+      descriptionZh: 容器时区
+      required: true
+      default: UTC
+      options:
+        - value: UTC
+          label: UTC
+        - value: Asia/Shanghai
+          label: Shanghai
+          labelZh: 上海
+    - key: maxConnections
+      type: number
+      environment: MAX_CONNECTIONS
+      label: Maximum connections
+      required: false
+      default: 100
+      min: 10
+      max: 1000
+      step: 10
+  resourceProfiles: # optional shortcuts shown in the creation wizard
+    - name: development
+      label: Development
+      labelZh: 开发
+      cpu: 1
+      memoryBytes: 1073741824
+      diskBytes: 10737418240
 ```
 
 The Compose file may use these Go template variables:
@@ -51,7 +83,43 @@ The Compose file may use these Go template variables:
 | `{{ .CPU }}` | selected CPU limit |
 | `{{ .MemoryBytes }}` | selected memory limit |
 | `{{ .RestartPolicy }}` | generated restart policy |
-| `{{ .ExtraEnvironment }}` | YAML fragment for user environment overrides |
+| `{{ .ExtraEnvironment }}` | YAML fragment for declared parameters and advanced environment overrides |
+
+## Parameter forms and resource profiles
+
+`spec.parameters` supports `text`, `number`, `boolean`, and `select`. Each parameter needs a stable
+`key`, a container `environment` name, and an English `label`; Chinese labels and descriptions are
+optional. Number parameters may declare `min`, `max`, and a positive `step`. Select parameters must
+declare between 1 and 50 unique options. A template can declare at most 32 parameters.
+
+Parameters are intentionally non-secret. Their selected values are visible in the instance configuration
+and are stored independently from the encrypted database password. Do not use them for passwords, tokens,
+or private keys; use the platform-managed database credential or another dedicated secret mechanism.
+DB Mock validates submitted values against the immutable selected template version, quotes every rendered
+environment value, and rejects collisions with advanced environment overrides.
+
+The Compose source must put `{{ .ExtraEnvironment }}` directly inside a service `environment` mapping:
+
+```yaml
+services:
+  database:
+    image: "{{ .Image }}"
+    environment:
+      STATIC_SETTING: "enabled"
+{{ .ExtraEnvironment }}
+    restart: "{{ .RestartPolicy }}"
+```
+
+Package validation renders a unique value for every declared parameter and confirms that it appears under
+a service environment block. Merely placing the placeholder elsewhere in the YAML is rejected. A parameter
+is available inside the container by its declared `environment` name; when a shell command needs it, escape
+the runtime expansion as `$$NAME` so Compose does not consume it first.
+
+`spec.resourceProfiles` provides up to eight creation shortcuts. Every profile needs a unique `name`, CPU,
+memory bytes, and disk bytes at or above the template minimum. Selecting a profile fills the resource form;
+the user can still customize the resulting values. On template-version upgrade, retained parameter keys keep
+their values, removed keys are dropped, and newly introduced defaults are applied. An upgrade is rejected
+before it is queued when the target version introduces a required parameter without a default.
 
 Every long-running service that should follow the instance automatic-restart switch must set
 `restart: "{{ .RestartPolicy }}"`. DB Mock renders `unless-stopped` when enabled and `no` when disabled;
@@ -72,7 +140,7 @@ services:
 ```
 
 `DBMOCK_DB_USERNAME`, `DBMOCK_DB_PASSWORD`, and `DBMOCK_DB_NAME` are reserved for built-in template
-health checks and cannot be supplied through instance environment overrides.
+health checks and cannot be supplied by a declared parameter or an instance environment override.
 
 The archive must not provide `.env`, an extra runtime `compose.yaml`, `data/`, `runtime/`, or any path
 whose first component starts with `.dbmock-managed-files`; DB Mock owns those paths. The file declared by
