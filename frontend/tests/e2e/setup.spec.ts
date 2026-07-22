@@ -279,6 +279,7 @@ test('initializes the platform and switches the embedded interface language', as
   let instanceStatus = 'running'
   let relatedTasks: Array<Record<string, unknown>> = []
   let submittedUpgradeBody: Record<string, unknown> | undefined
+  let submittedRuntimeBody: Record<string, unknown> | undefined
   let submittedBackupBody: Record<string, unknown> | undefined
   let submittedRestoreBody: Record<string, unknown> | undefined
   let submittedBackupDeleteBody: Record<string, unknown> | undefined
@@ -289,16 +290,18 @@ test('initializes the platform and switches the embedded interface language', as
       { id: upgradeVersionID, templateId: '54545454-5454-4545-8545-545454545454', version: '17.1', imageReference: 'postgres:17.1', architectures: ['amd64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
     ],
   }] } }))
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64' }] } }))
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', maintenance: false, cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 107374182400, portStart: 20000, portEnd: 29999 }] } }))
   await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: upgradeImageID, name: 'PostgreSQL 17.1 offline', filename: 'postgres-17.1.tar', sizeBytes: 134217728, sha256: 'd'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17.1'], architectures: ['amd64'], status: 'ready', usedByCount: 0, createdAt: new Date().toISOString() }] } }))
   await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: upgradeRegistryID, name: 'Docker Hub mirror', url: 'https://docker.io', hasPassword: true, hasCaCertificate: false, status: 'online', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } }))
-  await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: {
+  const instanceResponse = () => ({
     id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555',
     projectId: '77777777-7777-4777-8777-777777777777', environment: 'development', labels: { team: 'checkout' }, status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
     cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0',
     databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17',
-    hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
-  } }))
+    configuration: { extraEnvironment: { TZ: 'UTC' } }, hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
+  })
+  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [instanceResponse()] } }))
+  await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: instanceResponse() }))
   await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: relatedTasks } }))
   await page.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ json: { items: instanceBackups } })
@@ -321,6 +324,10 @@ test('initializes the platform and switches the embedded interface language', as
     relatedTasks = [task]
     await route.fulfill({ status: 202, json: task })
   })
+  await page.route(`**/api/v1/instances/${instanceID}/actions/reconfigure`, async (route) => {
+    submittedRuntimeBody = route.request().postDataJSON()
+    await route.fulfill({ status: 202, json: { id: '64646464-6464-4464-8464-646464646464', kind: 'instance.reconfigure', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
+  })
   await page.route('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry', async (route) => {
     const retried = { ...relatedTasks[0], id: '88888888-8888-4888-8888-888888888888', status: 'queued', progress: 0, stage: 'queued', message: 'task_started' }
     relatedTasks = [retried]
@@ -340,8 +347,19 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('100%', { exact: true })).toHaveCount(0)
   await expect(page.getByText('team=checkout', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '更多操作' }).click()
+  await expect(page.getByRole('menuitem', { name: '变更运行配置' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: '升级' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: '删除' })).toBeVisible()
+  await page.getByRole('menuitem', { name: '变更运行配置' }).click()
+  const runtimeDialog = page.getByRole('dialog', { name: '变更运行配置' })
+  await expect(runtimeDialog.getByText('运行中的实例会短暂重建容器')).toBeVisible()
+  await expect(runtimeDialog.getByText('请至少修改一项资源或环境变量。')).toBeVisible()
+  await runtimeDialog.getByLabel('CPU').fill('3')
+  await runtimeDialog.getByLabel('额外环境变量（JSON）').fill('{"TZ":"Asia/Shanghai"}')
+  await expect(runtimeDialog.getByText('容量校验通过')).toBeVisible()
+  await runtimeDialog.getByRole('button', { name: '应用配置' }).click()
+  await expect.poll(() => submittedRuntimeBody).toEqual({ cpu: 3, memoryBytes: 4294967296, diskBytes: 21474836480, extraEnvironment: { TZ: 'Asia/Shanghai' } })
+  await page.getByRole('button', { name: '更多操作' }).click()
   await page.getByRole('menuitem', { name: '升级' }).click()
   const upgradeDialog = page.getByRole('dialog', { name: '升级' })
   await expect(upgradeDialog.getByText('升级镜像来源')).toHaveCount(0)

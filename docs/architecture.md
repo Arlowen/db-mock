@@ -105,6 +105,12 @@ stateDiagram-v2
     upgrading --> running
     upgrading --> stopped
     upgrading --> failed
+    running --> reconfiguring
+    stopped --> reconfiguring
+    degraded --> reconfiguring
+    reconfiguring --> running
+    reconfiguring --> stopped
+    reconfiguring --> failed
     running --> degraded
     degraded --> running
     degraded --> failed
@@ -122,12 +128,20 @@ stateDiagram-v2
 手动指定的冲突端口会在创建任务入队前拒绝；自动分配会跳过非 DB Mock 进程或容器占用的
 端口，并在首选主机端口池无空闲时继续尝试其他兼容主机。
 
-生命周期任务入队与实例进入 `starting`、`stopping`、`restarting`、`upgrading` 或
-`deleting` 中间态在同一个数据库事务内完成。监控器不会覆盖这些由任务持有的状态；
+生命周期任务入队与实例进入 `starting`、`stopping`、`restarting`、`upgrading`、
+`reconfiguring` 或 `deleting` 中间态在同一个数据库事务内完成。监控器不会覆盖这些由任务持有的状态；
 控制服务重启导致任务中断后，页面会保留重试入口。升级会记录操作前的期望状态：运行中
 实例升级成功后继续运行，已停止实例只在校验和迁移期间临时启动，完成后恢复停止。
 升级失败时先停止 Compose 项目，再恢复临时快照和原模板版本；自动恢复未完成时实例进入
 `failed` 并产生严重告警，恢复成功也会保留警告告警供运维确认。
+
+运行配置变更在串行化事务中锁定实例与主机，排除实例原预留后校验 CPU 90%、内存 80%
+和磁盘 80% 调度上限，并在创建任务时立即写入目标预留，防止并发创建或扩容超卖。主机
+容量因实际使用而降低时，既有预留仍可原样保持或缩小，但不能继续增加超限的资源维度。
+任务重新渲染并写入 Compose：运行中实例执行 `compose up --wait` 和健康检查，已停止实例
+执行 `compose config --quiet` 且保持停止。任一步失败都会重写旧 Compose 并恢复旧元数据和
+原期望状态；目标与旧环境配置只以 AES-GCM 密文保存在任务载荷中，审计仅记录资源差异和
+环境配置是否变化。
 
 主机运行参数更新使用串行化事务并锁定主机记录。存在活动任务时拒绝更新；数据根目录在
 存在实例或备份时不可修改，端口池调整必须覆盖所有未删除实例当前使用的宿主机端口。
@@ -140,6 +154,8 @@ stateDiagram-v2
 - 主机探测会验证数据根目录可写，并通过 `ss`、`lsof` 或 `netstat` 识别端口池中的首个
   空闲端口。探测能力缺失、目录不可写或端口池耗尽都会在保存前明确显示。
 - 密码、私钥、仓库凭据和数据库密码在入库前使用 AES-256-GCM 加密。
+- 运行配置任务为可重试和失败恢复保留的环境变量快照同样使用 AES-256-GCM 加密，任务 API
+  和历史记录只暴露密文；审计不记录环境变量名称或值。
 - 主密钥来自环境变量或 Docker Secret，不进入数据库。
 - 命令参数使用严格校验及 POSIX/PowerShell 不相关的 Linux/macOS shell 转义。
 - Docker 安装/升级、CA 安装和宿主机调优必须是显式任务并完整审计。
@@ -187,6 +203,8 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 - 同一主机的破坏性 Compose 任务串行执行；不同主机可以并行。
 - 备份创建、恢复和删除与实例生命周期任务共用同一主机串行约束。恢复入队时锁定
   实例与备份记录，并在同一事务内进入 `restoring`，防止并发删除或其他实例操作。
+- 运行配置变更的任务、目标资源预留与 `reconfiguring` 状态在同一事务写入；失败恢复和
+  成功提交都同时更新资源、配置、稳定状态及期望状态。
 - 每个阶段设计为可重试或可检测已完成。进程重启后排队任务继续，运行中任务标记为
   `interrupted` 并允许用户重试。
 - 审计记录与任务 ID 关联。

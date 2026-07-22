@@ -37,6 +37,13 @@ type InstanceInput struct {
 	Configuration     json.RawMessage
 }
 
+type InstanceRuntimeConfiguration struct {
+	CPU               float64
+	MemoryBytes       int64
+	ReservedDiskBytes int64
+	Configuration     json.RawMessage
+}
+
 const instanceColumns = `i.id,i.name,i.project_id,i.host_id,i.template_version_id,i.environment,i.labels,
     i.status,i.status_message,i.desired_state,i.auto_restart,i.restart_failures,i.cpu,i.memory_bytes,
     i.reserved_disk_bytes,i.host_port,i.container_port,i.bind_address,i.database_username,
@@ -210,6 +217,140 @@ func (s *Store) UpdateInstanceTemplateVersionAndConfiguration(ctx context.Contex
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE instances SET template_version_id=$2,configuration=$3,updated_at=now()
 		WHERE id=$1 AND status<>'deleted'`, id, versionID, configuration)
+	if err == nil && result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func validateRuntimeConfiguration(input InstanceRuntimeConfiguration) error {
+	if input.CPU <= 0 || input.MemoryBytes <= 0 || input.ReservedDiskBytes <= 0 || !json.Valid(input.Configuration) {
+		return fmt.Errorf("%w: runtime configuration is invalid", domain.ErrInvalid)
+	}
+	return nil
+}
+
+func runtimeConfigurationFits(current, target InstanceRuntimeConfiguration, usedCPU, cpuLimit float64,
+	usedMemory, memoryLimit, usedDisk, diskLimit int64) bool {
+	return !(usedCPU+target.CPU > cpuLimit && target.CPU > current.CPU ||
+		usedMemory+target.MemoryBytes > memoryLimit && target.MemoryBytes > current.MemoryBytes ||
+		usedDisk+target.ReservedDiskBytes > diskLimit && target.ReservedDiskBytes > current.ReservedDiskBytes)
+}
+
+func lockRuntimeCapacity(ctx context.Context, tx pgx.Tx, instanceID, hostID uuid.UUID,
+	current, input InstanceRuntimeConfiguration) error {
+	var cpuCount float64
+	var memoryBytes, diskFreeBytes int64
+	var status string
+	var maintenance bool
+	if err := tx.QueryRow(ctx, `SELECT cpu_count,memory_bytes,disk_free_bytes,status,maintenance FROM hosts WHERE id=$1 FOR UPDATE`, hostID).
+		Scan(&cpuCount, &memoryBytes, &diskFreeBytes, &status, &maintenance); err != nil {
+		return translate(err)
+	}
+	if status != "online" || maintenance {
+		return fmt.Errorf("%w: selected host is not available", domain.ErrConflict)
+	}
+	var usedCPU float64
+	var usedMemory, usedDisk int64
+	if err := tx.QueryRow(ctx, `SELECT coalesce(sum(cpu),0),coalesce(sum(memory_bytes),0),coalesce(sum(reserved_disk_bytes),0)
+        FROM instances WHERE host_id=$1 AND id<>$2 AND status<>'deleted'`, hostID, instanceID).
+		Scan(&usedCPU, &usedMemory, &usedDisk); err != nil {
+		return err
+	}
+	if !runtimeConfigurationFits(current, input, usedCPU, cpuCount*.9, usedMemory, int64(float64(memoryBytes)*.8),
+		usedDisk, int64(float64(diskFreeBytes)*.8)) {
+		return fmt.Errorf("%w: host does not have enough capacity for the requested runtime configuration", domain.ErrConflict)
+	}
+	return nil
+}
+
+func (s *Store) CreateInstanceReconfigureTask(ctx context.Context, input TaskInput, instanceID uuid.UUID,
+	expectedStatus string, target InstanceRuntimeConfiguration) (domain.Task, error) {
+	if err := validateRuntimeConfiguration(target); err != nil {
+		return domain.Task{}, err
+	}
+	payload, err := json.Marshal(input.Payload)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return domain.Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	var currentStatus string
+	var hostID uuid.UUID
+	var current InstanceRuntimeConfiguration
+	if err = tx.QueryRow(ctx, `SELECT status,host_id,cpu,memory_bytes,reserved_disk_bytes,configuration FROM instances WHERE id=$1 FOR UPDATE`, instanceID).
+		Scan(&currentStatus, &hostID, &current.CPU, &current.MemoryBytes, &current.ReservedDiskBytes, &current.Configuration); err != nil {
+		return domain.Task{}, translate(err)
+	}
+	if currentStatus != expectedStatus {
+		return domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the operation", domain.ErrConflict)
+	}
+	if err = lockRuntimeCapacity(ctx, tx, instanceID, hostID, current, target); err != nil {
+		return domain.Task{}, err
+	}
+	if err = lockTaskSourceReferences(ctx, tx, input.Kind, payload); err != nil {
+		return domain.Task{}, err
+	}
+	item := domain.Task{ID: uuid.New()}
+	err = tx.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, item.ID, input.Kind, input.ResourceType,
+		input.ResourceID, input.RequestedBy, input.HostID, payload).Scan(taskScan(&item)...)
+	if err != nil {
+		return domain.Task{}, taskInsertError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE instances SET cpu=$2,memory_bytes=$3,reserved_disk_bytes=$4,
+        configuration=$5,status='reconfiguring',status_message='',updated_at=now() WHERE id=$1`,
+		instanceID, target.CPU, target.MemoryBytes, target.ReservedDiskBytes, target.Configuration); err != nil {
+		return domain.Task{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Task{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) ReserveInstanceRuntimeConfiguration(ctx context.Context, id uuid.UUID, target InstanceRuntimeConfiguration) error {
+	if err := validateRuntimeConfiguration(target); err != nil {
+		return err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var status string
+	var hostID uuid.UUID
+	var current InstanceRuntimeConfiguration
+	if err = tx.QueryRow(ctx, `SELECT status,host_id,cpu,memory_bytes,reserved_disk_bytes,configuration FROM instances WHERE id=$1 FOR UPDATE`, id).
+		Scan(&status, &hostID, &current.CPU, &current.MemoryBytes, &current.ReservedDiskBytes, &current.Configuration); err != nil {
+		return translate(err)
+	}
+	if status != "running" && status != "stopped" && status != "degraded" && status != "reconfiguring" {
+		return fmt.Errorf("%w: instance state does not allow runtime reconfiguration", domain.ErrConflict)
+	}
+	if err = lockRuntimeCapacity(ctx, tx, id, hostID, current, target); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE instances SET cpu=$2,memory_bytes=$3,reserved_disk_bytes=$4,
+        configuration=$5,status='reconfiguring',status_message='',updated_at=now() WHERE id=$1`,
+		id, target.CPU, target.MemoryBytes, target.ReservedDiskBytes, target.Configuration); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) FinishInstanceRuntimeConfiguration(ctx context.Context, id uuid.UUID, configuration InstanceRuntimeConfiguration,
+	status, desiredState, message string) error {
+	if err := validateRuntimeConfiguration(configuration); err != nil {
+		return err
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE instances SET cpu=$2,memory_bytes=$3,reserved_disk_bytes=$4,
+        configuration=$5,status=$6,desired_state=$7,status_message=$8,updated_at=now()
+        WHERE id=$1 AND status<>'deleted'`, id, configuration.CPU, configuration.MemoryBytes,
+		configuration.ReservedDiskBytes, configuration.Configuration, status, desiredState, message)
 	if err == nil && result.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}

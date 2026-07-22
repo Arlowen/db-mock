@@ -99,3 +99,28 @@ func TestSettingAuditChangesOnlyExposeKnownStructuredSettings(t *testing.T) {
 		t.Fatalf("unknown setting should only include a safe change flag: %#v", unknown)
 	}
 }
+
+func TestInstanceReconfigureAuditChangesNeverIncludeEnvironmentValues(t *testing.T) {
+	before := domain.Instance{CPU: 1, MemoryBytes: 1024, ReservedDiskBytes: 2048,
+		Configuration: json.RawMessage(`{"extraEnvironment":{"API_TOKEN":"old-secret"}}`)}
+	changes := instanceReconfigureAuditChanges(before, 2, 4096, 8192,
+		map[string]string{"API_TOKEN": "new-secret", "TZ": "Asia/Shanghai"})
+	encoded, err := json.Marshal(changes)
+	if err != nil {
+		t.Fatalf("marshal changes: %v", err)
+	}
+	text := string(encoded)
+	for _, secret := range []string{"old-secret", "new-secret", "Asia/Shanghai"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("environment value %q leaked into audit changes: %s", secret, text)
+		}
+	}
+	if changes["environmentConfigurationChanged"] != true {
+		t.Fatalf("expected a safe environment change flag: %#v", changes)
+	}
+	for _, key := range []string{"cpu", "memoryBytes", "reservedDiskBytes"} {
+		if changes[key] == nil {
+			t.Fatalf("expected %s transition: %#v", key, changes)
+		}
+	}
+}

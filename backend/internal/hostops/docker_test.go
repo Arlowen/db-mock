@@ -78,6 +78,21 @@ func TestValidateManagedDirectory(t *testing.T) {
 	}
 }
 
+func TestValidateProjectUsesComposeConfigWithoutStartingContainers(t *testing.T) {
+	runner := &recordingRunner{}
+	docker := &Docker{runner: runner}
+	instance := domain.Instance{RemoteDirectory: "/opt/dbmock/instances/id", ComposeProject: "dbmock_id"}
+	if err := docker.ValidateProject(context.Background(), domain.Host{}, instance); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 || !strings.Contains(runner.commands[0], " config --quiet") {
+		t.Fatalf("unexpected validation command: %#v", runner.commands)
+	}
+	if strings.Contains(runner.commands[0], " up ") || strings.Contains(runner.commands[0], " start") {
+		t.Fatalf("validation must not start containers: %s", runner.commands[0])
+	}
+}
+
 func TestParseDockerSize(t *testing.T) {
 	if got := parseDockerSize("1.5GiB"); got != 1610612736 {
 		t.Fatalf("got %d", got)

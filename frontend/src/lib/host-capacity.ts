@@ -53,6 +53,14 @@ export function hostCanAccept(host: Host, reservation: HostReservation, request:
   return request.port >= host.portStart && request.port <= host.portEnd && !reservation.ports.includes(request.port)
 }
 
+export function hostCanReconfigure(host: Host, reservationWithoutInstance: HostReservation,
+  current: DeploymentRequest, request: DeploymentRequest): boolean {
+  const available = schedulableCapacity(host, reservationWithoutInstance)
+  return (request.cpu <= available.cpu + Number.EPSILON || request.cpu <= current.cpu)
+    && (request.memory <= available.memory || request.memory <= current.memory)
+    && (request.disk <= available.disk || request.disk <= current.disk)
+}
+
 export function hostHeadroomScore(host: Host, reservation: HostReservation): number {
   return (host.cpuCount - reservation.cpu) / Math.max(host.cpuCount, 1)
     + (host.memoryBytes - reservation.memory) / Math.max(host.memoryBytes, 1)

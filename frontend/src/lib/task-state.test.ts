@@ -28,6 +28,10 @@ describe('selectRecoveryTasks', () => {
     expect(result.operationTask?.id).toBe('retry')
   })
 
+  it('keeps a task active while it waits for its retry window', () => {
+    expect(selectRecoveryTasks([task('retrying', 'retrying', '2026-07-19T00:02:00Z')], true).activeTask?.id).toBe('retrying')
+  })
+
   it('offers recovery only for the latest failed task and a recoverable resource', () => {
     const tasks = [task('latest', 'failed', '2026-07-19T00:02:00Z')]
 
@@ -38,7 +42,7 @@ describe('selectRecoveryTasks', () => {
 
 describe('instance task recovery', () => {
   it('keeps interrupted operation states recoverable after a control-service restart', () => {
-    for (const status of ['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded']) {
+    for (const status of ['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'reconfiguring', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded']) {
       expect(isRecoverableInstanceStatus(status)).toBe(true)
     }
   })

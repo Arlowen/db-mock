@@ -251,11 +251,15 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	action := chi.URLParam(r, "action")
 	var input struct {
-		ConfirmName       string     `json:"confirmName"`
-		TemplateVersionID *uuid.UUID `json:"templateVersionId"`
-		ImageSource       string     `json:"imageSource"`
-		ImageArtifactID   *uuid.UUID `json:"imageArtifactId"`
-		RegistryID        *uuid.UUID `json:"registryId"`
+		ConfirmName       string            `json:"confirmName"`
+		TemplateVersionID *uuid.UUID        `json:"templateVersionId"`
+		ImageSource       string            `json:"imageSource"`
+		ImageArtifactID   *uuid.UUID        `json:"imageArtifactId"`
+		RegistryID        *uuid.UUID        `json:"registryId"`
+		CPU               float64           `json:"cpu"`
+		MemoryBytes       int64             `json:"memoryBytes"`
+		DiskBytes         int64             `json:"diskBytes"`
+		ExtraEnvironment  map[string]string `json:"extraEnvironment"`
 	}
 	if r.ContentLength != 0 {
 		if err = httpx.Decode(r, &input); err != nil {
@@ -276,12 +280,17 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 	task, err := s.instances.Action(r.Context(), actor.User.ID, id, action, instances.ActionRequest{
 		NewTemplateVersionID: input.TemplateVersionID, ImageSource: input.ImageSource,
 		ImageArtifactID: input.ImageArtifactID, RegistryID: input.RegistryID,
+		CPU: input.CPU, MemoryBytes: input.MemoryBytes, DiskBytes: input.DiskBytes,
+		ExtraEnvironment: input.ExtraEnvironment,
 	})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	if action == "upgrade" {
+	if action == "reconfigure" {
+		_ = s.auditWithChanges(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "",
+			instanceReconfigureAuditChanges(instance, input.CPU, input.MemoryBytes, input.DiskBytes, input.ExtraEnvironment))
+	} else if action == "upgrade" {
 		changes := map[string]any{"imageSource": input.ImageSource}
 		if input.TemplateVersionID != nil {
 			changes["templateVersionId"] = input.TemplateVersionID.String()

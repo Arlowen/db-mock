@@ -254,6 +254,11 @@ func (d *Docker) ComposeStart(ctx context.Context, host domain.Host, instance do
 	return err
 }
 
+func (d *Docker) ValidateProject(ctx context.Context, host domain.Host, instance domain.Instance) error {
+	_, err := d.runner.Run(ctx, host, composeCommand(instance)+" config --quiet", nil)
+	return err
+}
+
 func (d *Docker) ComposeStop(ctx context.Context, host domain.Host, instance domain.Instance) error {
 	_, err := d.runner.Run(ctx, host, composeCommand(instance)+" stop --timeout 60", nil)
 	return err

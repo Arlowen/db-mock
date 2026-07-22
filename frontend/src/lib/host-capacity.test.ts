@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Host, Instance } from './types'
-import { hostCanAccept, remainingAfterDeployment, reservationForHost, schedulableCapacity } from './host-capacity'
+import { hostCanAccept, hostCanReconfigure, remainingAfterDeployment, reservationForHost, schedulableCapacity } from './host-capacity'
 
 const host = {
   id: 'host-1', cpuCount: 10, memoryBytes: 1000, diskFreeBytes: 1000, portStart: 20000, portEnd: 20010,
@@ -35,5 +35,13 @@ describe('host capacity', () => {
   it('previews remaining schedulable capacity after deployment', () => {
     expect(remainingAfterDeployment(host, { cpu: 4, memory: 300, disk: 300, ports: [] }, { cpu: 2, memory: 100, disk: 200 }))
       .toEqual({ cpu: 3, memory: 400, disk: 300 })
+  })
+
+  it('allows existing reservations and reductions on an overcommitted host but rejects growth', () => {
+    const reservation = { cpu: 6, memory: 600, disk: 600, ports: [] }
+    const current = { cpu: 4, memory: 400, disk: 400 }
+    expect(hostCanReconfigure(host, reservation, current, current)).toBe(true)
+    expect(hostCanReconfigure(host, reservation, current, { cpu: 2, memory: 300, disk: 300 })).toBe(true)
+    expect(hostCanReconfigure(host, reservation, current, { cpu: 2, memory: 500, disk: 300 })).toBe(false)
   })
 })

@@ -1,12 +1,14 @@
 package instances
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"path"
@@ -57,18 +59,30 @@ type ActionRequest struct {
 	ImageSource          string
 	ImageArtifactID      *uuid.UUID
 	RegistryID           *uuid.UUID
+	CPU                  float64
+	MemoryBytes          int64
+	DiskBytes            int64
+	ExtraEnvironment     map[string]string
 }
 
 type ActionPayload struct {
-	InstanceID           uuid.UUID  `json:"instanceId"`
-	NewTemplateVersionID *uuid.UUID `json:"newTemplateVersionId,omitempty"`
-	BackupID             *uuid.UUID `json:"backupId,omitempty"`
-	PreviousBackupStatus string     `json:"previousBackupStatus,omitempty"`
-	ImageSource          string     `json:"imageSource,omitempty"`
-	ImageArtifactID      *uuid.UUID `json:"imageArtifactId,omitempty"`
-	RegistryID           *uuid.UUID `json:"registryId,omitempty"`
-	PreviousStatus       string     `json:"previousStatus,omitempty"`
-	PreviousDesiredState string     `json:"previousDesiredState,omitempty"`
+	InstanceID              uuid.UUID  `json:"instanceId"`
+	NewTemplateVersionID    *uuid.UUID `json:"newTemplateVersionId,omitempty"`
+	BackupID                *uuid.UUID `json:"backupId,omitempty"`
+	PreviousBackupStatus    string     `json:"previousBackupStatus,omitempty"`
+	ImageSource             string     `json:"imageSource,omitempty"`
+	ImageArtifactID         *uuid.UUID `json:"imageArtifactId,omitempty"`
+	RegistryID              *uuid.UUID `json:"registryId,omitempty"`
+	PreviousStatus          string     `json:"previousStatus,omitempty"`
+	PreviousDesiredState    string     `json:"previousDesiredState,omitempty"`
+	TargetCPU               float64    `json:"targetCpu,omitempty"`
+	TargetMemoryBytes       int64      `json:"targetMemoryBytes,omitempty"`
+	TargetDiskBytes         int64      `json:"targetDiskBytes,omitempty"`
+	EncryptedTargetConfig   string     `json:"encryptedTargetConfig,omitempty"`
+	PreviousCPU             float64    `json:"previousCpu,omitempty"`
+	PreviousMemoryBytes     int64      `json:"previousMemoryBytes,omitempty"`
+	PreviousDiskBytes       int64      `json:"previousDiskBytes,omitempty"`
+	EncryptedPreviousConfig string     `json:"encryptedPreviousConfig,omitempty"`
 }
 
 type instanceConfiguration struct {
@@ -91,6 +105,7 @@ func NewService(target *store.Store, vault *appcrypto.Vault, docker *hostops.Doc
 	manager.Register("instance.restart", service.handleRestart)
 	manager.Register("instance.delete", service.handleDelete)
 	manager.Register("instance.upgrade", service.handleUpgrade)
+	manager.Register("instance.reconfigure", service.handleReconfigure)
 	manager.Register("instance.backup", service.handleBackupCreate)
 	manager.Register("instance.restore", service.handleBackupRestore)
 	manager.Register("instance.backup.delete", service.handleBackupDelete)
@@ -215,6 +230,9 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 	if err = validateInstanceAction(instance.Status, action, request.NewTemplateVersionID); err != nil {
 		return domain.Task{}, err
 	}
+	if err = validateInstanceActionRequest(action, request); err != nil {
+		return domain.Task{}, err
+	}
 	if action == "delete" {
 		backups, backupErr := s.store.ListInstanceBackups(ctx, instance.ID)
 		if backupErr != nil {
@@ -226,6 +244,36 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 	}
 	payload := ActionPayload{InstanceID: instance.ID, NewTemplateVersionID: request.NewTemplateVersionID,
 		PreviousStatus: instance.Status, PreviousDesiredState: instance.DesiredState}
+	if action == "reconfigure" {
+		template, version, getErr := s.store.GetTemplateVersion(ctx, instance.TemplateVersionID)
+		if getErr != nil {
+			return domain.Task{}, getErr
+		}
+		target, configuration, prepareErr := prepareRuntimeConfiguration(template, version, instance, request)
+		if prepareErr != nil {
+			return domain.Task{}, prepareErr
+		}
+		encryptedTarget, sealErr := s.vault.Seal(configuration, runtimeConfigurationContext(instance.ID))
+		if sealErr != nil {
+			return domain.Task{}, sealErr
+		}
+		encryptedPrevious, sealErr := s.vault.Seal(instance.Configuration, runtimeConfigurationContext(instance.ID))
+		if sealErr != nil {
+			return domain.Task{}, sealErr
+		}
+		payload.TargetCPU, payload.TargetMemoryBytes, payload.TargetDiskBytes = target.CPU, target.MemoryBytes, target.ReservedDiskBytes
+		payload.EncryptedTargetConfig = encryptedTarget
+		payload.PreviousCPU, payload.PreviousMemoryBytes, payload.PreviousDiskBytes = instance.CPU, instance.MemoryBytes, instance.ReservedDiskBytes
+		payload.EncryptedPreviousConfig = encryptedPrevious
+		task, createErr := s.store.CreateInstanceReconfigureTask(ctx, store.TaskInput{Kind: "instance.reconfigure",
+			ResourceType: "instance", ResourceID: &instance.ID, RequestedBy: userID, HostID: &instance.HostID,
+			Payload: payload}, instance.ID, instance.Status, store.InstanceRuntimeConfiguration{CPU: target.CPU,
+			MemoryBytes: target.MemoryBytes, ReservedDiskBytes: target.ReservedDiskBytes, Configuration: configuration})
+		if createErr == nil {
+			s.tasks.Wake()
+		}
+		return task, createErr
+	}
 	if action == "upgrade" {
 		var target domain.TemplateVersion
 		payload.ImageSource, payload.ImageArtifactID, payload.RegistryID, target, err = s.prepareUpgrade(ctx, instance, request)
@@ -233,8 +281,6 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 			return domain.Task{}, err
 		}
 		payload.NewTemplateVersionID = &target.ID
-	} else if request.ImageSource != "" || request.ImageArtifactID != nil || request.RegistryID != nil {
-		return domain.Task{}, fmt.Errorf("%w: image source is only valid for instance upgrades", domain.ErrInvalid)
 	}
 	operationStatus := instanceOperationStatus(action)
 	task, err := s.store.CreateInstanceActionTask(ctx, store.TaskInput{Kind: "instance." + action, ResourceType: "instance", ResourceID: &instance.ID,
@@ -243,6 +289,49 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 		s.tasks.Wake()
 	}
 	return task, err
+}
+
+func validateInstanceActionRequest(action string, request ActionRequest) error {
+	if action != "upgrade" && (request.NewTemplateVersionID != nil || request.ImageSource != "" ||
+		request.ImageArtifactID != nil || request.RegistryID != nil) {
+		return fmt.Errorf("%w: image source and template version are only valid for instance upgrades", domain.ErrInvalid)
+	}
+	if action != "reconfigure" && (request.CPU != 0 || request.MemoryBytes != 0 || request.DiskBytes != 0 ||
+		request.ExtraEnvironment != nil) {
+		return fmt.Errorf("%w: runtime configuration is only valid for instance reconfiguration", domain.ErrInvalid)
+	}
+	return nil
+}
+
+func prepareRuntimeConfiguration(template domain.Template, version domain.TemplateVersion, instance domain.Instance, request ActionRequest) (domain.Instance, json.RawMessage, error) {
+	if request.CPU <= 0 || request.MemoryBytes <= 0 || request.DiskBytes <= 0 {
+		return domain.Instance{}, nil, fmt.Errorf("%w: positive CPU, memory, and disk reservations are required", domain.ErrInvalid)
+	}
+	if request.ExtraEnvironment == nil {
+		return domain.Instance{}, nil, fmt.Errorf("%w: extra environment must be a JSON object", domain.ErrInvalid)
+	}
+	if request.CPU < version.MinCPU || request.MemoryBytes < version.MinMemoryBytes || request.DiskBytes < version.MinDiskBytes {
+		return domain.Instance{}, nil, fmt.Errorf("%w: resources are below template minimum", domain.ErrInvalid)
+	}
+	var current instanceConfiguration
+	if err := json.Unmarshal(instance.Configuration, &current); err != nil {
+		return domain.Instance{}, nil, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+	}
+	if request.CPU == instance.CPU && request.MemoryBytes == instance.MemoryBytes && request.DiskBytes == instance.ReservedDiskBytes && maps.Equal(request.ExtraEnvironment, current.ExtraEnvironment) {
+		return domain.Instance{}, nil, fmt.Errorf("%w: runtime configuration has not changed", domain.ErrConflict)
+	}
+	current.ExtraEnvironment = request.ExtraEnvironment
+	configuration, err := json.Marshal(current)
+	if err != nil {
+		return domain.Instance{}, nil, err
+	}
+	target := instance
+	target.CPU, target.MemoryBytes, target.ReservedDiskBytes = request.CPU, request.MemoryBytes, request.DiskBytes
+	target.Configuration = configuration
+	if _, err = templates.RenderCompose(template, version, target, current.ExtraEnvironment); err != nil {
+		return domain.Instance{}, nil, fmt.Errorf("%w: %v", domain.ErrInvalid, err)
+	}
+	return target, configuration, nil
 }
 
 func normalizeBackupName(value string, now time.Time) (string, error) {
@@ -468,6 +557,8 @@ func instanceOperationStatus(action string) string {
 		return "deleting"
 	case "upgrade":
 		return "upgrading"
+	case "reconfigure":
+		return "reconfiguring"
 	case "backup":
 		return "backing_up"
 	case "restore":
@@ -521,11 +612,12 @@ func currentOrPreviousInstanceState(payload ActionPayload, instance domain.Insta
 
 func validateInstanceAction(status, action string, newVersion *uuid.UUID) error {
 	allowedStatuses := map[string]map[string]bool{
-		"start":   {"stopped": true, "failed": true},
-		"stop":    {"running": true, "degraded": true},
-		"restart": {"running": true, "degraded": true},
-		"delete":  {"running": true, "stopped": true, "degraded": true, "failed": true},
-		"upgrade": {"running": true, "stopped": true, "degraded": true},
+		"start":       {"stopped": true, "failed": true},
+		"stop":        {"running": true, "degraded": true},
+		"restart":     {"running": true, "degraded": true},
+		"delete":      {"running": true, "stopped": true, "degraded": true, "failed": true},
+		"upgrade":     {"running": true, "stopped": true, "degraded": true},
+		"reconfigure": {"running": true, "stopped": true, "degraded": true},
 	}
 	statuses, ok := allowedStatuses[action]
 	if !ok {
@@ -874,6 +966,163 @@ func (s *Service) handleStop(ctx context.Context, runtime *tasks.Runtime, task d
 }
 func (s *Service) handleRestart(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (any, error) {
 	return s.simpleAction(ctx, runtime, task, "restart")
+}
+
+func runtimeConfiguration(cpu float64, memoryBytes, diskBytes int64, configuration json.RawMessage) store.InstanceRuntimeConfiguration {
+	return store.InstanceRuntimeConfiguration{CPU: cpu, MemoryBytes: memoryBytes, ReservedDiskBytes: diskBytes,
+		Configuration: append(json.RawMessage(nil), configuration...)}
+}
+
+func instanceHasRuntimeConfiguration(instance domain.Instance, configuration store.InstanceRuntimeConfiguration) bool {
+	return instance.CPU == configuration.CPU && instance.MemoryBytes == configuration.MemoryBytes &&
+		instance.ReservedDiskBytes == configuration.ReservedDiskBytes && bytes.Equal(instance.Configuration, configuration.Configuration)
+}
+
+func runtimeConfigurationResult(instanceID uuid.UUID, status string, configuration store.InstanceRuntimeConfiguration) map[string]any {
+	return map[string]any{"instanceId": instanceID, "status": status, "cpu": configuration.CPU,
+		"memoryBytes": configuration.MemoryBytes, "reservedDiskBytes": configuration.ReservedDiskBytes}
+}
+
+func runtimeConfigurationContext(instanceID uuid.UUID) string {
+	return "instance:" + instanceID.String() + ":runtime-configuration"
+}
+
+func (s *Service) openRuntimeConfiguration(instanceID uuid.UUID, encrypted string) (json.RawMessage, error) {
+	plain, err := s.vault.Open(encrypted, runtimeConfigurationContext(instanceID))
+	if err != nil {
+		return nil, err
+	}
+	if !json.Valid(plain) {
+		return nil, fmt.Errorf("%w: decrypted runtime configuration is not valid JSON", domain.ErrInvalid)
+	}
+	return json.RawMessage(plain), nil
+}
+
+func (s *Service) renderRuntimeProject(instance domain.Instance, template domain.Template, version domain.TemplateVersion,
+	configuration json.RawMessage) ([]byte, []byte, map[string][]byte, error) {
+	var settings instanceConfiguration
+	if err := json.Unmarshal(configuration, &settings); err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+	}
+	compose, err := templates.RenderCompose(template, version, instance, settings.ExtraEnvironment)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	plain, err := s.vault.Open(instance.EncryptedPassword, "instance:"+instance.ID.String())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	environment, err := templates.EnvFile(instance.DatabaseUsername, string(plain), instance.DatabaseName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	files, err := templates.PackageProjectFiles(version.PackagePath)
+	return compose, environment, files, err
+}
+
+func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {
+	payload, instance, host, template, version, err := s.load(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	previousStatus, previousDesired := previousInstanceState(payload, instance)
+	stable := upgradeStableState(previousStatus, previousDesired)
+	targetConfiguration, err := s.openRuntimeConfiguration(instance.ID, payload.EncryptedTargetConfig)
+	if err != nil {
+		return nil, err
+	}
+	previousConfiguration, err := s.openRuntimeConfiguration(instance.ID, payload.EncryptedPreviousConfig)
+	if err != nil {
+		return nil, err
+	}
+	target := runtimeConfiguration(payload.TargetCPU, payload.TargetMemoryBytes, payload.TargetDiskBytes, targetConfiguration)
+	previous := runtimeConfiguration(payload.PreviousCPU, payload.PreviousMemoryBytes, payload.PreviousDiskBytes, previousConfiguration)
+	if (instance.Status == "running" || instance.Status == "stopped") && instanceHasRuntimeConfiguration(instance, target) {
+		return runtimeConfigurationResult(instance.ID, instance.Status, target), nil
+	}
+	previousInstance := instance
+	previousInstance.CPU, previousInstance.MemoryBytes, previousInstance.ReservedDiskBytes = previous.CPU, previous.MemoryBytes, previous.ReservedDiskBytes
+	previousInstance.Configuration = previous.Configuration
+	projectTouched := false
+	defer func() {
+		if err == nil {
+			return
+		}
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		_ = runtime.Log(recoveryCtx, "warning", "Runtime configuration failed; restoring the previous Compose project")
+		recoveryErrors := make([]string, 0, 3)
+		if projectTouched {
+			compose, environment, files, renderErr := s.renderRuntimeProject(previousInstance, template, version, previous.Configuration)
+			if renderErr != nil {
+				recoveryErrors = append(recoveryErrors, "render")
+			} else if writeErr := s.docker.WriteProject(recoveryCtx, host, previousInstance, compose, environment, files); writeErr != nil {
+				recoveryErrors = append(recoveryErrors, "write")
+			} else if stable.Status == "running" {
+				if startErr := s.docker.ComposeUp(recoveryCtx, host, previousInstance, false); startErr != nil {
+					recoveryErrors = append(recoveryErrors, "start")
+				}
+			} else if validateErr := s.docker.ValidateProject(recoveryCtx, host, previousInstance); validateErr != nil {
+				recoveryErrors = append(recoveryErrors, "validate")
+			}
+		}
+		message := "Runtime configuration failed; previous configuration was restored"
+		status := stable.Status
+		if len(recoveryErrors) > 0 {
+			status = "failed"
+			message = "Runtime configuration failed and automatic recovery did not complete"
+		}
+		if restoreErr := s.store.FinishInstanceRuntimeConfiguration(recoveryCtx, instance.ID, previous, status, stable.Desired, message); restoreErr != nil {
+			_ = runtime.Log(recoveryCtx, "error", "Runtime configuration metadata could not be restored")
+		}
+	}()
+
+	if err = s.store.ReserveInstanceRuntimeConfiguration(ctx, instance.ID, target); err != nil {
+		return nil, err
+	}
+	if err = runtime.Stage(ctx, 15, "render", "Rendering updated runtime configuration", true); err != nil {
+		return nil, err
+	}
+	targetInstance := instance
+	targetInstance.CPU, targetInstance.MemoryBytes, targetInstance.ReservedDiskBytes = target.CPU, target.MemoryBytes, target.ReservedDiskBytes
+	targetInstance.Configuration = target.Configuration
+	compose, environment, files, err := s.renderRuntimeProject(targetInstance, template, version, target.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	projectTouched = true
+	if err = s.docker.WriteProject(ctx, host, targetInstance, compose, environment, files); err != nil {
+		return nil, err
+	}
+	if stable.Status == "running" {
+		if err = runtime.Stage(ctx, 55, "compose", "Recreating database containers with the updated configuration", false); err != nil {
+			return nil, err
+		}
+		if err = s.docker.ComposeUp(ctx, host, targetInstance, false); err != nil {
+			return nil, err
+		}
+		if err = runtime.Stage(ctx, 85, "health", "Checking the reconfigured database health", false); err != nil {
+			return nil, err
+		}
+		state, health, stateErr := s.docker.InstanceState(ctx, host, targetInstance)
+		if stateErr != nil {
+			return nil, fmt.Errorf("reconfigured instance health check failed: state=%s health=%s: %w", state, health, stateErr)
+		}
+		if state != "running" {
+			return nil, fmt.Errorf("reconfigured instance health check failed: state=%s health=%s", state, health)
+		}
+	} else {
+		if err = runtime.Stage(ctx, 70, "compose", "Validating the updated stopped database project", false); err != nil {
+			return nil, err
+		}
+		if err = s.docker.ValidateProject(ctx, host, targetInstance); err != nil {
+			return nil, err
+		}
+	}
+	if err = s.store.FinishInstanceRuntimeConfiguration(ctx, instance.ID, target, stable.Status, stable.Desired, ""); err != nil {
+		return nil, err
+	}
+	return runtimeConfigurationResult(instance.ID, stable.Status, target), nil
 }
 
 func (s *Service) simpleAction(ctx context.Context, runtime *tasks.Runtime, task domain.Task, action string) (result any, err error) {

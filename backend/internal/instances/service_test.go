@@ -1,12 +1,15 @@
 package instances
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	appcrypto "github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/store"
 )
@@ -24,6 +27,8 @@ func TestValidateInstanceAction(t *testing.T) {
 		{status: "degraded", action: "restart"},
 		{status: "failed", action: "delete"},
 		{status: "stopped", action: "upgrade", version: &versionID},
+		{status: "running", action: "reconfigure"},
+		{status: "degraded", action: "reconfigure"},
 	}
 	for _, test := range valid {
 		if err := validateInstanceAction(test.status, test.action, test.version); err != nil {
@@ -36,6 +41,7 @@ func TestValidateInstanceAction(t *testing.T) {
 		{status: "stopped", action: "stop"},
 		{status: "provisioning", action: "delete"},
 		{status: "deleted", action: "restart"},
+		{status: "failed", action: "reconfigure"},
 	}
 	for _, test := range conflicts {
 		if err := validateInstanceAction(test.status, test.action, nil); !errors.Is(err, domain.ErrConflict) {
@@ -48,6 +54,30 @@ func TestValidateInstanceAction(t *testing.T) {
 	}
 	if err := validateInstanceAction("running", "unknown", nil); !errors.Is(err, domain.ErrInvalid) {
 		t.Fatalf("expected unknown action to be invalid, got %v", err)
+	}
+}
+
+func TestValidateInstanceActionRequestRejectsCrossActionFields(t *testing.T) {
+	versionID := uuid.New()
+	for name, test := range map[string]struct {
+		action  string
+		request ActionRequest
+	}{
+		"upgrade fields on start":     {action: "start", request: ActionRequest{NewTemplateVersionID: &versionID}},
+		"image fields on reconfigure": {action: "reconfigure", request: ActionRequest{ImageSource: "public"}},
+		"runtime fields on upgrade":   {action: "upgrade", request: ActionRequest{CPU: 2}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateInstanceActionRequest(test.action, test.request); !errors.Is(err, domain.ErrInvalid) {
+				t.Fatalf("expected cross-action fields to be invalid, got %v", err)
+			}
+		})
+	}
+	if err := validateInstanceActionRequest("upgrade", ActionRequest{NewTemplateVersionID: &versionID, ImageSource: "public"}); err != nil {
+		t.Fatalf("expected upgrade fields to be valid: %v", err)
+	}
+	if err := validateInstanceActionRequest("reconfigure", ActionRequest{CPU: 2, MemoryBytes: 1024, DiskBytes: 2048, ExtraEnvironment: map[string]string{}}); err != nil {
+		t.Fatalf("expected runtime fields to be valid: %v", err)
 	}
 }
 
@@ -67,13 +97,14 @@ func TestInstanceActionProgressMessage(t *testing.T) {
 
 func TestInstanceOperationStatus(t *testing.T) {
 	tests := map[string]string{
-		"start":   "starting",
-		"stop":    "stopping",
-		"restart": "restarting",
-		"delete":  "deleting",
-		"upgrade": "upgrading",
-		"backup":  "backing_up",
-		"restore": "restoring",
+		"start":       "starting",
+		"stop":        "stopping",
+		"restart":     "restarting",
+		"delete":      "deleting",
+		"upgrade":     "upgrading",
+		"reconfigure": "reconfiguring",
+		"backup":      "backing_up",
+		"restore":     "restoring",
 	}
 	for action, want := range tests {
 		if got := instanceOperationStatus(action); got != want {
@@ -82,6 +113,106 @@ func TestInstanceOperationStatus(t *testing.T) {
 	}
 	if got := instanceOperationStatus("unknown"); got != "" {
 		t.Fatalf("unknown operation status = %q, want empty", got)
+	}
+}
+
+func TestPrepareRuntimeConfigurationPreservesImageSelection(t *testing.T) {
+	artifactID, registryID := uuid.New(), uuid.New()
+	instance := domain.Instance{
+		ID: uuid.New(), CPU: 1, MemoryBytes: 1024, ReservedDiskBytes: 2048,
+		HostPort: 5432, BindAddress: "0.0.0.0", RemoteDirectory: "/opt/dbmock/instances/test",
+		Configuration: json.RawMessage(`{"extraEnvironment":{"TZ":"UTC"},"imageArtifactId":"` + artifactID.String() + `","registryId":"` + registryID.String() + `"}`),
+	}
+	template := domain.Template{Slug: "postgres"}
+	version := domain.TemplateVersion{MinCPU: 1, MinMemoryBytes: 1024, MinDiskBytes: 2048,
+		ImageReference: "postgres:17", ComposeTemplate: "services:\n  database:\n    image: {{ .Image }}\n    cpus: {{ .CPU }}\n    mem_limit: {{ .MemoryBytes }}\n    environment:\n{{ .ExtraEnvironment }}"}
+	target, raw, err := prepareRuntimeConfiguration(template, version, instance, ActionRequest{
+		CPU: 2, MemoryBytes: 4096, DiskBytes: 8192, ExtraEnvironment: map[string]string{"TZ": "Asia/Shanghai"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.CPU != 2 || target.MemoryBytes != 4096 || target.ReservedDiskBytes != 8192 {
+		t.Fatalf("unexpected target resources: %#v", target)
+	}
+	var configuration instanceConfiguration
+	if err = json.Unmarshal(raw, &configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.ImageArtifactID == nil || *configuration.ImageArtifactID != artifactID ||
+		configuration.RegistryID == nil || *configuration.RegistryID != registryID {
+		t.Fatalf("image selection was not preserved: %#v", configuration)
+	}
+	if configuration.ExtraEnvironment["TZ"] != "Asia/Shanghai" {
+		t.Fatalf("environment was not updated: %#v", configuration.ExtraEnvironment)
+	}
+}
+
+func TestPrepareRuntimeConfigurationRejectsUnsafeOrEmptyChanges(t *testing.T) {
+	instance := domain.Instance{ID: uuid.New(), CPU: 1, MemoryBytes: 1024, ReservedDiskBytes: 2048,
+		HostPort: 5432, BindAddress: "0.0.0.0", RemoteDirectory: "/opt/dbmock/instances/test",
+		Configuration: json.RawMessage(`{"extraEnvironment":{"TZ":"UTC"}}`)}
+	template := domain.Template{Slug: "postgres"}
+	version := domain.TemplateVersion{MinCPU: 1, MinMemoryBytes: 1024, MinDiskBytes: 2048,
+		ImageReference: "postgres:17", ComposeTemplate: "services:\n  database:\n    image: {{ .Image }}\n    environment:\n{{ .ExtraEnvironment }}"}
+	for name, request := range map[string]ActionRequest{
+		"below minimum":              {CPU: .5, MemoryBytes: 1024, DiskBytes: 2048, ExtraEnvironment: map[string]string{}},
+		"missing environment object": {CPU: 1, MemoryBytes: 1024, DiskBytes: 2048},
+		"reserved environment": {CPU: 2, MemoryBytes: 2048, DiskBytes: 4096,
+			ExtraEnvironment: map[string]string{"DBMOCK_DB_PASSWORD": "override"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := prepareRuntimeConfiguration(template, version, instance, request); !errors.Is(err, domain.ErrInvalid) {
+				t.Fatalf("expected invalid configuration, got %v", err)
+			}
+		})
+	}
+	_, _, err := prepareRuntimeConfiguration(template, version, instance, ActionRequest{
+		CPU: 1, MemoryBytes: 1024, DiskBytes: 2048, ExtraEnvironment: map[string]string{"TZ": "UTC"},
+	})
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected unchanged configuration conflict, got %v", err)
+	}
+}
+
+func TestRuntimeConfigurationTaskPayloadDoesNotExposeEnvironmentValues(t *testing.T) {
+	vault, err := appcrypto.NewVault(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID := uuid.New()
+	configuration := json.RawMessage(`{"extraEnvironment":{"API_TOKEN":"plain-secret"}}`)
+	encrypted, err := vault.Seal(configuration, runtimeConfigurationContext(instanceID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(ActionPayload{InstanceID: instanceID, EncryptedTargetConfig: encrypted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), "plain-secret") {
+		t.Fatalf("task payload leaked an environment value: %s", payload)
+	}
+	service := &Service{vault: vault}
+	opened, err := service.openRuntimeConfiguration(instanceID, encrypted)
+	if err != nil || !bytes.Equal(opened, configuration) {
+		t.Fatalf("could not recover encrypted task configuration: %s, %v", opened, err)
+	}
+	if _, err = service.openRuntimeConfiguration(uuid.New(), encrypted); err == nil {
+		t.Fatal("encrypted task configuration must be bound to its instance")
+	}
+}
+
+func TestInstanceHasRuntimeConfigurationRequiresEveryPersistedField(t *testing.T) {
+	raw := json.RawMessage(`{"extraEnvironment":{"TZ":"UTC"}}`)
+	instance := domain.Instance{CPU: 2, MemoryBytes: 4096, ReservedDiskBytes: 8192, Configuration: raw}
+	target := runtimeConfiguration(2, 4096, 8192, raw)
+	if !instanceHasRuntimeConfiguration(instance, target) {
+		t.Fatal("expected exact target configuration to match")
+	}
+	target.MemoryBytes++
+	if instanceHasRuntimeConfiguration(instance, target) {
+		t.Fatal("a resource difference must not be treated as an already committed target")
 	}
 }
 

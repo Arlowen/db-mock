@@ -34,7 +34,7 @@ func TestDiskAlertTypeHonorsThresholdsAndSwitches(t *testing.T) {
 }
 
 func TestTaskOwnedInstanceStatesAreNotOverwrittenByMonitoring(t *testing.T) {
-	for _, status := range []string{"provisioning", "starting", "stopping", "restarting", "upgrading", "backing_up", "restoring", "deleting", "failed"} {
+	for _, status := range []string{"provisioning", "starting", "stopping", "restarting", "upgrading", "reconfiguring", "backing_up", "restoring", "deleting", "failed"} {
 		if !taskOwnsInstanceState(status) {
 			t.Fatalf("expected %q to remain owned by its task", status)
 		}

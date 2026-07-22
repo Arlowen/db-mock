@@ -1,8 +1,8 @@
 import type { Task } from './types'
 
-const activeStatuses = new Set(['queued', 'running'])
+const activeStatuses = new Set(['queued', 'running', 'retrying'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
-const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded'])
+const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'reconfiguring', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded'])
 
 export function isRecoverableInstanceStatus(status: string) {
   return recoverableInstanceStatuses.has(status)

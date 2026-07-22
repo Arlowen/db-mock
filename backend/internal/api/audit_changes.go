@@ -94,6 +94,21 @@ func instanceAuditChanges(before, after domain.Instance) map[string]any {
 	return changes
 }
 
+func instanceReconfigureAuditChanges(before domain.Instance, cpu float64, memoryBytes, diskBytes int64,
+	extraEnvironment map[string]string) map[string]any {
+	changes := map[string]any{}
+	addAuditTransition(changes, "cpu", before.CPU, cpu)
+	addAuditTransition(changes, "memoryBytes", before.MemoryBytes, memoryBytes)
+	addAuditTransition(changes, "reservedDiskBytes", before.ReservedDiskBytes, diskBytes)
+	var configuration struct {
+		ExtraEnvironment map[string]string `json:"extraEnvironment"`
+	}
+	if json.Unmarshal(before.Configuration, &configuration) != nil || !reflect.DeepEqual(configuration.ExtraEnvironment, extraEnvironment) {
+		changes["environmentConfigurationChanged"] = true
+	}
+	return changes
+}
+
 func registryAuditChanges(before, after domain.Registry, input registryRequest) map[string]any {
 	changes := map[string]any{}
 	addAuditTransition(changes, "name", before.Name, after.Name)
