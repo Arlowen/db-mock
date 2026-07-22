@@ -199,6 +199,31 @@ func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, displayName, local
 	return user, nil
 }
 
+// ChangeOwnPassword atomically replaces the hash only if the password observed by the
+// authenticated request is still current, then revokes every other session for the user.
+func (s *Store) ChangeOwnPassword(ctx context.Context, userID, keepSessionID uuid.UUID, expectedHash, newHash string) error {
+	if expectedHash == "" || newHash == "" || keepSessionID == uuid.Nil {
+		return domain.ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	result, err := tx.Exec(ctx, `UPDATE users SET password_hash=$3,updated_at=now()
+		WHERE id=$1 AND password_hash=$2 AND disabled_at IS NULL`, userID, expectedHash, newHash)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("%w: password changed in another session; please retry", domain.ErrConflict)
+	}
+	if _, err = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1 AND id<>$2", userID, keepSessionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) CreateSession(ctx context.Context, userID uuid.UUID, duration time.Duration, ip, userAgent string) (string, domain.Session, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

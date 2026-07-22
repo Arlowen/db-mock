@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -70,6 +71,23 @@ func (s *Service) Resolve(r *http.Request) (Actor, error) {
 
 func (s *Service) Logout(ctx context.Context, token string) error {
 	return s.store.DeleteSession(ctx, token)
+}
+
+func (s *Service) ChangePassword(ctx context.Context, user domain.User, sessionID uuid.UUID, currentPassword, newPassword string) error {
+	if currentPassword == "" || newPassword == "" {
+		return fmt.Errorf("%w: current password and new password are required", domain.ErrInvalid)
+	}
+	if !appcrypto.VerifyPassword(user.PasswordHash, currentPassword) {
+		return fmt.Errorf("%w: current password is incorrect", domain.ErrInvalid)
+	}
+	if currentPassword == newPassword {
+		return fmt.Errorf("%w: new password must be different from current password", domain.ErrInvalid)
+	}
+	newHash, err := appcrypto.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("%w: new password is invalid", domain.ErrInvalid)
+	}
+	return s.store.ChangeOwnPassword(ctx, user.ID, sessionID, user.PasswordHash, newHash)
 }
 
 func (s *Service) SetCookie(w http.ResponseWriter, token string) {

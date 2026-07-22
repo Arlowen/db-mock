@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/auth"
@@ -88,25 +89,67 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFrom(r.Context())
 	var input struct {
-		Locale string `json:"locale"`
+		DisplayName *string `json:"displayName"`
+		Locale      *string `json:"locale"`
 	}
 	if err := httpx.Decode(r, &input); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	if !supportedLocale(input.Locale) {
+	if input.DisplayName == nil && input.Locale == nil {
+		httpx.Error(w, r, fmt.Errorf("%w: display name or language preference is required", domain.ErrInvalid))
+		return
+	}
+	displayName := ""
+	if input.DisplayName != nil {
+		displayName = strings.TrimSpace(*input.DisplayName)
+		if displayName == "" || len([]rune(displayName)) > 100 {
+			httpx.Error(w, r, fmt.Errorf("%w: display name must contain between 1 and 100 characters", domain.ErrInvalid))
+			return
+		}
+	}
+	locale := ""
+	if input.Locale != nil {
+		locale = *input.Locale
+	}
+	if locale != "" && !supportedLocale(locale) {
 		httpx.Error(w, r, fmt.Errorf("%w: unsupported language preference", domain.ErrInvalid))
 		return
 	}
-	user, err := s.store.UpdateUser(r.Context(), actor.User.ID, "", input.Locale, nil, "", nil, nil)
+	user, err := s.store.UpdateUser(r.Context(), actor.User.ID, displayName, locale, nil, "", nil, nil)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
 	changes := map[string]any{}
+	addAuditTransition(changes, "displayName", actor.User.DisplayName, user.DisplayName)
 	addAuditTransition(changes, "locale", actor.User.Locale, user.Locale)
-	_ = s.auditWithChanges(r, actor, "user.locale_update", "user", &user.ID, user.Username, nil, "success", "", changes)
+	action := "user.profile_update"
+	if input.DisplayName == nil {
+		action = "user.locale_update"
+	}
+	_ = s.auditWithChanges(r, actor, action, "user", &user.ID, user.Username, nil, "success", "", changes)
 	httpx.JSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.ActorFrom(r.Context())
+	var input struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := s.auth.ChangePassword(r.Context(), actor.User, actor.SessionID, input.CurrentPassword, input.NewPassword); err != nil {
+		_ = s.audit(r, actor, "user.password_update", "user", &actor.User.ID, actor.User.Username, nil, "failure", "Password change rejected")
+		httpx.Error(w, r, err)
+		return
+	}
+	_ = s.auditWithChanges(r, actor, "user.password_update", "user", &actor.User.ID, actor.User.Username, nil, "success", "",
+		map[string]any{"passwordChanged": true, "sessionsRevoked": true})
+	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func supportedLocale(value string) bool {

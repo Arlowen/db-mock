@@ -23,6 +23,15 @@ function LocaleProbe() {
   return <><button onClick={() => void updateLocale(target).catch(() => setFailed(true))}>{active.language}:{user?.locale}</button>{failed && <span>failed</span>}</>
 }
 
+function AccountProbe() {
+  const { loading, user, updateProfile, changePassword } = useAuth()
+  if (loading) return <span>loading</span>
+  return <>
+    <button onClick={() => void updateProfile({ displayName: 'Updated account', locale: 'en-US' })}>profile:{user?.displayName}</button>
+    <button onClick={() => void changePassword({ currentPassword: 'old-password', newPassword: 'new-password' })}>change-password</button>
+  </>
+}
+
 function renderProvider() {
   return render(<I18nextProvider i18n={i18n}><AuthProvider><LocaleProbe /></AuthProvider></I18nextProvider>)
 }
@@ -79,5 +88,27 @@ describe('account language preference', () => {
     await screen.findByText('failed')
     await waitFor(() => expect(screen.getByRole('button', { name: 'en-US:en-US' })).toBeInTheDocument())
     expect(localStorage.getItem('dbmock-locale')).toBe('en-US')
+  })
+
+  it('persists the signed-in user profile and password through self-service endpoints', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input)
+      if (path.endsWith('/setup/status')) return Response.json({ initialized: true })
+      if (path.endsWith('/auth/me') && init?.method === 'PATCH') return Response.json({ user: { ...account, displayName: 'Updated account' } })
+      if (path.endsWith('/auth/password') && init?.method === 'PUT') return Response.json({ ok: true })
+      if (path.endsWith('/auth/me')) return Response.json({ user: account })
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(<I18nextProvider i18n={i18n}><AuthProvider><AccountProbe /></AuthProvider></I18nextProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'profile:Admin' }))
+    await screen.findByRole('button', { name: 'profile:Updated account' })
+    fireEvent.click(screen.getByRole('button', { name: 'change-password' }))
+
+    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => String(input).endsWith('/auth/password') && init?.method === 'PUT')).toBe(true))
+    const profileRequest = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => String(input).endsWith('/auth/me') && init?.method === 'PATCH')
+    expect(profileRequest?.[1]?.body).toBe(JSON.stringify({ displayName: 'Updated account', locale: 'en-US' }))
+    const passwordRequest = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => String(input).endsWith('/auth/password') && init?.method === 'PUT')
+    expect(passwordRequest?.[1]?.body).toBe(JSON.stringify({ currentPassword: 'old-password', newPassword: 'new-password' }))
   })
 })

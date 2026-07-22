@@ -20,7 +20,7 @@ const maxArchiveMetadataBytes = 8 * 1024 * 1024
 const maxArchiveMetadataTotalBytes = 64 * 1024 * 1024
 
 var (
-	errIncompleteDockerArchive = errors.New("Docker save archive is incomplete")
+	errIncompleteDockerArchive = errors.New("docker save archive is incomplete")
 	errIncompleteOCIArchive    = errors.New("OCI image archive is incomplete")
 	errMissingImageReference   = errors.New("image archive does not declare a usable image reference")
 	errMissingArchitecture     = errors.New("image archive does not declare a supported architecture")
@@ -146,7 +146,7 @@ func readArchiveEntries(filename string) (map[string]archiveEntry, error) {
 		if nextErr != nil {
 			return nil, fmt.Errorf("read image archive: %w", nextErr)
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg {
 			continue
 		}
 		name, valid := archivePath(header.Name)

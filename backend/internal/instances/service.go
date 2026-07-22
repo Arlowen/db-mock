@@ -853,7 +853,7 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 		return nil, err
 	}
 	if probe.DockerVersion == "" || probe.ComposeVersion == "" {
-		return nil, errors.New("Docker Engine and Compose v2 are required")
+		return nil, errors.New("docker engine and Compose v2 are required")
 	}
 	manifest, _ := templates.ParseManifest(version.Manifest)
 	if err = runtime.Stage(ctx, 15, "tuning", "Applying required host settings", true); err != nil {
@@ -1447,6 +1447,7 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 	}
 	if !recovered {
 		message = "Upgrade failed and automatic recovery did not complete"
+		_ = runtime.Log(recoveryCtx, "error", message+": "+strings.Join(recoveryErrors, ", "))
 		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, message)
 	}
 
@@ -1463,10 +1464,17 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 	if !activePolicy.AlertEnabled(platformsettings.AlertUpgradeFailed) {
 		return
 	}
+	details := map[string]string{
+		"taskId":         task.ID.String(),
+		"fromVersion":    oldVersion.Version,
+		"toVersion":      targetVersion,
+		"recoveryStatus": recoveryStatus,
+	}
+	if len(recoveryErrors) > 0 {
+		details["recoveryFailures"] = strings.Join(recoveryErrors, ",")
+	}
 	alert, created, alertErr := s.store.CreateAlert(recoveryCtx, store.AlertInput{Severity: severity, Type: "upgrade_failed", ResourceType: "instance",
-		ResourceID: instance.ID, Title: "Database upgrade failed", Message: message, Details: map[string]string{
-			"taskId": task.ID.String(), "fromVersion": oldVersion.Version, "toVersion": targetVersion, "recoveryStatus": recoveryStatus,
-		}})
+		ResourceID: instance.ID, Title: "Database upgrade failed", Message: message, Details: details})
 	if alertErr == nil && created {
 		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "alert.created", alert)
 		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "instance.failed", alert)

@@ -13,6 +13,8 @@ interface AuthState {
   logout: () => Promise<void>
   reload: () => Promise<void>
   updateLocale: (locale: AppLocale) => Promise<void>
+  updateProfile: (values: { displayName: string; locale: AppLocale }) => Promise<void>
+  changePassword: (values: { currentPassword: string; newPassword: string }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -69,7 +71,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw error
     }
   }, [user])
-  const value = useMemo(() => ({ loading, initialized, user, login, setup, logout, reload, updateLocale }), [loading, initialized, user, reload, updateLocale])
+  const updateProfile = useCallback(async (values: { displayName: string; locale: AppLocale }) => {
+    const response = await api<{ user: User }>('/auth/me', { method: 'PATCH', body: values })
+    await applyLocale(response.user.locale)
+    setUser(response.user)
+  }, [])
+  const changePassword = useCallback(async (values: { currentPassword: string; newPassword: string }) => {
+    await api('/auth/password', { method: 'PUT', body: values })
+  }, [])
+  const value = useMemo(() => ({ loading, initialized, user, login, setup, logout, reload, updateLocale, updateProfile, changePassword }), [loading, initialized, user, reload, updateLocale, updateProfile, changePassword])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

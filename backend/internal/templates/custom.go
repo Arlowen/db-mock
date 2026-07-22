@@ -122,10 +122,10 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 	}
 	compose, ok := files[composeName]
 	if !ok {
-		return ValidatedPackage{}, fmt.Errorf("Compose file %s is missing", composeName)
+		return ValidatedPackage{}, fmt.Errorf("compose file %s is missing", composeName)
 	}
 	if len(compose) > 2*1024*1024 {
-		return ValidatedPackage{}, errors.New("Compose file is too large")
+		return ValidatedPackage{}, errors.New("compose file is too large")
 	}
 	upgradeScript := ""
 	if manifest.Spec.UpgradeScript != "" {

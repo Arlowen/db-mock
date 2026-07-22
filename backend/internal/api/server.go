@@ -54,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 			r.Use(s.auth.Middleware)
 			r.Get("/auth/me", s.me)
 			r.Patch("/auth/me", s.updateMe)
+			r.Put("/auth/password", s.changeOwnPassword)
 			r.Post("/auth/logout", s.logout)
 			r.Get("/dashboard", s.dashboard)
 			r.Route("/users", s.userRoutes)
