@@ -207,19 +207,16 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	configuration, _ := json.Marshal(instanceConfiguration{ExtraEnvironment: request.ExtraEnvironment,
 		ImageArtifactID: request.ImageArtifactID, RegistryID: request.RegistryID})
 	short := strings.ReplaceAll(instanceID.String(), "-", "")
-	instance, err := s.store.CreateInstance(ctx, store.InstanceInput{ID: instanceID, Name: request.Name, ProjectID: request.ProjectID,
+	instance, task, err := s.store.CreateInstanceTask(ctx, store.InstanceInput{ID: instanceID, Name: request.Name, ProjectID: request.ProjectID,
 		HostID: host.ID, TemplateVersionID: version.ID, Environment: request.Environment, Labels: labels, AutoRestart: autoRestart,
 		CPU: request.CPU, MemoryBytes: request.MemoryBytes, ReservedDiskBytes: request.DiskBytes, HostPort: request.HostPort,
 		ContainerPort: version.DefaultPort, BindAddress: request.BindAddress, DatabaseUsername: request.Username,
 		EncryptedPassword: encrypted, DatabaseName: request.DatabaseName, ComposeProject: "dbmock_" + short,
-		RemoteDirectory: path.Join(host.DataRoot, "instances", instanceID.String()), Configuration: configuration})
+		RemoteDirectory: path.Join(host.DataRoot, "instances", instanceID.String()), Configuration: configuration}, store.TaskInput{
+		RequestedBy: userID, Payload: ActionPayload{InstanceID: instanceID, ImageArtifactID: request.ImageArtifactID,
+			RegistryID: request.RegistryID},
+	})
 	if err != nil {
-		return domain.Instance{}, domain.Task{}, err
-	}
-	task, err := s.store.CreateTask(ctx, store.TaskInput{Kind: "instance.create", ResourceType: "instance", ResourceID: &instance.ID,
-		RequestedBy: userID, HostID: &host.ID, Payload: ActionPayload{InstanceID: instance.ID}})
-	if err != nil {
-		_ = s.store.MarkInstanceDeleted(ctx, instance.ID)
 		return domain.Instance{}, domain.Task{}, err
 	}
 	s.tasks.Wake()

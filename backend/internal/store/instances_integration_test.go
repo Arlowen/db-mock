@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -11,10 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pika/db-mock/internal/db"
+	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/store"
 )
 
-func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) {
+func openInstanceStoreTest(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
 	databaseURL := os.Getenv("DBMOCK_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("DBMOCK_TEST_DATABASE_URL is not configured")
@@ -24,14 +27,15 @@ func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
 	schema := "instance_runtime_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if _, err = admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		admin.Close()
 		t.Fatal(err)
 	}
-	defer admin.Exec(ctx, `DROP SCHEMA `+schema+` CASCADE`)
 	parsed, err := url.Parse(databaseURL)
 	if err != nil {
+		_, _ = admin.Exec(ctx, `DROP SCHEMA `+schema+` CASCADE`)
+		admin.Close()
 		t.Fatal(err)
 	}
 	query := parsed.Query()
@@ -39,9 +43,102 @@ func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) 
 	parsed.RawQuery = query.Encode()
 	pool, err := db.Open(ctx, parsed.String())
 	if err != nil {
+		_, _ = admin.Exec(ctx, `DROP SCHEMA `+schema+` CASCADE`)
+		admin.Close()
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() {
+		pool.Close()
+		_, _ = admin.Exec(ctx, `DROP SCHEMA `+schema+` CASCADE`)
+		admin.Close()
+	})
+	return ctx, pool
+}
+
+func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
+	ctx, pool := openInstanceStoreTest(t)
+	userID, hostID, templateID, versionID, registryID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users(id,username,password_hash) VALUES($1,'creator','hash')`, []any{userID}},
+		{`INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,connection_address,
+            data_root,status,cpu_count,memory_bytes,disk_free_bytes,port_start,port_end)
+            VALUES($1,'create-host','127.0.0.1','tester','password','sealed','127.0.0.1','/opt/dbmock',
+            'online',8,17179869184,107374182400,25000,25010)`, []any{hostID}},
+		{`INSERT INTO templates(id,slug,name,name_zh,category,tier)
+            VALUES($1,'create-postgres','PostgreSQL','PostgreSQL','sql','standard')`, []any{templateID}},
+		{`INSERT INTO template_versions(id,template_id,version,image_reference,min_cpu,min_memory_bytes,
+            min_disk_bytes,default_port,compose_template) VALUES($1,$2,'17','postgres:17',1,1073741824,
+            10737418240,5432,'services: {}')`, []any{versionID, templateID}},
+		{`INSERT INTO registries(id,name,url) VALUES($1,'create-registry','https://registry.example.com')`, []any{registryID}},
+	} {
+		if _, err := pool.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := store.New(pool)
+	input := func(id uuid.UUID, name string, port int) store.InstanceInput {
+		return store.InstanceInput{ID: id, Name: name, HostID: hostID, TemplateVersionID: versionID,
+			Environment: "development", AutoRestart: true, CPU: 1, MemoryBytes: 1073741824,
+			ReservedDiskBytes: 10737418240, HostPort: port, ContainerPort: 5432, BindAddress: "0.0.0.0",
+			DatabaseUsername: "dbmock", EncryptedPassword: "sealed", DatabaseName: "app",
+			ComposeProject:  "dbmock_" + strings.ReplaceAll(id.String(), "-", ""),
+			RemoteDirectory: "/opt/dbmock/instances/" + id.String(), Configuration: json.RawMessage(`{"extraEnvironment":{}}`)}
+	}
+
+	instanceID := uuid.New()
+	atomicInput := input(instanceID, "atomic-db", 25000)
+	atomicInput.Configuration = json.RawMessage(`{"extraEnvironment":{},"registryId":"` + registryID.String() + `"}`)
+	instance, task, err := target.CreateInstanceTask(ctx, atomicInput, store.TaskInput{
+		RequestedBy: userID, Payload: map[string]any{"instanceId": instanceID, "registryId": registryID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.ID != instanceID || instance.Status != "provisioning" || task.Kind != "instance.create" ||
+		task.Status != "queued" || task.ResourceID == nil || *task.ResourceID != instanceID ||
+		task.HostID == nil || *task.HostID != hostID {
+		t.Fatalf("atomic create returned instance=%#v task=%#v", instance, task)
+	}
+	if _, err = target.GetInstance(ctx, instanceID); err != nil {
+		t.Fatalf("committed instance is unavailable: %v", err)
+	}
+	if _, err = target.GetTask(ctx, task.ID); err != nil {
+		t.Fatalf("committed task is unavailable: %v", err)
+	}
+	var references struct {
+		RegistryID *uuid.UUID `json:"registryId"`
+	}
+	if err = json.Unmarshal(task.Payload, &references); err != nil || references.RegistryID == nil || *references.RegistryID != registryID {
+		t.Fatalf("create task did not retain the selected image source: payload=%s err=%v", task.Payload, err)
+	}
+
+	rolledBackID := uuid.New()
+	_, _, err = target.CreateInstanceTask(ctx, input(rolledBackID, "rolled-back-db", 25001), store.TaskInput{
+		RequestedBy: uuid.New(), Payload: map[string]any{"instanceId": rolledBackID},
+	})
+	if err == nil {
+		t.Fatal("expected the invalid task requester to make the transaction fail")
+	}
+	if _, getErr := target.GetInstance(ctx, rolledBackID); !errors.Is(getErr, domain.ErrNotFound) {
+		t.Fatalf("instance survived a failed task insert: %v", getErr)
+	}
+	var taskCount int
+	if countErr := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE resource_id=$1`, rolledBackID).Scan(&taskCount); countErr != nil || taskCount != 0 {
+		t.Fatalf("task rows after rollback = %d, %v", taskCount, countErr)
+	}
+	retried, retryTask, err := target.CreateInstanceTask(ctx, input(rolledBackID, "rolled-back-db", 25001), store.TaskInput{
+		RequestedBy: userID, Payload: map[string]any{"instanceId": rolledBackID},
+	})
+	if err != nil || retried.ID != rolledBackID || retryTask.ResourceID == nil || *retryTask.ResourceID != rolledBackID {
+		t.Fatalf("rolled-back name, port, and capacity were not reusable: instance=%#v task=%#v err=%v", retried, retryTask, err)
+	}
+}
+
+func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) {
+	ctx, pool := openInstanceStoreTest(t)
 
 	userID, hostID, templateID, versionID, instanceID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	seed := []struct {
@@ -65,7 +162,7 @@ func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) 
 			"/opt/dbmock/instances/" + instanceID.String(), json.RawMessage(`{"extraEnvironment":{}}`)}},
 	}
 	for _, statement := range seed {
-		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {
+		if _, err := pool.Exec(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
 		}
 	}

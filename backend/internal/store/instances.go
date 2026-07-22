@@ -68,9 +68,16 @@ func instanceJoinSQL() string {
         JOIN templates t ON t.id=v.template_id JOIN hosts h ON h.id=i.host_id `
 }
 
-func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain.Instance, error) {
+func sameOptionalUUID(left, right *uuid.UUID) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func (s *Store) CreateInstanceTask(ctx context.Context, input InstanceInput, taskInput TaskInput) (domain.Instance, domain.Task, error) {
 	if strings.TrimSpace(input.Name) == "" || input.HostID == uuid.Nil || input.TemplateVersionID == uuid.Nil || input.CPU <= 0 || input.MemoryBytes <= 0 || input.ReservedDiskBytes <= 0 {
-		return domain.Instance{}, domain.ErrInvalid
+		return domain.Instance{}, domain.Task{}, domain.ErrInvalid
 	}
 	if len(input.Labels) == 0 {
 		input.Labels = json.RawMessage(`{}`)
@@ -80,57 +87,71 @@ func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain
 	}
 	var configuration struct {
 		ImageArtifactID *uuid.UUID `json:"imageArtifactId"`
+		RegistryID      *uuid.UUID `json:"registryId"`
 	}
 	if err := json.Unmarshal(input.Configuration, &configuration); err != nil {
-		return domain.Instance{}, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
 	}
+	if input.ID == uuid.Nil {
+		input.ID = uuid.New()
+	}
+	payload, err := json.Marshal(taskInput.Payload)
+	if err != nil {
+		return domain.Instance{}, domain.Task{}, err
+	}
+	var taskReferences struct {
+		InstanceID      uuid.UUID  `json:"instanceId"`
+		ImageArtifactID *uuid.UUID `json:"imageArtifactId"`
+		RegistryID      *uuid.UUID `json:"registryId"`
+	}
+	if err = json.Unmarshal(payload, &taskReferences); err != nil || taskReferences.InstanceID != input.ID ||
+		!sameOptionalUUID(taskReferences.ImageArtifactID, configuration.ImageArtifactID) ||
+		!sameOptionalUUID(taskReferences.RegistryID, configuration.RegistryID) {
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: instance creation task does not match the requested instance or image source", domain.ErrInvalid)
+	}
+	resourceID, hostID := input.ID, input.HostID
+	taskInput.Kind = "instance.create"
+	taskInput.ResourceType = "instance"
+	taskInput.ResourceID = &resourceID
+	taskInput.HostID = &hostID
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		return domain.Instance{}, err
+		return domain.Instance{}, domain.Task{}, err
 	}
 	defer tx.Rollback(ctx)
 	var host domain.Host
 	err = tx.QueryRow(ctx, "SELECT "+hostColumns+" FROM hosts WHERE id=$1 FOR UPDATE", input.HostID).Scan(hostScan(&host)...)
 	if err != nil {
-		return domain.Instance{}, translate(err)
+		return domain.Instance{}, domain.Task{}, translate(err)
 	}
 	if host.Status != "online" || host.Maintenance {
-		return domain.Instance{}, fmt.Errorf("%w: selected host is not available", domain.ErrConflict)
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: selected host is not available", domain.ErrConflict)
 	}
 	var templateID uuid.UUID
 	if err = tx.QueryRow(ctx, "SELECT template_id FROM template_versions WHERE id=$1 FOR KEY SHARE", input.TemplateVersionID).Scan(&templateID); err != nil {
-		return domain.Instance{}, translate(err)
+		return domain.Instance{}, domain.Task{}, translate(err)
 	}
-	if configuration.ImageArtifactID != nil {
-		var artifactStatus string
-		if err = tx.QueryRow(ctx, "SELECT status FROM image_artifacts WHERE id=$1 FOR KEY SHARE", *configuration.ImageArtifactID).Scan(&artifactStatus); err != nil {
-			return domain.Instance{}, translate(err)
-		}
-		if artifactStatus != "ready" {
-			return domain.Instance{}, fmt.Errorf("%w: offline image is not available", domain.ErrConflict)
-		}
+	if err = lockTaskSourceReferences(ctx, tx, taskInput.Kind, payload); err != nil {
+		return domain.Instance{}, domain.Task{}, err
 	}
 	var usedCPU float64
 	var usedMemory, usedDisk int64
 	if err := tx.QueryRow(ctx, `SELECT coalesce(sum(cpu),0),coalesce(sum(memory_bytes),0),coalesce(sum(reserved_disk_bytes),0)
         FROM instances WHERE host_id=$1 AND status<>'deleted'`, input.HostID).Scan(&usedCPU, &usedMemory, &usedDisk); err != nil {
-		return domain.Instance{}, err
+		return domain.Instance{}, domain.Task{}, err
 	}
 	if usedCPU+input.CPU > host.CPUCount*0.9 || usedMemory+input.MemoryBytes > int64(float64(host.MemoryBytes)*0.8) || usedDisk+input.ReservedDiskBytes > int64(float64(host.DiskFreeBytes)*0.8) {
-		return domain.Instance{}, fmt.Errorf("%w: insufficient host resources", domain.ErrConflict)
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: insufficient host resources", domain.ErrConflict)
 	}
 	if input.HostPort == 0 {
 		if err := tx.QueryRow(ctx, `SELECT p FROM generate_series($2::integer,$3::integer) p WHERE NOT EXISTS
             (SELECT 1 FROM instances WHERE host_id=$1 AND host_port=p AND status<>'deleted') ORDER BY p LIMIT 1`,
 			input.HostID, host.PortStart, host.PortEnd).Scan(&input.HostPort); err != nil {
-			return domain.Instance{}, fmt.Errorf("%w: no port is available", domain.ErrConflict)
+			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: no port is available", domain.ErrConflict)
 		}
 	}
 	if input.HostPort < host.PortStart || input.HostPort > host.PortEnd {
-		return domain.Instance{}, fmt.Errorf("%w: port is outside host port pool", domain.ErrInvalid)
-	}
-	if input.ID == uuid.Nil {
-		input.ID = uuid.New()
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: port is outside host port pool", domain.ErrInvalid)
 	}
 	item := domain.Instance{ID: input.ID}
 	err = tx.QueryRow(ctx, `INSERT INTO instances(id,name,project_id,host_id,template_version_id,environment,
@@ -145,14 +166,25 @@ func (s *Store) CreateInstance(ctx context.Context, input InstanceInput) (domain
 		input.JDBCURI, input.ComposeProject, input.RemoteDirectory, input.Configuration).Scan(&item.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "instances_name_lower_idx") || strings.Contains(err.Error(), "instances_host_id_host_port_key") {
-			return domain.Instance{}, domain.ErrConflict
+			return domain.Instance{}, domain.Task{}, domain.ErrConflict
 		}
-		return domain.Instance{}, err
+		return domain.Instance{}, domain.Task{}, err
+	}
+	task := domain.Task{ID: uuid.New()}
+	err = tx.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+taskColumns, task.ID, taskInput.Kind, taskInput.ResourceType,
+		taskInput.ResourceID, taskInput.RequestedBy, taskInput.HostID, payload).Scan(taskScan(&task)...)
+	if err != nil {
+		return domain.Instance{}, domain.Task{}, taskInsertError(err)
+	}
+	err = tx.QueryRow(ctx, "SELECT "+instanceColumns+instanceJoinSQL()+" WHERE i.id=$1", item.ID).Scan(instanceScan(&item)...)
+	if err != nil {
+		return domain.Instance{}, domain.Task{}, translate(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return domain.Instance{}, err
+		return domain.Instance{}, domain.Task{}, err
 	}
-	return s.GetInstance(ctx, item.ID)
+	return item, task, nil
 }
 
 func (s *Store) GetInstance(ctx context.Context, id uuid.UUID) (domain.Instance, error) {
