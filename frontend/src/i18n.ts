@@ -2,6 +2,11 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { getStoredValue } from './lib/storage'
 
+export function browserLocale(language = globalThis.navigator?.language): 'zh-CN' | 'en-US' {
+  if (!language) return 'zh-CN'
+  return language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
+}
+
 export const zh: Record<string, string> = {
   app: 'DB Mock', appTagline: 'Docker Compose 数据库管理平台',
   dashboard: '总览', projects: '项目', hosts: '主机', catalog: '数据库目录', instances: '数据库实例',
@@ -704,7 +709,7 @@ if (zhKeys.join('\n') !== enKeys.join('\n')) {
 
 i18n.use(initReactI18next).init({
   resources: { 'zh-CN': { translation: zh }, 'en-US': { translation: en } },
-  lng: getStoredValue('dbmock-locale') || 'zh-CN',
+  lng: getStoredValue('dbmock-locale') || browserLocale(),
   fallbackLng: 'zh-CN',
   interpolation: { escapeValue: false },
 })

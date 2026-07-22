@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { en, zh } from './i18n'
+import { browserLocale, en, zh } from './i18n'
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {
@@ -12,6 +12,14 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe('internationalization coverage', () => {
+  it('maps the browser language to a supported locale', () => {
+    expect(browserLocale('zh-CN')).toBe('zh-CN')
+    expect(browserLocale('zh-TW')).toBe('zh-CN')
+    expect(browserLocale('en-GB')).toBe('en-US')
+    expect(browserLocale('ja-JP')).toBe('en-US')
+    expect(browserLocale('')).toBe('zh-CN')
+  })
+
   it('keeps Chinese and English translation keys in sync', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
