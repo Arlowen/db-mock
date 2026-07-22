@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pkg/sftp"
@@ -297,6 +298,39 @@ func parseByteCount(value string) (int64, bool) {
 	return int64(math.Round(parsed)), true
 }
 
+type remoteFileRenamer interface {
+	PosixRename(oldname, newname string) error
+	Rename(oldname, newname string) error
+	Remove(name string) error
+}
+
+func replaceRemoteFile(client remoteFileRenamer, temporary, target, backup string) error {
+	if err := client.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale remote file backup: %w", err)
+	}
+	posixErr := client.PosixRename(temporary, target)
+	if posixErr == nil {
+		return nil
+	}
+	if err := client.Rename(temporary, target); err == nil {
+		return nil
+	}
+	if err := client.Rename(target, backup); err != nil {
+		return fmt.Errorf("prepare portable remote file replacement after POSIX rename failed (%v): %w", posixErr, err)
+	}
+	if err := client.Rename(temporary, target); err != nil {
+		restoreErr := client.Rename(backup, target)
+		if restoreErr != nil {
+			return fmt.Errorf("replace remote file: %w; restore previous file: %v", err, restoreErr)
+		}
+		return fmt.Errorf("replace remote file: %w", err)
+	}
+	if err := client.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove replaced remote file backup: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) WriteFile(ctx context.Context, host domain.Host, path string, data []byte, mode os.FileMode) error {
 	client, err := m.client(ctx, host, nil)
 	if err != nil {
@@ -311,7 +345,13 @@ func (m *Manager) WriteFile(ctx context.Context, host domain.Host, path string, 
 	if err := sftpClient.MkdirAll(filepath.ToSlash(filepath.Dir(path))); err != nil {
 		return fmt.Errorf("create remote directory: %w", err)
 	}
-	temporary := path + ".dbmock-tmp"
+	nonce := uuid.NewString()
+	temporary := path + ".dbmock-" + nonce + ".tmp"
+	backup := path + ".dbmock-" + nonce + ".backup"
+	defer func() {
+		_ = sftpClient.Remove(temporary)
+		_ = sftpClient.Remove(backup)
+	}()
 	file, err := sftpClient.OpenFile(temporary, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
 		return fmt.Errorf("open remote file: %w", err)
@@ -327,7 +367,7 @@ func (m *Manager) WriteFile(ctx context.Context, host domain.Host, path string, 
 	if err := sftpClient.Chmod(temporary, mode); err != nil {
 		return fmt.Errorf("chmod remote file: %w", err)
 	}
-	if err := sftpClient.Rename(temporary, path); err != nil {
+	if err := replaceRemoteFile(sftpClient, temporary, path, backup); err != nil {
 		return fmt.Errorf("rename remote file: %w", err)
 	}
 	return nil

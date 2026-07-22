@@ -3,11 +3,72 @@ package hostops
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/pika/db-mock/internal/domain"
 )
+
+type fakeRemoteFileRenamer struct {
+	files          map[string]string
+	posixSupported bool
+}
+
+func (target *fakeRemoteFileRenamer) PosixRename(oldname, newname string) error {
+	if !target.posixSupported {
+		return errors.New("posix rename extension is unavailable")
+	}
+	content, exists := target.files[oldname]
+	if !exists {
+		return os.ErrNotExist
+	}
+	delete(target.files, oldname)
+	target.files[newname] = content
+	return nil
+}
+
+func (target *fakeRemoteFileRenamer) Rename(oldname, newname string) error {
+	content, exists := target.files[oldname]
+	if !exists {
+		return os.ErrNotExist
+	}
+	if _, exists = target.files[newname]; exists {
+		return os.ErrExist
+	}
+	delete(target.files, oldname)
+	target.files[newname] = content
+	return nil
+}
+
+func (target *fakeRemoteFileRenamer) Remove(name string) error {
+	if _, exists := target.files[name]; !exists {
+		return os.ErrNotExist
+	}
+	delete(target.files, name)
+	return nil
+}
+
+func TestReplaceRemoteFileSupportsOpenSSHAndStandardSFTPRename(t *testing.T) {
+	for name, posixSupported := range map[string]bool{"OpenSSH extension": true, "portable fallback": false} {
+		t.Run(name, func(t *testing.T) {
+			remote := &fakeRemoteFileRenamer{posixSupported: posixSupported,
+				files: map[string]string{"project.tmp": "new", "project": "old"}}
+			if err := replaceRemoteFile(remote, "project.tmp", "project", "project.backup"); err != nil {
+				t.Fatal(err)
+			}
+			if got := remote.files["project"]; got != "new" {
+				t.Fatalf("replaced content = %q, want new", got)
+			}
+			if _, exists := remote.files["project.tmp"]; exists {
+				t.Fatal("temporary file remained after replacement")
+			}
+			if _, exists := remote.files["project.backup"]; exists {
+				t.Fatal("backup file remained after replacement")
+			}
+		})
+	}
+}
 
 func TestSSHHandshakeErrorClassifiesRejectedCredential(t *testing.T) {
 	authentication := sshHandshakeError(errors.New("ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain"))

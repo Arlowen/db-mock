@@ -30,14 +30,7 @@ spec:
 
 func writeTemplatePackage(t *testing.T, manifest string) string {
 	t.Helper()
-	filename := filepath.Join(t.TempDir(), "template.zip")
-	file, err := os.Create(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	archive := zip.NewWriter(file)
-	entries := map[string]string{
-		"dbmock-template.yaml": manifest,
+	return writeTemplatePackageWithEntries(t, manifest, map[string]string{
 		"docker-compose.yml": `services:
   database:
     image: "{{ .Image }}"
@@ -47,6 +40,20 @@ func writeTemplatePackage(t *testing.T, manifest string) string {
     healthcheck:
       test: ["CMD", "true"]
 `,
+	})
+}
+
+func writeTemplatePackageWithEntries(t *testing.T, manifest string, extra map[string]string) string {
+	t.Helper()
+	filename := filepath.Join(t.TempDir(), "template.zip")
+	file, err := os.Create(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	entries := map[string]string{"dbmock-template.yaml": manifest}
+	for name, content := range extra {
+		entries[name] = content
 	}
 	for name, content := range entries {
 		entry, createErr := archive.Create(name)
@@ -64,6 +71,98 @@ func writeTemplatePackage(t *testing.T, manifest string) string {
 		t.Fatal(err)
 	}
 	return filename
+}
+
+func TestValidatePackageRejectsPlatformOwnedAndCaseCollidingPaths(t *testing.T) {
+	compose := `services:
+  database:
+    image: "{{ .Image }}"
+`
+	for name, entries := range map[string]map[string]string{
+		"generated environment": {
+			"docker-compose.yml": compose,
+			".env":               "DB_PASSWORD=overridden",
+		},
+		"case folded generated environment": {
+			"docker-compose.yml": compose,
+			".ENV":               "DB_PASSWORD=overridden",
+		},
+		"managed file manifest": {
+			"docker-compose.yml":    compose,
+			".dbmock-managed-files": "config/database.conf\n",
+		},
+		"managed database data": {
+			"docker-compose.yml": compose,
+			"data/database.bin":  "must not be package owned",
+		},
+		"managed runtime state": {
+			"docker-compose.yml":   compose,
+			"RUNTIME/database.pid": "must not be package owned",
+		},
+		"runtime compose shadow": {
+			"docker-compose.yml": compose,
+			"compose.yaml":       "services: {shadow: {}}\n",
+		},
+		"case colliding project files": {
+			"docker-compose.yml":  compose,
+			"config/database.cnf": "first",
+			"CONFIG/DATABASE.CNF": "second",
+		},
+		"file and child path collision": {
+			"docker-compose.yml":  compose,
+			"config":              "file",
+			"config/database.cnf": "child",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidatePackage(writeTemplatePackageWithEntries(t, validCustomManifest, entries))
+			if err == nil {
+				t.Fatal("expected unsafe project paths to be rejected")
+			}
+		})
+	}
+}
+
+func TestPackageProjectFilesExcludesTheDeclaredComposeSource(t *testing.T) {
+	manifest := strings.Replace(validCustomManifest, "composeFile: docker-compose.yml", "composeFile: stack/database.yml", 1)
+	filename := writeTemplatePackageWithEntries(t, manifest, map[string]string{
+		"stack/database.yml": `services:
+  database:
+    image: "{{ .Image }}"
+`,
+		"config/database.conf": "managed=true\n",
+	})
+	files, err := PackageProjectFiles(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := files["stack/database.yml"]; exists {
+		t.Fatalf("declared Compose source must not be copied into the runtime project: %#v", files)
+	}
+	if got := string(files["config/database.conf"]); got != "managed=true\n" {
+		t.Fatalf("expected package configuration to remain deployable, got %q", got)
+	}
+}
+
+func TestPackageProjectFilesIgnoresLegacyPlatformOwnedPathsInStoredArchives(t *testing.T) {
+	filename := writeTemplatePackageWithEntries(t, validCustomManifest, map[string]string{
+		"docker-compose.yml": `services:
+  database:
+    image: "{{ .Image }}"
+`,
+		".env":              "DB_PASSWORD=overridden",
+		"data/database.bin": "must not be deployed",
+	})
+	files, err := PackageProjectFiles(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := files[".env"]; exists {
+		t.Fatal("legacy stored packages must not overwrite the generated project environment")
+	}
+	if _, exists := files["data/database.bin"]; exists {
+		t.Fatal("legacy stored packages must not own managed database data")
+	}
 }
 
 func TestValidatePackageStoresImmutableVersionRiskReport(t *testing.T) {

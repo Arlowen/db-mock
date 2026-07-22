@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
@@ -213,11 +215,115 @@ func (d *Docker) LoadImage(ctx context.Context, host domain.Host, localPath stri
 	return err
 }
 
-func (d *Docker) WriteProject(ctx context.Context, host domain.Host, instance domain.Instance, compose, env []byte, files map[string][]byte) error {
+const managedProjectFilesManifest = ".dbmock-managed-files"
+
+func normalizeManagedProjectFiles(files map[string][]byte) (map[string][]byte, []string, error) {
+	normalized := make(map[string][]byte, len(files))
+	foldedPaths := make(map[string]string, len(files))
+	for name, content := range files {
+		if !utf8.ValidString(name) || strings.Contains(name, "\\") || strings.ContainsAny(name, "\r\n\x00") {
+			return nil, nil, fmt.Errorf("unsafe project file %q", name)
+		}
+		clean := path.Clean(name)
+		if clean == "." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
+			return nil, nil, fmt.Errorf("unsafe project file %q", name)
+		}
+		for _, character := range clean {
+			if character < 0x20 || character == 0x7f {
+				return nil, nil, fmt.Errorf("unsafe project file %q", name)
+			}
+		}
+		component := strings.ToLower(strings.SplitN(clean, "/", 2)[0])
+		if component == ".env" || component == "compose.yaml" || component == "data" || component == "runtime" ||
+			strings.HasPrefix(component, ".dbmock-managed-files") {
+			return nil, nil, fmt.Errorf("project file %q is owned by DB Mock", name)
+		}
+		folded := strings.ToLower(clean)
+		if previous, exists := foldedPaths[folded]; exists {
+			return nil, nil, fmt.Errorf("project files %q and %q collide on case-insensitive hosts", previous, name)
+		}
+		foldedPaths[folded] = clean
+		normalized[clean] = content
+	}
+	for folded, name := range foldedPaths {
+		for parent := path.Dir(folded); parent != "."; parent = path.Dir(parent) {
+			if ancestor, exists := foldedPaths[parent]; exists {
+				return nil, nil, fmt.Errorf("project file %q conflicts with child path %q", ancestor, name)
+			}
+		}
+	}
+	names := make([]string, 0, len(normalized))
+	for name := range normalized {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return normalized, names, nil
+}
+
+func managedProjectFileList(names []string) []byte {
+	if len(names) == 0 {
+		return []byte{}
+	}
+	return []byte(strings.Join(names, "\n") + "\n")
+}
+
+func reconcileManagedProjectFilesCommand(directory string) string {
+	return `set -eu
+root=` + ShellQuote(directory) + `
+manifest="$root/` + managedProjectFilesManifest + `"
+seed="$root/` + managedProjectFilesManifest + `.seed"
+next="$root/` + managedProjectFilesManifest + `.next"
+if [ ! -f "$manifest" ]; then
+  mv -f -- "$seed" "$manifest"
+else
+  rm -f -- "$seed"
+fi
+while IFS= read -r managed_file || [ -n "$managed_file" ]; do
+  case "$managed_file" in
+    ""|/*|..|../*|*/../*|*/..) exit 1 ;;
+  esac
+  managed_root="${managed_file%%/*}"
+  managed_root="$(printf '%s' "$managed_root" | tr '[:upper:]' '[:lower:]')"
+  case "$managed_root" in
+    .env|compose.yaml|data|runtime|.dbmock-managed-files*) exit 1 ;;
+  esac
+  if ! grep -Fqx -- "$managed_file" "$next"; then
+    target="$root/$managed_file"
+    rm -f -- "$target"
+    parent="$(dirname "$target")"
+    while [ "$parent" != "$root" ]; do
+      rmdir "$parent" 2>/dev/null || break
+      parent="$(dirname "$parent")"
+    done
+  fi
+done < "$manifest"
+mv -f -- "$next" "$manifest"`
+}
+
+func (d *Docker) WriteProject(ctx context.Context, host domain.Host, instance domain.Instance, compose, env []byte,
+	files, previousFiles map[string][]byte) error {
 	if err := validateManagedDirectory(host.DataRoot, instance.RemoteDirectory); err != nil {
 		return err
 	}
+	normalized, names, err := normalizeManagedProjectFiles(files)
+	if err != nil {
+		return err
+	}
+	_, previousNames, err := normalizeManagedProjectFiles(previousFiles)
+	if err != nil {
+		return err
+	}
 	if _, err := d.runner.Run(ctx, host, "mkdir -p "+ShellQuote(instance.RemoteDirectory), nil); err != nil {
+		return err
+	}
+	manifest := path.Join(instance.RemoteDirectory, managedProjectFilesManifest)
+	if err := d.runner.WriteFile(ctx, host, manifest+".seed", managedProjectFileList(previousNames), 0o600); err != nil {
+		return err
+	}
+	if err := d.runner.WriteFile(ctx, host, manifest+".next", managedProjectFileList(names), 0o600); err != nil {
+		return err
+	}
+	if _, err := d.runner.Run(ctx, host, reconcileManagedProjectFilesCommand(instance.RemoteDirectory), nil); err != nil {
 		return err
 	}
 	if err := d.runner.WriteFile(ctx, host, path.Join(instance.RemoteDirectory, "compose.yaml"), compose, 0o600); err != nil {
@@ -226,12 +332,8 @@ func (d *Docker) WriteProject(ctx context.Context, host domain.Host, instance do
 	if err := d.runner.WriteFile(ctx, host, path.Join(instance.RemoteDirectory, ".env"), env, 0o600); err != nil {
 		return err
 	}
-	for name, content := range files {
-		clean := path.Clean(name)
-		if strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
-			return fmt.Errorf("unsafe project file %q", name)
-		}
-		if err := d.runner.WriteFile(ctx, host, path.Join(instance.RemoteDirectory, clean), content, 0o600); err != nil {
+	for _, name := range names {
+		if err := d.runner.WriteFile(ctx, host, path.Join(instance.RemoteDirectory, name), normalized[name], 0o600); err != nil {
 			return err
 		}
 	}

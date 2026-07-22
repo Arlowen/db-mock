@@ -950,7 +950,7 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 	if err != nil {
 		return nil, err
 	}
-	if err = s.docker.WriteProject(ctx, host, instance, compose, env, files); err != nil {
+	if err = s.docker.WriteProject(ctx, host, instance, compose, env, files, nil); err != nil {
 		return nil, err
 	}
 	if err = runtime.Stage(ctx, 70, "compose", "Starting Docker Compose project", false); err != nil {
@@ -1087,7 +1087,7 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 			compose, environment, files, renderErr := s.renderRuntimeProject(previousInstance, template, version, previous.Configuration)
 			if renderErr != nil {
 				recoveryErrors = append(recoveryErrors, "render")
-			} else if writeErr := s.docker.WriteProject(recoveryCtx, host, previousInstance, compose, environment, files); writeErr != nil {
+			} else if writeErr := s.docker.WriteProject(recoveryCtx, host, previousInstance, compose, environment, files, files); writeErr != nil {
 				recoveryErrors = append(recoveryErrors, "write")
 			} else if stable.Status == "running" {
 				if startErr := s.docker.ComposeUp(recoveryCtx, host, previousInstance, false); startErr != nil {
@@ -1123,7 +1123,7 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 		return nil, err
 	}
 	projectTouched = true
-	if err = s.docker.WriteProject(ctx, host, targetInstance, compose, environment, files); err != nil {
+	if err = s.docker.WriteProject(ctx, host, targetInstance, compose, environment, files, files); err != nil {
 		return nil, err
 	}
 	if stable.Status == "running" {
@@ -1287,6 +1287,14 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if major(oldVersion.Version) != major(newVersion.Version) && newManifest.UpgradeScript == "" {
 		return nil, errors.New("major version upgrades require a template-specific migration and are not supported yet")
 	}
+	previousProjectFiles, err := templates.PackageProjectFiles(oldVersion.PackagePath)
+	if err != nil {
+		return nil, err
+	}
+	projectFiles, err := templates.PackageProjectFiles(newVersion.PackagePath)
+	if err != nil {
+		return nil, err
+	}
 	if err = runtime.Stage(ctx, 10, "snapshot", "Stopping instance and creating temporary upgrade snapshot", false); err != nil {
 		return nil, err
 	}
@@ -1373,11 +1381,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	} else if err = s.docker.PullImage(ctx, host, newVersion.ImageReference); err != nil {
 		return nil, err
 	}
-	projectFiles, filesErr := templates.PackageProjectFiles(newVersion.PackagePath)
-	if filesErr != nil {
-		return nil, filesErr
-	}
-	if err = s.docker.WriteProject(ctx, host, instance, compose, env, projectFiles); err != nil {
+	if err = s.docker.WriteProject(ctx, host, instance, compose, env, projectFiles, previousProjectFiles); err != nil {
 		return nil, err
 	}
 	if err = runtime.Stage(ctx, 65, "compose", "Starting upgraded database", false); err != nil {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pika/db-mock/internal/store"
 	"gopkg.in/yaml.v3"
@@ -48,7 +49,54 @@ type ValidatedPackage struct {
 	Files    map[string][]byte
 }
 
+const templateManifestPath = "dbmock-template.yaml"
+
+func cleanPackagePath(value string) (string, error) {
+	if !utf8.ValidString(value) || strings.ContainsAny(value, "\r\n\x00") {
+		return "", fmt.Errorf("unsafe package path %q", value)
+	}
+	clean := path.Clean(strings.ReplaceAll(value, "\\", "/"))
+	if clean == "." || path.IsAbs(clean) || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("unsafe package path %q", value)
+	}
+	for _, character := range clean {
+		if character < 0x20 || character == 0x7f {
+			return "", fmt.Errorf("unsafe package path %q", value)
+		}
+	}
+	return clean, nil
+}
+
+func isPlatformOwnedProjectPath(name string) bool {
+	component := strings.ToLower(strings.SplitN(name, "/", 2)[0])
+	return component == ".env" || component == "data" || component == "runtime" ||
+		strings.HasPrefix(component, ".dbmock-managed-files")
+}
+
+func validatePackageFileTopology(files map[string]string) error {
+	for folded, name := range files {
+		for parent := path.Dir(folded); parent != "."; parent = path.Dir(parent) {
+			if ancestor, exists := files[parent]; exists {
+				return fmt.Errorf("template package path %q conflicts with child path %q", ancestor, name)
+			}
+		}
+	}
+	return nil
+}
+
+func packageComposePath(manifest PackageManifest) (string, error) {
+	value := manifest.Spec.ComposeFile
+	if strings.TrimSpace(value) == "" {
+		value = "docker-compose.yml"
+	}
+	return cleanPackagePath(value)
+}
+
 func ValidatePackage(filename string) (ValidatedPackage, error) {
+	return validatePackage(filename, false)
+}
+
+func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedPackage, error) {
 	reader, err := zip.OpenReader(filename)
 	if err != nil {
 		return ValidatedPackage{}, fmt.Errorf("open template zip: %w", err)
@@ -58,17 +106,30 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 		return ValidatedPackage{}, errors.New("template package contains too many files")
 	}
 	files := make(map[string][]byte)
+	seenPaths := make(map[string]string)
+	filePaths := make(map[string]string)
 	var total int64
 	for _, item := range reader.File {
-		name := path.Clean(strings.ReplaceAll(item.Name, "\\", "/"))
-		if path.IsAbs(name) || strings.HasPrefix(name, "../") {
-			return ValidatedPackage{}, fmt.Errorf("unsafe package path %q", item.Name)
+		name, pathErr := cleanPackagePath(item.Name)
+		if pathErr != nil {
+			return ValidatedPackage{}, pathErr
+		}
+		platformOwned := isPlatformOwnedProjectPath(name)
+		if platformOwned && !ignorePlatformOwnedFiles {
+			return ValidatedPackage{}, fmt.Errorf("template package path %q is owned by DB Mock", name)
+		}
+		folded := strings.ToLower(name)
+		if !platformOwned {
+			if previous, exists := seenPaths[folded]; exists {
+				return ValidatedPackage{}, fmt.Errorf("template package contains case-colliding paths %q and %q", previous, name)
+			}
+			seenPaths[folded] = name
 		}
 		if item.FileInfo().IsDir() {
 			continue
 		}
-		if _, exists := files[name]; exists {
-			return ValidatedPackage{}, fmt.Errorf("template package contains duplicate path %q", name)
+		if !platformOwned {
+			filePaths[folded] = name
 		}
 		if item.UncompressedSize64 > 10*1024*1024 {
 			return ValidatedPackage{}, fmt.Errorf("template file %s exceeds 10 MiB", name)
@@ -89,9 +150,15 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 		if total > 50*1024*1024 {
 			return ValidatedPackage{}, errors.New("template package expands beyond 50 MiB")
 		}
+		if platformOwned {
+			continue
+		}
 		files[name] = content
 	}
-	manifestBytes, ok := files["dbmock-template.yaml"]
+	if err := validatePackageFileTopology(filePaths); err != nil {
+		return ValidatedPackage{}, err
+	}
+	manifestBytes, ok := files[templateManifestPath]
 	if !ok {
 		return ValidatedPackage{}, errors.New("dbmock-template.yaml is required")
 	}
@@ -116,9 +183,19 @@ func ValidatePackage(filename string) (ValidatedPackage, error) {
 	if manifest.Spec.MinCPU <= 0 || manifest.Spec.MinMemory <= 0 || manifest.Spec.MinDisk <= 0 {
 		return ValidatedPackage{}, errors.New("positive minimum resources are required")
 	}
-	composeName := path.Clean(manifest.Spec.ComposeFile)
-	if composeName == "." {
-		composeName = "docker-compose.yml"
+	composeName, err := packageComposePath(manifest)
+	if err != nil {
+		return ValidatedPackage{}, errors.New("composeFile must be inside the template package")
+	}
+	for name := range files {
+		component := strings.ToLower(strings.SplitN(name, "/", 2)[0])
+		if component != "compose.yaml" || name == composeName {
+			continue
+		}
+		if !ignorePlatformOwnedFiles {
+			return ValidatedPackage{}, fmt.Errorf("template package path %q is owned by DB Mock", name)
+		}
+		delete(files, name)
 	}
 	compose, ok := files[composeName]
 	if !ok {
@@ -212,28 +289,22 @@ func PackageProjectFiles(filename string) (map[string][]byte, error) {
 	if filename == "" {
 		return map[string][]byte{}, nil
 	}
-	reader, err := zip.OpenReader(filename)
+	validated, err := validatePackage(filename, true)
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	var manifest PackageManifest
+	if err = yaml.Unmarshal(validated.Files[templateManifestPath], &manifest); err != nil {
+		return nil, fmt.Errorf("parse package manifest: %w", err)
+	}
+	composeName, err := packageComposePath(manifest)
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string][]byte)
-	for _, item := range reader.File {
-		name := path.Clean(strings.ReplaceAll(item.Name, "\\", "/"))
-		if item.FileInfo().IsDir() || name == "dbmock-template.yaml" || name == "docker-compose.yml" || name == "compose.yaml" {
+	for name, content := range validated.Files {
+		if name == templateManifestPath || name == composeName {
 			continue
-		}
-		if path.IsAbs(name) || strings.HasPrefix(name, "../") {
-			return nil, fmt.Errorf("unsafe package path %q", item.Name)
-		}
-		handle, openErr := item.Open()
-		if openErr != nil {
-			return nil, openErr
-		}
-		content, readErr := io.ReadAll(io.LimitReader(handle, 10*1024*1024+1))
-		_ = handle.Close()
-		if readErr != nil {
-			return nil, readErr
 		}
 		result[name] = content
 	}

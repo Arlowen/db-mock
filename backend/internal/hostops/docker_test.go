@@ -35,6 +35,9 @@ func (localShellRunner) Run(ctx context.Context, _ domain.Host, command string, 
 }
 
 func (localShellRunner) WriteFile(_ context.Context, _ domain.Host, target string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
 	return os.WriteFile(target, data, mode)
 }
 
@@ -44,6 +47,7 @@ func (localShellRunner) UploadFile(context.Context, domain.Host, string, string,
 
 type recordingRunner struct {
 	commands  []string
+	writes    []string
 	failFirst bool
 }
 
@@ -59,7 +63,8 @@ func (runner *recordingRunner) Run(_ context.Context, _ domain.Host, command str
 	return CommandResult{}, nil
 }
 
-func (*recordingRunner) WriteFile(context.Context, domain.Host, string, []byte, os.FileMode) error {
+func (runner *recordingRunner) WriteFile(_ context.Context, _ domain.Host, target string, _ []byte, _ os.FileMode) error {
+	runner.writes = append(runner.writes, target)
 	return nil
 }
 
@@ -106,6 +111,125 @@ func TestComposeStartReconcilesTheStoredProjectBeforeStarting(t *testing.T) {
 	}
 	if strings.Contains(runner.commands[0], " compose start") {
 		t.Fatalf("plain compose start would retain stale stopped-container settings: %s", runner.commands[0])
+	}
+}
+
+func TestWriteProjectRejectsPlatformOwnedAndCaseCollidingPackageFilesBeforeWriting(t *testing.T) {
+	instance := domain.Instance{RemoteDirectory: "/opt/dbmock/instances/id"}
+	host := domain.Host{DataRoot: "/opt/dbmock"}
+	for name, files := range map[string]map[string][]byte{
+		"generated environment": {".env": []byte("overridden")},
+		"managed manifest":      {".dbmock-managed-files": []byte("outside")},
+		"database data":         {"data/database.bin": []byte("outside")},
+		"runtime state":         {"RUNTIME/database.pid": []byte("outside")},
+		"case collision": {
+			"config/database.cnf": []byte("first"),
+			"CONFIG/DATABASE.CNF": []byte("second"),
+		},
+		"file and child collision": {
+			"config":              []byte("file"),
+			"config/database.cnf": []byte("child"),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &recordingRunner{}
+			docker := &Docker{runner: runner}
+			if err := docker.WriteProject(context.Background(), host, instance, []byte("services: {}"), nil, files, nil); err == nil {
+				t.Fatal("expected package file validation to fail")
+			}
+			if len(runner.commands) != 0 || len(runner.writes) != 0 {
+				t.Fatalf("validation must happen before remote writes: commands=%#v writes=%#v", runner.commands, runner.writes)
+			}
+		})
+	}
+}
+
+func TestWriteProjectReconcilesManagedTemplateFilesWithoutTouchingRuntimeData(t *testing.T) {
+	root := filepath.ToSlash(t.TempDir())
+	instanceDirectory := root + "/instances/11111111-1111-4111-8111-111111111111"
+	host := domain.Host{DataRoot: root}
+	instance := domain.Instance{RemoteDirectory: instanceDirectory}
+	docker := &Docker{runner: localShellRunner{}}
+	first := map[string][]byte{
+		"config/obsolete.cnf": []byte("obsolete=true\n"),
+		"scripts/upgrade.sh":  []byte("#!/bin/sh\n"),
+	}
+	if err := docker.WriteProject(context.Background(), host, instance, []byte("services: {old: {}}\n"), []byte("OLD=true\n"), first, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(instanceDirectory, managedProjectFilesManifest)); err != nil {
+		t.Fatal(err)
+	}
+	dataFile := filepath.Join(instanceDirectory, "data", "database.bin")
+	if err := os.MkdirAll(filepath.Dir(dataFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dataFile, []byte("persistent data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second := map[string][]byte{"config/current.cnf": []byte("current=true\n")}
+	if err := docker.WriteProject(context.Background(), host, instance, []byte("services: {new: {}}\n"), []byte("NEW=true\n"), second, first); err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"config/obsolete.cnf", "scripts/upgrade.sh"} {
+		if _, err := os.Stat(filepath.Join(instanceDirectory, removed)); !os.IsNotExist(err) {
+			t.Fatalf("stale managed file %s was not removed: %v", removed, err)
+		}
+	}
+	for relative, want := range map[string]string{
+		"config/current.cnf":    "current=true\n",
+		"data/database.bin":     "persistent data",
+		"compose.yaml":          "services: {new: {}}\n",
+		".env":                  "NEW=true\n",
+		".dbmock-managed-files": "config/current.cnf\n",
+	} {
+		content, err := os.ReadFile(filepath.Join(instanceDirectory, relative))
+		if err != nil || string(content) != want {
+			t.Fatalf("project file %s = %q, %v; want %q", relative, content, err, want)
+		}
+	}
+	if err := docker.WriteProject(context.Background(), host, instance, []byte("services: {old: {}}\n"), []byte("OLD=true\n"), first, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(instanceDirectory, "config", "current.cnf")); !os.IsNotExist(err) {
+		t.Fatalf("rollback left the upgraded managed file behind: %v", err)
+	}
+	for relative, want := range map[string]string{
+		"config/obsolete.cnf":   "obsolete=true\n",
+		"scripts/upgrade.sh":    "#!/bin/sh\n",
+		"data/database.bin":     "persistent data",
+		".dbmock-managed-files": "config/obsolete.cnf\nscripts/upgrade.sh\n",
+	} {
+		content, err := os.ReadFile(filepath.Join(instanceDirectory, relative))
+		if err != nil || string(content) != want {
+			t.Fatalf("rolled-back project file %s = %q, %v; want %q", relative, content, err, want)
+		}
+	}
+}
+
+func TestWriteProjectRefusesTamperedManifestThatTargetsRuntimeData(t *testing.T) {
+	root := filepath.ToSlash(t.TempDir())
+	instanceDirectory := root + "/instances/11111111-1111-4111-8111-111111111111"
+	dataFile := filepath.Join(instanceDirectory, "data", "database.bin")
+	if err := os.MkdirAll(filepath.Dir(dataFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dataFile, []byte("persistent data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(instanceDirectory, managedProjectFilesManifest)
+	if err := os.WriteFile(manifest, []byte("data/database.bin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	docker := &Docker{runner: localShellRunner{}}
+	err := docker.WriteProject(context.Background(), domain.Host{DataRoot: root},
+		domain.Instance{RemoteDirectory: instanceDirectory}, []byte("services: {}\n"), nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected a tampered managed-file manifest to stop project reconciliation")
+	}
+	content, readErr := os.ReadFile(dataFile)
+	if readErr != nil || string(content) != "persistent data" {
+		t.Fatalf("runtime data changed after refusing the manifest: %q, %v", content, readErr)
 	}
 }
 

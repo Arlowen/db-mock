@@ -74,6 +74,15 @@ services:
 `DBMOCK_DB_USERNAME`, `DBMOCK_DB_PASSWORD`, and `DBMOCK_DB_NAME` are reserved for built-in template
 health checks and cannot be supplied through instance environment overrides.
 
+The archive must not provide `.env`, an extra runtime `compose.yaml`, `data/`, `runtime/`, or any path
+whose first component starts with `.dbmock-managed-files`; DB Mock owns those paths. The file declared by
+`spec.composeFile` may itself be named `compose.yaml`, because it is rendered into the platform-owned
+runtime file rather than copied as an additional project file. Put initialization assets under `config/`
+or `scripts/` and let the container initialize `{{ .DataPath }}`. Package paths must be unique on
+case-insensitive hosts, and a file cannot also be the parent of another package path. These checks keep
+one package deployable on both Linux and macOS without overwriting credentials, database data, or internal
+state.
+
 `metadata.name`, `metadata.category`, `spec.version`, `spec.image`, positive minimum resources, and a
 valid `spec.defaultPort` are required. `spec.architectures` accepts `amd64` and `arm64`; when omitted it
 defaults to `amd64`. Packages are limited to 60 MiB compressed, 50 MiB expanded, 256 files, and 10 MiB
@@ -94,6 +103,13 @@ Template versions are append-only. A later package may reuse an existing custom 
 when `spec.version` is new. Uploading the same slug and version again is rejected; update the version
 before changing Compose, scripts, images, resource requirements, or connection metadata. This keeps
 existing instances pinned to the exact deployment contract they were created with.
+
+Files other than the manifest and declared Compose source are version-owned project files. DB Mock keeps
+a private manifest of those paths in each instance directory. During an upgrade it removes only files
+owned by the previous package that are absent from the target package; database data and untracked runtime
+files are never selected. Upgrade rollback performs the inverse reconciliation, so a failed target version
+cannot leave new scripts or configuration active. Packages stored by older DB Mock releases that included
+a reserved platform path remain readable, but that path is ignored and is never copied to the host.
 
 Built-in slugs such as `mysql`, `postgresql`, and `redis` are reserved and cannot be replaced by a
 custom package. The catalog details dialog lists every installed version and lets the user choose the

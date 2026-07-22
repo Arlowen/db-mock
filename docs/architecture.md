@@ -185,6 +185,7 @@ stateDiagram-v2
   instances/<instance-uuid>/
     compose.yaml
     .env                 # 0600
+    .dbmock-managed-files # 0600，当前模板版本拥有的附加文件清单
     config/
     data/
     runtime/
@@ -202,6 +203,14 @@ Compose 项目名为 `dbmock_<uuid-without-dashes>`。容器使用 `dbmock.insta
 连接账号、密码和数据库名分别注入保留变量 `DBMOCK_DB_USERNAME`、
 `DBMOCK_DB_PASSWORD`、`DBMOCK_DB_NAME`，健康检查只读取这些容器内变量。用户追加环境
 变量不能覆盖这三个保留名称，避免健康检查凭据和实际实例凭据发生漂移。
+
+自定义模板不能提供 `.env`、额外的运行时 `compose.yaml`、`data/`、`runtime/` 或内部受管清单
+路径。包内附加配置与脚本在上传时完成规范化、大小写碰撞和文件/子路径冲突校验；声明的
+Compose 源文件只用于渲染，不作为附加文件复制。每次写入项目时，平台先用
+`.dbmock-managed-files` 计算当前版本与
+上一版本的路径差异，只删除上一版本明确拥有且目标版本已移除的普通文件，并只移除随之变空
+的父目录。升级前快照和回滚写入执行反向收敛，`data/` 及未列入清单的运行时文件不参与清理。
+旧版本平台保存的模板包如果包含保留路径，读取时会忽略该路径，避免升级兼容性被安全校验阻断。
 
 手动备份是对整个受管实例目录的停机 tar/gzip 归档，因此包含数据、Compose 配置和
 `.env` 凭据。归档目录与文件分别限制为 `0700` 和 `0600`，API 不返回远程路径，任务和
