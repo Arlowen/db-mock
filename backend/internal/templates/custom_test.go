@@ -2,6 +2,7 @@ package templates
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,6 +176,61 @@ func TestValidatePackageStoresImmutableVersionRiskReport(t *testing.T) {
 	}
 	if !strings.Contains(string(validated.Template.RiskReport), `"privileged"`) || string(validated.Template.RiskReport) != string(validated.Version.RiskReport) {
 		t.Fatalf("expected the risk report to be stored on the immutable version: template=%s version=%s", validated.Template.RiskReport, validated.Version.RiskReport)
+	}
+	var manifest Manifest
+	if err = json.Unmarshal(validated.Version.Manifest, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.ImageReferences) != 1 || manifest.ImageReferences[0] != "registry.example.test/postgres:1.0.0" {
+		t.Fatalf("expected the rendered Compose image set in the manifest, got %v", manifest.ImageReferences)
+	}
+}
+
+func TestValidatePackageStoresEveryServiceImage(t *testing.T) {
+	filename := writeTemplatePackageWithEntries(t, validCustomManifest, map[string]string{
+		"docker-compose.yml": `services:
+  database:
+    image: "{{ .Image }}"
+  metrics:
+    image: registry.example.test/exporter:2.0
+`,
+	})
+	validated, err := ValidatePackage(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err = json.Unmarshal(validated.Version.Manifest, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(manifest.ImageReferences, ","); got != "registry.example.test/postgres:1.0.0,registry.example.test/exporter:2.0" {
+		t.Fatalf("unexpected image references: %s", got)
+	}
+}
+
+func TestValidatePackageRejectsUndeployableComposeImages(t *testing.T) {
+	for name, compose := range map[string]string{
+		"invalid template": `services:
+  database:
+    image: "{{ .Missing }}"
+`,
+		"missing service image": `services:
+  database:
+    image: "{{ .Image }}"
+  helper:
+    command: ["true"]
+`,
+		"unused manifest image": `services:
+  database:
+    image: registry.example.test/other:1
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidatePackage(writeTemplatePackageWithEntries(t, validCustomManifest, map[string]string{"docker-compose.yml": compose}))
+			if err == nil {
+				t.Fatal("expected invalid Compose image declaration to be rejected")
+			}
+		})
 	}
 }
 

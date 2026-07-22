@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { imageRegistryHost, isRegistryURL, registryMatchesImage } from './image-source'
+import { imageArtifactMatchesTemplate, imageRegistryHost, isRegistryURL, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
 
 describe('image source matching', () => {
   it('resolves Docker Hub shorthand and explicit registries', () => {
@@ -22,5 +22,23 @@ describe('image source matching', () => {
     expect(isRegistryURL('https://harbor.example.com/team')).toBe(false)
     expect(isRegistryURL('https://user:secret@harbor.example.com')).toBe(false)
     expect(isRegistryURL('ftp://harbor.example.com')).toBe(false)
+  })
+
+  it('requires every image declared by a multi-service template', () => {
+    const version = { imageReference: 'registry.example.test/database:1', manifest: {
+      imageReferences: ['registry.example.test/database:1', 'registry.example.test/exporter:2', 'registry.example.test/database:1'],
+    } }
+    expect(templateImageReferences(version)).toEqual(['registry.example.test/database:1', 'registry.example.test/exporter:2'])
+    expect(imageArtifactMatchesTemplate(['registry.example.test/database:1'], version)).toBe(false)
+    expect(imageArtifactMatchesTemplate(['registry.example.test/database:1', 'registry.example.test/exporter:2'], version)).toBe(true)
+    expect(registryMatchesTemplate('https://registry.example.test', version)).toBe(true)
+    expect(registryMatchesTemplate('https://docker.io', version)).toBe(false)
+  })
+
+  it('rejects one registry when a template spans multiple registry hosts', () => {
+    const version = { imageReference: 'registry.example.test/database:1', manifest: {
+      imageReferences: ['registry.example.test/database:1', 'ghcr.io/example/exporter:2'],
+    } }
+    expect(registryMatchesTemplate('https://registry.example.test', version)).toBe(false)
   })
 })

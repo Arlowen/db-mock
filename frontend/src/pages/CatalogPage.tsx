@@ -8,6 +8,7 @@ import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { DatabaseIcon } from '../components/DatabaseIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { api, errorMessage } from '../lib/api'
+import { templateImageReferences } from '../lib/image-source'
 import { permissionsFor } from '../lib/permissions'
 import type { DatabaseTemplate } from '../lib/types'
 import { bytes } from '../lib/types'
@@ -23,7 +24,7 @@ export function CatalogPage() {
       if (!query) return true
       const categoryKey = `category_${item.category.replaceAll('-', '_')}`
       const descriptionKey = `templateDescription_${item.slug}`
-      const versionTerms = item.versions.flatMap((version) => [version.version, `v${version.version}`, version.imageReference, String(version.defaultPort), ...version.architectures])
+      const versionTerms = item.versions.flatMap((version) => [version.version, `v${version.version}`, ...templateImageReferences(version), String(version.defaultPort), ...version.architectures])
       return [item.name, item.nameZh, item.slug, item.category, item.description, t(categoryKey, { defaultValue: item.category }), t(descriptionKey, { defaultValue: item.description }), ...versionTerms].filter(Boolean).join(' ').toLowerCase().includes(query)
     })
   }, [i18n.language, items, search, t, tier])
@@ -37,7 +38,7 @@ export function CatalogPage() {
     {loading && <Card loading />}
     {!loading && filtered.length === 0 && <Card><EmptyState action={customEmpty ? canOperate ? showUpload : undefined : resetFilters} actionLabel={customEmpty ? canOperate ? t('uploadTemplate') : undefined : t('clearFilters')} description={t(customEmpty ? 'customCatalogEmptyDescription' : 'catalogEmptyDescription')} /></Card>}
     {!loading && filtered.length > 0 && <div className="catalog-grid">{filtered.map((item) => {
-      const version = item.versions[0]
+      const version = item.versions.find((candidate) => candidate.selectable)
       const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name
       const actions = [...(canOperate ? [<Button key="create" type="link" icon={<PlusOutlined />} disabled={!version} onClick={() => version && navigate(`/instances?create=1&template=${version.id}`)}>{t('create')}</Button>] : []), <Button key="details" type="link" onClick={() => setDetails(item)}>{t('details')}</Button>]
       if (canOperate && !item.builtin) actions.push(<Button key="delete" type="link" danger icon={<DeleteOutlined />} aria-label={t('deleteTemplateLabel', { name: displayName })} onClick={() => removeTemplate(item)}>{t('delete')}</Button>)
@@ -64,8 +65,9 @@ export function CatalogPage() {
 function TemplateDetailsModal({ template, canCreate, onClose, onCreate }: { template: DatabaseTemplate | null; canCreate: boolean; onClose: () => void; onCreate: (versionID: string) => void }) {
   const { t, i18n } = useTranslation()
   const [selectedVersionID, setSelectedVersionID] = useState<string>()
-  useEffect(() => setSelectedVersionID(template?.versions[0]?.id), [template])
-  const version = template?.versions.find((item) => item.id === selectedVersionID) ?? template?.versions[0]
+  const selectableVersions = template?.versions.filter((item) => item.selectable) ?? []
+  useEffect(() => setSelectedVersionID(template?.versions.find((item) => item.selectable)?.id), [template])
+  const version = selectableVersions.find((item) => item.id === selectedVersionID) ?? selectableVersions[0]
   const riskReport = version?.riskReport ?? template?.riskReport ?? []
   const displayName = template ? i18n.language === 'zh-CN' ? template.nameZh || template.name : template.name : ''
 
@@ -87,9 +89,9 @@ function TemplateDetailsModal({ template, canCreate, onClose, onCreate }: { temp
         </div>
       </div>
       {version && <Descriptions className="template-detail-facts" bordered size="small" column={1} items={[
-        { key: 'version', label: t('version'), children: template.versions.length > 1 ? <Select aria-label={t('version')} value={version.id} onChange={setSelectedVersionID} style={{ minWidth: 180 }} options={template.versions.map((item) => ({ value: item.id, label: `v${item.version}` }))} /> : <Typography.Text strong>v{version.version}</Typography.Text> },
+        { key: 'version', label: t('version'), children: selectableVersions.length > 1 ? <Select aria-label={t('version')} value={version.id} onChange={setSelectedVersionID} style={{ minWidth: 180 }} options={selectableVersions.map((item) => ({ value: item.id, label: `v${item.version}` }))} /> : <Typography.Text strong>v{version.version}</Typography.Text> },
         { key: 'port', label: t('containerPort'), children: <Typography.Text code>{version.defaultPort}</Typography.Text> },
-        { key: 'image', label: t('imageReference'), children: <Typography.Text code copyable={{ text: version.imageReference }}>{version.imageReference}</Typography.Text> },
+        { key: 'image', label: t('imageReference'), children: <Space direction="vertical" size={4}>{templateImageReferences(version).map((reference) => <Typography.Text key={reference} code copyable={{ text: reference }}>{reference}</Typography.Text>)}</Space> },
         { key: 'architectures', label: t('architecture'), children: <Space wrap size={[4, 4]}>{version.architectures.map((arch) => <Tag key={arch}>{arch}</Tag>)}</Space> },
         { key: 'resources', label: t('minimumResources'), children: `${version.minCpu} CPU · ${bytes(version.minMemoryBytes)} ${t('memory')} · ${bytes(version.minDiskBytes)} ${t('disk')}` },
       ]} />}

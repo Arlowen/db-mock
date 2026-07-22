@@ -150,6 +150,7 @@ type TemplateVersion struct {
 	Manifest        json.RawMessage `json:"manifest"`
 	RiskReport      json.RawMessage `json:"riskReport"`
 	PackagePath     string          `json:"-"`
+	Selectable      bool            `json:"selectable"`
 	Immutable       bool            `json:"immutable"`
 	CreatedAt       time.Time       `json:"createdAt"`
 }

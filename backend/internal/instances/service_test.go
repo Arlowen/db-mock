@@ -484,25 +484,40 @@ func TestValidateUpgradeImageSelection(t *testing.T) {
 	}
 }
 
-func TestArtifactSupportsUpgradeRequiresImageAndHostArchitecture(t *testing.T) {
+func TestArtifactSupportsVersionRequiresEveryImageAndHostArchitecture(t *testing.T) {
 	host := domain.Host{Architecture: "arm64"}
-	version := domain.TemplateVersion{ImageReference: "postgres:17.1"}
-	artifact := domain.ImageArtifact{Status: "ready", Architectures: []string{"amd64", "arm64"}, ImageRefs: []string{"postgres:17.1"}}
-	if !artifactSupportsUpgrade(artifact, host, version) {
+	version := domain.TemplateVersion{ImageReference: "database:17.1",
+		Manifest: json.RawMessage(`{"imageReferences":["database:17.1","exporter:2"]}`)}
+	artifact := domain.ImageArtifact{Status: "ready", Architectures: []string{"amd64", "arm64"}, ImageRefs: []string{"database:17.1", "exporter:2"}}
+	if !artifactSupportsVersion(artifact, host, version) {
 		t.Fatal("expected matching ready artifact to support the upgrade")
 	}
 	artifact.Status = "deleting"
-	if artifactSupportsUpgrade(artifact, host, version) {
+	if artifactSupportsVersion(artifact, host, version) {
 		t.Fatal("expected deleting artifact to be rejected")
 	}
 	artifact.Status = "ready"
 	artifact.Architectures = []string{"amd64"}
-	if artifactSupportsUpgrade(artifact, host, version) {
+	if artifactSupportsVersion(artifact, host, version) {
 		t.Fatal("expected incompatible architecture to be rejected")
 	}
 	artifact.Architectures = []string{"arm64"}
-	artifact.ImageRefs = []string{"postgres:17"}
-	if artifactSupportsUpgrade(artifact, host, version) {
-		t.Fatal("expected archive without the target image reference to be rejected")
+	artifact.ImageRefs = []string{"database:17.1"}
+	if artifactSupportsVersion(artifact, host, version) {
+		t.Fatal("expected archive without a required sidecar image reference to be rejected")
+	}
+}
+
+func TestValidateRegistryTemplateSourceRequiresOneRegistryForEveryImage(t *testing.T) {
+	registry := domain.Registry{URL: "https://registry.example.test", Status: "online"}
+	matching := domain.TemplateVersion{ImageReference: "registry.example.test/database:1",
+		Manifest: json.RawMessage(`{"imageReferences":["registry.example.test/database:1","registry.example.test/exporter:2"]}`)}
+	if err := validateRegistryTemplateSource(registry, matching); err != nil {
+		t.Fatalf("expected one registry to cover every image: %v", err)
+	}
+	mixed := matching
+	mixed.Manifest = json.RawMessage(`{"imageReferences":["registry.example.test/database:1","ghcr.io/example/exporter:2"]}`)
+	if err := validateRegistryTemplateSource(registry, mixed); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected a mixed-registry template to be rejected, got %v", err)
 	}
 }

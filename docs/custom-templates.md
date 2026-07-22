@@ -88,6 +88,12 @@ valid `spec.defaultPort` are required. `spec.architectures` accepts `amd64` and 
 defaults to `amd64`. Packages are limited to 60 MiB compressed, 50 MiB expanded, 256 files, and 10 MiB
 per expanded file.
 
+Every Compose service must declare an `image`, and at least one service must use `spec.image` through
+`{{ .Image }}` or the exact reference. DB Mock renders the Compose file during upload and stores the
+complete, immutable image set. Direct pulls fetch every image explicitly; an offline archive must contain
+every reference; configured registry credentials can be selected only when every reference uses that same
+registry host.
+
 DB Mock treats every custom template and script as trusted host-level code. Uploading a package produces
 a risk report but does not block privileged settings.
 

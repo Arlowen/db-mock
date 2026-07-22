@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS template_versions (
     manifest jsonb NOT NULL DEFAULT '{}'::jsonb,
     risk_report jsonb NOT NULL DEFAULT '[]'::jsonb,
     package_path text NOT NULL DEFAULT '',
+    selectable boolean NOT NULL DEFAULT true,
     immutable boolean NOT NULL DEFAULT true,
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (template_id, version)

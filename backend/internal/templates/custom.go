@@ -223,9 +223,6 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 		risks = make([]Risk, 0)
 	}
 	riskJSON, _ := json.Marshal(risks)
-	manifestJSON, _ := json.Marshal(Manifest{Username: manifest.Spec.Username, Database: manifest.Spec.Database,
-		Scheme: manifest.Spec.Scheme, JDBCScheme: manifest.Spec.JDBCScheme, ContainerPort: manifest.Spec.DefaultPort,
-		HostTuning: manifest.Spec.HostTuning, UpgradeScript: upgradeScript})
 	architectures := make([]string, 0, len(manifest.Spec.Architectures))
 	seenArchitectures := make(map[string]struct{})
 	if len(manifest.Spec.Architectures) == 0 {
@@ -242,6 +239,13 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 		seenArchitectures[architecture] = struct{}{}
 		architectures = append(architectures, architecture)
 	}
+	imageReferences, err := ComposeImageReferences(slug, string(compose), manifest.Spec.Image)
+	if err != nil {
+		return ValidatedPackage{}, fmt.Errorf("validate Compose images: %w", err)
+	}
+	manifestJSON, _ := json.Marshal(Manifest{Username: manifest.Spec.Username, Database: manifest.Spec.Database,
+		Scheme: manifest.Spec.Scheme, JDBCScheme: manifest.Spec.JDBCScheme, ContainerPort: manifest.Spec.DefaultPort,
+		HostTuning: manifest.Spec.HostTuning, UpgradeScript: upgradeScript, ImageReferences: imageReferences})
 	return ValidatedPackage{Template: store.TemplateInput{Slug: slug, Name: manifest.Metadata.Name,
 		NameZH: manifest.Metadata.NameZH, Description: manifest.Metadata.Description, Category: manifest.Metadata.Category,
 		Tier: "custom", Builtin: false, Icon: manifest.Metadata.Icon, RiskReport: riskJSON}, Version: store.TemplateVersionInput{

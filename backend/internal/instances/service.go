@@ -225,6 +225,9 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
+	if !version.Selectable {
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: template version is not available for new instances", domain.ErrConflict)
+	}
 	if request.CPU == 0 {
 		request.CPU = version.MinCPU
 	}
@@ -247,7 +250,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 		if getErr != nil {
 			return domain.Instance{}, domain.Task{}, getErr
 		}
-		if artifact.Status != "ready" || !supports(artifact.Architectures, host.Architecture) || !contains(artifact.ImageRefs, version.ImageReference) {
+		if !artifactSupportsVersion(artifact, host, version) {
 			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
 		}
 	}
@@ -256,7 +259,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 		if getErr != nil {
 			return domain.Instance{}, domain.Task{}, getErr
 		}
-		if getErr = validateRegistryImageSource(registry, version.ImageReference); getErr != nil {
+		if getErr = validateRegistryTemplateSource(registry, version); getErr != nil {
 			return domain.Instance{}, domain.Task{}, getErr
 		}
 	}
@@ -562,9 +565,20 @@ func validateUpgradeImageSelection(source string, artifactID, registryID *uuid.U
 	return nil
 }
 
-func artifactSupportsUpgrade(artifact domain.ImageArtifact, host domain.Host, version domain.TemplateVersion) bool {
-	return artifact.Status == "ready" && supports(artifact.Architectures, host.Architecture) &&
-		contains(artifact.ImageRefs, version.ImageReference)
+func artifactSupportsVersion(artifact domain.ImageArtifact, host domain.Host, version domain.TemplateVersion) bool {
+	if artifact.Status != "ready" || !supports(artifact.Architectures, host.Architecture) {
+		return false
+	}
+	references, err := templates.RequiredImageReferences(version)
+	if err != nil {
+		return false
+	}
+	for _, reference := range references {
+		if !contains(artifact.ImageRefs, reference) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, request ActionRequest) (string, *uuid.UUID, *uuid.UUID, domain.TemplateVersion, error) {
@@ -581,6 +595,9 @@ func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, 
 	}
 	if targetVersion.ID == currentVersion.ID {
 		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: select a different template version", domain.ErrConflict)
+	}
+	if !targetVersion.Selectable {
+		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: template version is not available for upgrades", domain.ErrConflict)
 	}
 	if targetVersion.TemplateID != currentVersion.TemplateID {
 		return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: upgrade version belongs to a different database template", domain.ErrConflict)
@@ -606,13 +623,13 @@ func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, 
 		_ = json.Unmarshal(instance.Configuration, &configuration)
 		if configuration.ImageArtifactID != nil {
 			artifact, artifactErr := s.store.GetImageArtifact(ctx, *configuration.ImageArtifactID)
-			if artifactErr == nil && artifactSupportsUpgrade(artifact, host, targetVersion) {
+			if artifactErr == nil && artifactSupportsVersion(artifact, host, targetVersion) {
 				source, artifactID = "offline", configuration.ImageArtifactID
 			}
 		}
 		if source == "" && configuration.RegistryID != nil {
 			registry, registryErr := s.store.GetRegistry(ctx, *configuration.RegistryID)
-			if registryErr == nil && validateRegistryImageSource(registry, targetVersion.ImageReference) == nil {
+			if registryErr == nil && validateRegistryTemplateSource(registry, targetVersion) == nil {
 				source, registryID = "registry", configuration.RegistryID
 			}
 		}
@@ -628,7 +645,7 @@ func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, 
 		if getErr != nil {
 			return "", nil, nil, domain.TemplateVersion{}, getErr
 		}
-		if !artifactSupportsUpgrade(artifact, host, targetVersion) {
+		if !artifactSupportsVersion(artifact, host, targetVersion) {
 			return "", nil, nil, domain.TemplateVersion{}, fmt.Errorf("%w: offline image is incompatible with the upgrade version or instance host", domain.ErrConflict)
 		}
 	}
@@ -637,7 +654,7 @@ func (s *Service) prepareUpgrade(ctx context.Context, instance domain.Instance, 
 		if getErr != nil {
 			return "", nil, nil, domain.TemplateVersion{}, getErr
 		}
-		if getErr = validateRegistryImageSource(registry, targetVersion.ImageReference); getErr != nil {
+		if getErr = validateRegistryTemplateSource(registry, targetVersion); getErr != nil {
 			return "", nil, nil, domain.TemplateVersion{}, getErr
 		}
 	}
@@ -922,6 +939,32 @@ func validateRegistryImageSource(registry domain.Registry, imageReference string
 	return nil
 }
 
+func validateRegistryTemplateSource(registry domain.Registry, version domain.TemplateVersion) error {
+	references, err := templates.RequiredImageReferences(version)
+	if err != nil {
+		return err
+	}
+	for _, reference := range references {
+		if err = validateRegistryImageSource(registry, reference); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) pullTemplateImages(ctx context.Context, host domain.Host, version domain.TemplateVersion) error {
+	references, err := templates.RequiredImageReferences(version)
+	if err != nil {
+		return err
+	}
+	for _, reference := range references {
+		if err = s.docker.PullImage(ctx, host, reference); err != nil {
+			return fmt.Errorf("pull template image %s: %w", reference, err)
+		}
+	}
+	return nil
+}
+
 func (s *Service) load(ctx context.Context, task domain.Task) (ActionPayload, domain.Instance, domain.Host, domain.Template, domain.TemplateVersion, error) {
 	var payload ActionPayload
 	if err := tasks.DecodePayload(task, &payload); err != nil {
@@ -955,6 +998,9 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", "", message)
 		}
 	}()
+	if !version.Selectable {
+		return nil, fmt.Errorf("%w: template version is not available for new instances", domain.ErrConflict)
+	}
 	if err = runtime.Stage(ctx, 5, "preflight", "Checking host and template", true); err != nil {
 		return nil, err
 	}
@@ -984,7 +1030,7 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 		if getErr != nil {
 			return nil, getErr
 		}
-		if getErr = validateRegistryImageSource(registry, version.ImageReference); getErr != nil {
+		if getErr = validateRegistryTemplateSource(registry, version); getErr != nil {
 			return nil, getErr
 		}
 		password := ""
@@ -1013,6 +1059,9 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 		if getErr != nil {
 			return nil, getErr
 		}
+		if !artifactSupportsVersion(artifact, host, version) {
+			return nil, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
+		}
 		err = s.docker.LoadImage(ctx, host, artifact.Path, func(done, total int64) {
 			if total > 0 {
 				_ = s.store.UpdateTask(context.Background(), task.ID, 30+int(done*20/total), "image", "Transferring offline image", true)
@@ -1024,7 +1073,7 @@ func (s *Service) handleCreate(ctx context.Context, runtime *tasks.Runtime, task
 			cancel()
 		}
 	} else {
-		err = s.docker.PullImage(ctx, host, version.ImageReference)
+		err = s.pullTemplateImages(ctx, host, version)
 	}
 	if err != nil {
 		return nil, err
@@ -1432,6 +1481,9 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if err != nil {
 		return nil, err
 	}
+	if !newVersion.Selectable {
+		return nil, fmt.Errorf("%w: template version is not available for upgrades", domain.ErrConflict)
+	}
 	targetVersion = newVersion.Version
 	if newTemplate.ID != template.ID {
 		return nil, errors.New("upgrade version belongs to a different database template")
@@ -1489,7 +1541,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		if getErr != nil {
 			return nil, getErr
 		}
-		if getErr = validateRegistryImageSource(registry, newVersion.ImageReference); getErr != nil {
+		if getErr = validateRegistryTemplateSource(registry, newVersion); getErr != nil {
 			return nil, getErr
 		}
 		password := ""
@@ -1518,7 +1570,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		if getErr != nil {
 			return nil, getErr
 		}
-		if !artifactSupportsUpgrade(artifact, host, newVersion) {
+		if !artifactSupportsVersion(artifact, host, newVersion) {
 			return nil, fmt.Errorf("%w: offline image is incompatible with the upgrade version or instance host", domain.ErrConflict)
 		}
 		if err = s.docker.LoadImage(ctx, host, artifact.Path, func(done, total int64) {
@@ -1534,7 +1586,7 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		if err != nil {
 			return nil, err
 		}
-	} else if err = s.docker.PullImage(ctx, host, newVersion.ImageReference); err != nil {
+	} else if err = s.pullTemplateImages(ctx, host, newVersion); err != nil {
 		return nil, err
 	}
 	if err = s.docker.WriteProject(ctx, host, instance, compose, env, projectFiles, previousProjectFiles); err != nil {

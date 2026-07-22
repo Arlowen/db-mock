@@ -76,6 +76,8 @@ cd ../backend && go run ./cmd/dbmock
 
 从仓库根目录运行 `make test` 执行后端和前端测试，`make build` 生成单文件服务，
 `make docker` 构建容器镜像。前端检查包含 TypeScript 类型检查和 Vitest 测试。
+运行 `./scripts/ci/verify-template-images.sh` 可联网校验全部内置数据库镜像标签及其声明的
+`amd64`/`arm64` 平台；GitHub Actions 每周自动执行相同检查，以便及时发现上游标签下线。
 
 运行 `make backup` 创建控制平面灾备归档；恢复前可先执行
 `DBMOCK_RESTORE_VALIDATE_ONLY=true ./scripts/restore-platform.sh <归档>` 校验。完整恢复步骤及

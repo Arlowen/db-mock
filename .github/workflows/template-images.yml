@@ -1,0 +1,27 @@
+name: Template image availability
+
+on:
+  schedule:
+    - cron: '15 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: template-image-availability
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - uses: docker/setup-buildx-action@v4
+      - name: Verify built-in image tags and platforms
+        run: ./scripts/ci/verify-template-images.sh

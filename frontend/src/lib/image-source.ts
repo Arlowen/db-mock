@@ -1,3 +1,5 @@
+import type { TemplateVersion } from './types'
+
 function normalizeRegistryHost(value: string): string {
   const normalized = value.toLowerCase().replace(/\/$/, '')
   return ['index.docker.io', 'registry-1.docker.io'].includes(normalized) ? 'docker.io' : normalized
@@ -26,4 +28,19 @@ export function isRegistryURL(value: string): boolean {
 
 export function registryMatchesImage(registryURL: string, imageReference: string): boolean {
   return registryHost(registryURL) === imageRegistryHost(imageReference)
+}
+
+export function templateImageReferences(version: Pick<TemplateVersion, 'imageReference' | 'manifest'>): string[] {
+  const declared = Array.isArray(version.manifest?.imageReferences)
+    ? version.manifest.imageReferences.filter((item): item is string => typeof item === 'string' && !!item.trim()).map((item) => item.trim())
+    : []
+  return [...new Set([version.imageReference.trim(), ...declared].filter(Boolean))]
+}
+
+export function imageArtifactMatchesTemplate(imageReferences: string[], version: Pick<TemplateVersion, 'imageReference' | 'manifest'>): boolean {
+  return templateImageReferences(version).every((reference) => imageReferences.includes(reference))
+}
+
+export function registryMatchesTemplate(registryURL: string, version: Pick<TemplateVersion, 'imageReference' | 'manifest'>): boolean {
+  return templateImageReferences(version).every((reference) => registryMatchesImage(registryURL, reference))
 }

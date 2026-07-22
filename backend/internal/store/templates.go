@@ -87,17 +87,17 @@ func (s *Store) UpsertBuiltinTemplate(ctx context.Context, input TemplateInput, 
 	}
 	var v domain.TemplateVersion
 	err = tx.QueryRow(ctx, `INSERT INTO template_versions(id,template_id,version,image_reference,architectures,
-        min_cpu,min_memory_bytes,min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,immutable)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true)
-        ON CONFLICT(template_id,version) DO NOTHING
-        RETURNING id,template_id,version,image_reference,architectures,min_cpu,min_memory_bytes,min_disk_bytes,
-        default_port,compose_template,manifest,risk_report,package_path,immutable,created_at`, uuid.New(), item.ID,
+		min_cpu,min_memory_bytes,min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,selectable,immutable)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,true)
+		ON CONFLICT(template_id,version) DO NOTHING
+		RETURNING id,template_id,version,image_reference,architectures,min_cpu,min_memory_bytes,min_disk_bytes,
+		default_port,compose_template,manifest,risk_report,package_path,selectable,immutable,created_at`, uuid.New(), item.ID,
 		version.Version, version.ImageReference, version.Architectures, version.MinCPU, version.MinMemoryBytes,
 		version.MinDiskBytes, version.DefaultPort, version.ComposeTemplate, version.Manifest, version.RiskReport,
 		version.PackagePath).Scan(templateVersionScan(&v)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT id,template_id,version,image_reference,architectures,min_cpu,min_memory_bytes,
-            min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,immutable,created_at
+			min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,selectable,immutable,created_at
             FROM template_versions WHERE template_id=$1 AND version=$2`, item.ID, version.Version).Scan(templateVersionScan(&v)...)
 	}
 	if err != nil {
@@ -144,10 +144,10 @@ func (s *Store) CreateCustomTemplateVersion(ctx context.Context, input TemplateI
 
 	var v domain.TemplateVersion
 	err = tx.QueryRow(ctx, `INSERT INTO template_versions(id,template_id,version,image_reference,architectures,
-        min_cpu,min_memory_bytes,min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,immutable)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true)
-        RETURNING id,template_id,version,image_reference,architectures,min_cpu,min_memory_bytes,min_disk_bytes,
-        default_port,compose_template,manifest,risk_report,package_path,immutable,created_at`, uuid.New(), item.ID,
+		min_cpu,min_memory_bytes,min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,selectable,immutable)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,true)
+		RETURNING id,template_id,version,image_reference,architectures,min_cpu,min_memory_bytes,min_disk_bytes,
+		default_port,compose_template,manifest,risk_report,package_path,selectable,immutable,created_at`, uuid.New(), item.ID,
 		version.Version, version.ImageReference, version.Architectures, version.MinCPU, version.MinMemoryBytes,
 		version.MinDiskBytes, version.DefaultPort, version.ComposeTemplate, version.Manifest, version.RiskReport,
 		version.PackagePath).Scan(templateVersionScan(&v)...)
@@ -167,7 +167,7 @@ func (s *Store) CreateCustomTemplateVersion(ctx context.Context, input TemplateI
 func templateVersionScan(v *domain.TemplateVersion) []any {
 	return []any{&v.ID, &v.TemplateID, &v.Version, &v.ImageReference, &v.Architectures, &v.MinCPU,
 		&v.MinMemoryBytes, &v.MinDiskBytes, &v.DefaultPort, &v.ComposeTemplate, &v.Manifest, &v.RiskReport, &v.PackagePath,
-		&v.Immutable, &v.CreatedAt}
+		&v.Selectable, &v.Immutable, &v.CreatedAt}
 }
 
 func (s *Store) GetTemplateVersion(ctx context.Context, id uuid.UUID) (domain.Template, domain.TemplateVersion, error) {
@@ -177,17 +177,17 @@ func (s *Store) GetTemplateVersion(ctx context.Context, id uuid.UUID) (domain.Te
 		&item.Builtin, &item.Icon, &item.RiskReport, &item.CreatedAt, &item.UpdatedAt}
 	scanArgs = append(scanArgs, templateVersionScan(&version)...)
 	err := s.pool.QueryRow(ctx, `SELECT t.id,t.slug,t.name,t.name_zh,t.description,t.category,t.tier,t.builtin,t.icon,
-        t.risk_report,t.created_at,t.updated_at,v.id,v.template_id,v.version,v.image_reference,v.architectures,
-        v.min_cpu,v.min_memory_bytes,v.min_disk_bytes,v.default_port,v.compose_template,v.manifest,v.risk_report,v.package_path,
-        v.immutable,v.created_at FROM template_versions v JOIN templates t ON t.id=v.template_id WHERE v.id=$1`, id).Scan(
+		t.risk_report,t.created_at,t.updated_at,v.id,v.template_id,v.version,v.image_reference,v.architectures,
+		v.min_cpu,v.min_memory_bytes,v.min_disk_bytes,v.default_port,v.compose_template,v.manifest,v.risk_report,v.package_path,
+		v.selectable,v.immutable,v.created_at FROM template_versions v JOIN templates t ON t.id=v.template_id WHERE v.id=$1`, id).Scan(
 		scanArgs...)
 	return item, version, translate(err)
 }
 
 func (s *Store) ListTemplates(ctx context.Context) ([]domain.Template, error) {
 	rows, err := s.pool.Query(ctx, `SELECT t.id,t.slug,t.name,t.name_zh,t.description,t.category,t.tier,t.builtin,t.icon,
-        t.risk_report,t.created_at,t.updated_at,v.id,v.template_id,v.version,v.image_reference,v.architectures,
-        v.min_cpu,v.min_memory_bytes,v.min_disk_bytes,v.default_port,v.manifest,v.risk_report,v.immutable,v.created_at
+		t.risk_report,t.created_at,t.updated_at,v.id,v.template_id,v.version,v.image_reference,v.architectures,
+		v.min_cpu,v.min_memory_bytes,v.min_disk_bytes,v.default_port,v.manifest,v.risk_report,v.selectable,v.immutable,v.created_at
         FROM templates t LEFT JOIN template_versions v ON v.template_id=t.id
         ORDER BY CASE t.tier WHEN 'standard' THEN 1 WHEN 'experimental' THEN 2 ELSE 3 END,lower(t.name),v.created_at DESC`)
 	if err != nil {
@@ -203,7 +203,7 @@ func (s *Store) ListTemplates(ctx context.Context) ([]domain.Template, error) {
 			&item.Category, &item.Tier, &item.Builtin, &item.Icon, &item.RiskReport, &item.CreatedAt,
 			&item.UpdatedAt, &version.ID, &version.TemplateID, &version.Version, &version.ImageReference,
 			&version.Architectures, &version.MinCPU, &version.MinMemoryBytes, &version.MinDiskBytes,
-			&version.DefaultPort, &version.Manifest, &version.RiskReport, &version.Immutable, &version.CreatedAt); err != nil {
+			&version.DefaultPort, &version.Manifest, &version.RiskReport, &version.Selectable, &version.Immutable, &version.CreatedAt); err != nil {
 			return nil, err
 		}
 		position, ok := index[item.ID]

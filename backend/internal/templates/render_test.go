@@ -115,6 +115,47 @@ func TestBuiltinsRenderTheSelectedRestartPolicyForEveryService(t *testing.T) {
 	}
 }
 
+func TestBuiltinsDeclareEveryComposeImageAndSupportedPlatform(t *testing.T) {
+	for _, definition := range Builtins() {
+		t.Run(definition.Slug, func(t *testing.T) {
+			composeTemplate := definition.Compose
+			if composeTemplate == "" {
+				composeTemplate = singleServiceCompose(definition)
+			}
+			references, err := ComposeImageReferences(definition.Slug, composeTemplate, definition.Image)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(references) == 0 || references[0] != definition.Image {
+				t.Fatalf("image references = %v, expected primary %q first", references, definition.Image)
+			}
+			if definition.Slug == "doris" && len(references) != 2 {
+				t.Fatalf("Doris must declare both FE and BE images, got %v", references)
+			}
+			for _, architecture := range definition.Architectures {
+				if architecture != "amd64" && architecture != "arm64" {
+					t.Fatalf("unsupported architecture %q", architecture)
+				}
+			}
+		})
+	}
+}
+
+func TestRequiredImageReferencesSupportsNewAndLegacyVersions(t *testing.T) {
+	manifest, _ := json.Marshal(Manifest{ImageReferences: []string{"apache/doris:fe-2.1.11", "apache/doris:be-2.1.11"}})
+	references, err := RequiredImageReferences(domain.TemplateVersion{ImageReference: "apache/doris:fe-2.1.11", Manifest: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(references, ","); got != "apache/doris:fe-2.1.11,apache/doris:be-2.1.11" {
+		t.Fatalf("unexpected references: %s", got)
+	}
+	legacy, err := RequiredImageReferences(domain.TemplateVersion{ImageReference: "postgres:17", Manifest: json.RawMessage(`{}`)})
+	if err != nil || len(legacy) != 1 || legacy[0] != "postgres:17" {
+		t.Fatalf("legacy references = %v, err = %v", legacy, err)
+	}
+}
+
 func TestRenderComposeRejectsReservedEnvironmentOverrides(t *testing.T) {
 	instance := domain.Instance{
 		ID:              uuid.New(),
