@@ -24,7 +24,7 @@ import { bytes } from '../lib/types'
 type ImageSource = 'public' | 'registry' | 'offline'
 
 interface CreateValues { name: string; projectId?: string; environment: string; templateVersionId: string; hostId?: string; cpu: number; memoryGiB: number; diskGiB: number; hostPort?: number; bindAddress: string; username?: string; password?: string; databaseName?: string; autoRestart: boolean; imageSource: ImageSource; imageArtifactId?: string; registryId?: string; labels?: string; extraEnvironment?: string }
-interface RuntimeValues { cpu: number; memoryGiB: number; diskGiB: number; extraEnvironment: string }
+interface RuntimeValues { cpu: number; memoryGiB: number; diskGiB: number; extraEnvironment: string; autoRestart: boolean }
 interface BackupPolicyValues { enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; hour: number; minute: number; timezone: string; retentionCount: number }
 
 function parseStringMap(value?: string): Record<string, string> | undefined {
@@ -317,6 +317,7 @@ export function InstanceDetailPage() {
   const runtimeMemoryGiB = Form.useWatch('memoryGiB', runtimeForm)
   const runtimeDiskGiB = Form.useWatch('diskGiB', runtimeForm)
   const runtimeEnvironmentText = Form.useWatch('extraEnvironment', runtimeForm)
+  const runtimeAutoRestart = Form.useWatch('autoRestart', runtimeForm)
   const load = useCallback(async () => {
     try {
       const instance = await api<Instance>(`/instances/${id}`)
@@ -384,7 +385,7 @@ export function InstanceDetailPage() {
   const loadMetrics = useCallback(async () => { try { setMetricsLoading(true); setMetricsError(''); const response = await api<{ items: Metric[] }>(`/instances/${id}/metrics?hours=${metricHours}`); setMetrics(response.items) } catch (error) { setMetricsError(errorMessage(error)) } finally { setMetricsLoading(false) } }, [id, metricHours])
   useEffect(() => { if (activeTab !== 'logs' && activeTab !== 'metrics') return; const refresh = () => activeTab === 'logs' ? loadLogs() : loadMetrics(); void refresh(); if (activeTab === 'logs' && !logsAutoRefresh) return; const timer = window.setInterval(() => void refresh(), activeTab === 'logs' ? 5000 : 30000); return () => clearInterval(timer) }, [activeTab, loadLogs, loadMetrics, logsAutoRefresh])
   useEffect(() => { if (activeTab !== 'connection') setConnection(null) }, [activeTab])
-  const showEdit = () => { if (!item) return; editForm.resetFields(); editForm.setFieldsValue({ name: item.name, projectId: item.projectId, environment: item.environment, labels: Object.entries(item.labels || {}).map(([key, value]) => `${key}=${value}`).join(', '), autoRestart: item.autoRestart }); setEditOpen(true) }
+  const showEdit = () => { if (!item) return; editForm.resetFields(); editForm.setFieldsValue({ name: item.name, projectId: item.projectId, environment: item.environment, labels: Object.entries(item.labels || {}).map(([key, value]) => `${key}=${value}`).join(', ') }); setEditOpen(true) }
   const showDelete = () => { setConfirm(''); setDeleteOpen(true) }
   const showUpgrade = () => {
     setUpgradeVersion(undefined)
@@ -400,6 +401,7 @@ export function InstanceDetailPage() {
       memoryGiB: item.memoryBytes / 1024 ** 3,
       diskGiB: item.reservedDiskBytes / 1024 ** 3,
       extraEnvironment: JSON.stringify(item.configuration?.extraEnvironment || {}, null, 2),
+      autoRestart: item.autoRestart,
     })
     setRuntimeOpen(true)
   }
@@ -430,7 +432,7 @@ export function InstanceDetailPage() {
       if (error instanceof Error) message.error(errorMessage(error))
     } finally { setBackupPolicySaving(false) }
   }
-  const saveEdit = async () => { try { setEditSaving(true); const values = await editForm.validateFields(); const labels: Record<string, string> = {}; String(values.labels || '').split(',').forEach((part) => { const separator = part.indexOf('='); const key = separator >= 0 ? part.slice(0, separator) : part; const value = separator >= 0 ? part.slice(separator + 1) : ''; if (key.trim()) labels[key.trim()] = value.trim() || 'true' }); await api(`/instances/${id}`, { method: 'PATCH', body: { name: values.name, projectId: values.projectId || null, environment: values.environment, labels, autoRestart: !!values.autoRestart } }); message.success(t('saved')); setEditOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } finally { setEditSaving(false) } }
+  const saveEdit = async () => { try { setEditSaving(true); const values = await editForm.validateFields(); const labels: Record<string, string> = {}; String(values.labels || '').split(',').forEach((part) => { const separator = part.indexOf('='); const key = separator >= 0 ? part.slice(0, separator) : part; const value = separator >= 0 ? part.slice(separator + 1) : ''; if (key.trim()) labels[key.trim()] = value.trim() || 'true' }); await api(`/instances/${id}`, { method: 'PATCH', body: { name: values.name, projectId: values.projectId || null, environment: values.environment, labels } }); message.success(t('saved')); setEditOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } finally { setEditSaving(false) } }
   if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
   const instanceHost = hosts.find((host) => host.id === item.hostId)
   const currentTemplate = templates.find((tpl) => tpl.slug === item.templateSlug)
@@ -444,6 +446,7 @@ export function InstanceDetailPage() {
       { cpu: item.cpu, memory: item.memoryBytes, disk: item.reservedDiskBytes }, runtimeTarget)
   const runtimeRemaining = instanceHost && runtimeCapacityReady ? remainingAfterDeployment(instanceHost, runtimeHostReservation, runtimeTarget) : undefined
   const runtimeChanged = runtimeTarget.cpu !== item.cpu || runtimeTarget.memory !== item.memoryBytes || runtimeTarget.disk !== item.reservedDiskBytes ||
+    (runtimeAutoRestart ?? item.autoRestart) !== item.autoRestart ||
     (!!runtimeEnvironment && !sameStringMap(runtimeEnvironment, item.configuration?.extraEnvironment || {}))
   const runtimeReady = runtimeMinimumReady && runtimeCapacityReady && !!runtimeEnvironment && runtimeChanged
   const upgradeVersions = currentTemplate?.versions.filter((version) => version.id !== item.templateVersionId &&
@@ -475,6 +478,7 @@ export function InstanceDetailPage() {
         memoryBytes: Math.round(values.memoryGiB * 1024 ** 3),
         diskBytes: Math.round(values.diskGiB * 1024 ** 3),
         extraEnvironment,
+        autoRestart: values.autoRestart,
       })
     } catch { /* form marks errors */ }
   }
@@ -556,7 +560,7 @@ export function InstanceDetailPage() {
     <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1240 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
   </Card>
   return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} actions={canOperate ? <><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : showDelete() }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></> : undefined} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{operationPanel}<Tabs activeKey={activeTab} onChange={changeTab} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backups.length})`, children: backupsTab }]} />
-    <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')}><Form form={editForm} layout="vertical"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((project) => ({ value: project.id, label: project.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} /></Form.Item><Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item><Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item></Form></Modal>
+    <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')}><Form form={editForm} layout="vertical"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((project) => ({ value: project.id, label: project.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} /></Form.Item><Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item></Form></Modal>
     <Modal title={t('runtimeConfiguration')} open={runtimeOpen} onCancel={() => { if (!actioning) setRuntimeOpen(false) }} onOk={() => void submitRuntimeConfiguration()} confirmLoading={actioning === 'reconfigure'} okText={t('applyConfiguration')} okButtonProps={{ disabled: !runtimeReady }} width={680} destroyOnHidden>
       <Alert className="backup-modal-alert" type={item.status === 'stopped' ? 'info' : 'warning'} showIcon message={item.status === 'stopped' ? t('runtimeStoppedNotice') : t('runtimeDowntimeNotice')} description={t('runtimeRecoveryNotice')} />
       <Form form={runtimeForm} layout="vertical" requiredMark={false}>
@@ -569,6 +573,7 @@ export function InstanceDetailPage() {
           { key: 'current', label: t('currentReservation'), children: `${item.cpu} CPU · ${bytes(item.memoryBytes)} · ${bytes(item.reservedDiskBytes)}` },
           { key: 'requested', label: t('requestedReservation'), children: `${runtimeTarget.cpu} CPU · ${bytes(runtimeTarget.memory)} · ${bytes(runtimeTarget.disk)}` },
         ]} />
+        <Form.Item className="upgrade-field" name="autoRestart" label={t('autoRestart')} valuePropName="checked" extra={t('autoRestartRuntimeHint')}><Switch checkedChildren={t('enabled')} unCheckedChildren={t('disabled')} /></Form.Item>
         <Form.Item className="upgrade-field" name="extraEnvironment" label={t('extraEnvironment')} rules={[{ validator: (_, value?: string) => parseStringMap(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidJSONObject'))) }]}>
           <Input.TextArea rows={6} placeholder={'{\n  "TZ": "Asia/Shanghai"\n}'} />
         </Form.Item>

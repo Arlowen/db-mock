@@ -53,6 +53,10 @@ The Compose file may use these Go template variables:
 | `{{ .RestartPolicy }}` | generated restart policy |
 | `{{ .ExtraEnvironment }}` | YAML fragment for user environment overrides |
 
+Every long-running service that should follow the instance automatic-restart switch must set
+`restart: "{{ .RestartPolicy }}"`. DB Mock renders `unless-stopped` when enabled and `no` when disabled;
+the same value is restored if a runtime-configuration task fails.
+
 The generated project `.env` provides `DB_USERNAME`, `DB_PASSWORD`, and `DB_NAME` for Compose
 interpolation only. Compose does not automatically copy those values into a container. A custom
 health check that needs credentials must explicitly map them to template-owned container variables,

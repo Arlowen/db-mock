@@ -288,7 +288,6 @@ func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
 		ProjectID   *uuid.UUID        `json:"projectId"`
 		Environment string            `json:"environment"`
 		Labels      map[string]string `json:"labels"`
-		AutoRestart bool              `json:"autoRestart"`
 	}
 	if err = httpx.Decode(r, &input); err != nil {
 		httpx.Error(w, r, err)
@@ -300,7 +299,7 @@ func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	labels, _ := json.Marshal(input.Labels)
-	item, err := s.store.UpdateInstanceMetadata(r.Context(), id, input.Name, input.ProjectID, input.Environment, labels, input.AutoRestart)
+	item, err := s.store.UpdateInstanceMetadata(r.Context(), id, input.Name, input.ProjectID, input.Environment, labels)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -327,6 +326,7 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 		MemoryBytes       int64             `json:"memoryBytes"`
 		DiskBytes         int64             `json:"diskBytes"`
 		ExtraEnvironment  map[string]string `json:"extraEnvironment"`
+		AutoRestart       *bool             `json:"autoRestart"`
 	}
 	if r.ContentLength != 0 {
 		if err = httpx.Decode(r, &input); err != nil {
@@ -348,7 +348,7 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 		NewTemplateVersionID: input.TemplateVersionID, ImageSource: input.ImageSource,
 		ImageArtifactID: input.ImageArtifactID, RegistryID: input.RegistryID,
 		CPU: input.CPU, MemoryBytes: input.MemoryBytes, DiskBytes: input.DiskBytes,
-		ExtraEnvironment: input.ExtraEnvironment,
+		ExtraEnvironment: input.ExtraEnvironment, AutoRestart: input.AutoRestart,
 	})
 	if err != nil {
 		httpx.Error(w, r, err)
@@ -356,7 +356,7 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if action == "reconfigure" {
 		_ = s.auditWithChanges(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "",
-			instanceReconfigureAuditChanges(instance, input.CPU, input.MemoryBytes, input.DiskBytes, input.ExtraEnvironment))
+			instanceReconfigureAuditChanges(instance, input.CPU, input.MemoryBytes, input.DiskBytes, input.ExtraEnvironment, input.AutoRestart))
 	} else if action == "upgrade" {
 		changes := map[string]any{"imageSource": input.ImageSource}
 		if input.TemplateVersionID != nil {

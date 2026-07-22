@@ -90,16 +90,18 @@ func instanceAuditChanges(before, after domain.Instance) map[string]any {
 	addAuditTransition(changes, "projectId", auditUUID(before.ProjectID), auditUUID(after.ProjectID))
 	addAuditTransition(changes, "environment", before.Environment, after.Environment)
 	addAuditTransition(changes, "labels", auditJSON(before.Labels), auditJSON(after.Labels))
-	addAuditTransition(changes, "autoRestart", before.AutoRestart, after.AutoRestart)
 	return changes
 }
 
 func instanceReconfigureAuditChanges(before domain.Instance, cpu float64, memoryBytes, diskBytes int64,
-	extraEnvironment map[string]string) map[string]any {
+	extraEnvironment map[string]string, autoRestart *bool) map[string]any {
 	changes := map[string]any{}
 	addAuditTransition(changes, "cpu", before.CPU, cpu)
 	addAuditTransition(changes, "memoryBytes", before.MemoryBytes, memoryBytes)
 	addAuditTransition(changes, "reservedDiskBytes", before.ReservedDiskBytes, diskBytes)
+	if autoRestart != nil {
+		addAuditTransition(changes, "autoRestart", before.AutoRestart, *autoRestart)
+	}
 	var configuration struct {
 		ExtraEnvironment map[string]string `json:"extraEnvironment"`
 	}

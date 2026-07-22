@@ -63,6 +63,7 @@ type ActionRequest struct {
 	MemoryBytes          int64
 	DiskBytes            int64
 	ExtraEnvironment     map[string]string
+	AutoRestart          *bool
 }
 
 type ActionPayload struct {
@@ -85,6 +86,8 @@ type ActionPayload struct {
 	PreviousMemoryBytes     int64      `json:"previousMemoryBytes,omitempty"`
 	PreviousDiskBytes       int64      `json:"previousDiskBytes,omitempty"`
 	EncryptedPreviousConfig string     `json:"encryptedPreviousConfig,omitempty"`
+	TargetAutoRestart       *bool      `json:"targetAutoRestart,omitempty"`
+	PreviousAutoRestart     *bool      `json:"previousAutoRestart,omitempty"`
 }
 
 type instanceConfiguration struct {
@@ -264,13 +267,16 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 			return domain.Task{}, sealErr
 		}
 		payload.TargetCPU, payload.TargetMemoryBytes, payload.TargetDiskBytes = target.CPU, target.MemoryBytes, target.ReservedDiskBytes
+		payload.TargetAutoRestart = boolValue(target.AutoRestart)
 		payload.EncryptedTargetConfig = encryptedTarget
 		payload.PreviousCPU, payload.PreviousMemoryBytes, payload.PreviousDiskBytes = instance.CPU, instance.MemoryBytes, instance.ReservedDiskBytes
+		payload.PreviousAutoRestart = boolValue(instance.AutoRestart)
 		payload.EncryptedPreviousConfig = encryptedPrevious
 		task, createErr := s.store.CreateInstanceReconfigureTask(ctx, store.TaskInput{Kind: "instance.reconfigure",
 			ResourceType: "instance", ResourceID: &instance.ID, RequestedBy: userID, HostID: &instance.HostID,
 			Payload: payload}, instance.ID, instance.Status, store.InstanceRuntimeConfiguration{CPU: target.CPU,
-			MemoryBytes: target.MemoryBytes, ReservedDiskBytes: target.ReservedDiskBytes, Configuration: configuration})
+			MemoryBytes: target.MemoryBytes, ReservedDiskBytes: target.ReservedDiskBytes, Configuration: configuration,
+			AutoRestart: target.AutoRestart})
 		if createErr == nil {
 			s.tasks.Wake()
 		}
@@ -299,7 +305,7 @@ func validateInstanceActionRequest(action string, request ActionRequest) error {
 		return fmt.Errorf("%w: image source and template version are only valid for instance upgrades", domain.ErrInvalid)
 	}
 	if action != "reconfigure" && (request.CPU != 0 || request.MemoryBytes != 0 || request.DiskBytes != 0 ||
-		request.ExtraEnvironment != nil) {
+		request.ExtraEnvironment != nil || request.AutoRestart != nil) {
 		return fmt.Errorf("%w: runtime configuration is only valid for instance reconfiguration", domain.ErrInvalid)
 	}
 	return nil
@@ -319,7 +325,12 @@ func prepareRuntimeConfiguration(template domain.Template, version domain.Templa
 	if err := json.Unmarshal(instance.Configuration, &current); err != nil {
 		return domain.Instance{}, nil, fmt.Errorf("%w: instance configuration is not valid JSON", domain.ErrInvalid)
 	}
-	if request.CPU == instance.CPU && request.MemoryBytes == instance.MemoryBytes && request.DiskBytes == instance.ReservedDiskBytes && maps.Equal(request.ExtraEnvironment, current.ExtraEnvironment) {
+	targetAutoRestart := instance.AutoRestart
+	if request.AutoRestart != nil {
+		targetAutoRestart = *request.AutoRestart
+	}
+	if request.CPU == instance.CPU && request.MemoryBytes == instance.MemoryBytes && request.DiskBytes == instance.ReservedDiskBytes &&
+		targetAutoRestart == instance.AutoRestart && maps.Equal(request.ExtraEnvironment, current.ExtraEnvironment) {
 		return domain.Instance{}, nil, fmt.Errorf("%w: runtime configuration has not changed", domain.ErrConflict)
 	}
 	current.ExtraEnvironment = request.ExtraEnvironment
@@ -329,6 +340,7 @@ func prepareRuntimeConfiguration(template domain.Template, version domain.Templa
 	}
 	target := instance
 	target.CPU, target.MemoryBytes, target.ReservedDiskBytes = request.CPU, request.MemoryBytes, request.DiskBytes
+	target.AutoRestart = targetAutoRestart
 	target.Configuration = configuration
 	if _, err = templates.RenderCompose(template, version, target, current.ExtraEnvironment); err != nil {
 		return domain.Instance{}, nil, fmt.Errorf("%w: %v", domain.ErrInvalid, err)
@@ -970,19 +982,34 @@ func (s *Service) handleRestart(ctx context.Context, runtime *tasks.Runtime, tas
 	return s.simpleAction(ctx, runtime, task, "restart")
 }
 
-func runtimeConfiguration(cpu float64, memoryBytes, diskBytes int64, configuration json.RawMessage) store.InstanceRuntimeConfiguration {
+func runtimeConfiguration(cpu float64, memoryBytes, diskBytes int64, configuration json.RawMessage, autoRestart bool) store.InstanceRuntimeConfiguration {
 	return store.InstanceRuntimeConfiguration{CPU: cpu, MemoryBytes: memoryBytes, ReservedDiskBytes: diskBytes,
-		Configuration: append(json.RawMessage(nil), configuration...)}
+		Configuration: append(json.RawMessage(nil), configuration...), AutoRestart: autoRestart}
 }
 
 func instanceHasRuntimeConfiguration(instance domain.Instance, configuration store.InstanceRuntimeConfiguration) bool {
 	return instance.CPU == configuration.CPU && instance.MemoryBytes == configuration.MemoryBytes &&
-		instance.ReservedDiskBytes == configuration.ReservedDiskBytes && bytes.Equal(instance.Configuration, configuration.Configuration)
+		instance.ReservedDiskBytes == configuration.ReservedDiskBytes && instance.AutoRestart == configuration.AutoRestart &&
+		bytes.Equal(instance.Configuration, configuration.Configuration)
 }
 
 func runtimeConfigurationResult(instanceID uuid.UUID, status string, configuration store.InstanceRuntimeConfiguration) map[string]any {
 	return map[string]any{"instanceId": instanceID, "status": status, "cpu": configuration.CPU,
-		"memoryBytes": configuration.MemoryBytes, "reservedDiskBytes": configuration.ReservedDiskBytes}
+		"memoryBytes": configuration.MemoryBytes, "reservedDiskBytes": configuration.ReservedDiskBytes,
+		"autoRestart": configuration.AutoRestart}
+}
+
+func boolValue(value bool) *bool { return &value }
+
+func taskRestartPolicies(payload ActionPayload, instance domain.Instance) (target, previous bool) {
+	target, previous = instance.AutoRestart, instance.AutoRestart
+	if payload.TargetAutoRestart != nil {
+		target = *payload.TargetAutoRestart
+	}
+	if payload.PreviousAutoRestart != nil {
+		previous = *payload.PreviousAutoRestart
+	}
+	return target, previous
 }
 
 func runtimeConfigurationContext(instanceID uuid.UUID) string {
@@ -1037,13 +1064,15 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 	if err != nil {
 		return nil, err
 	}
-	target := runtimeConfiguration(payload.TargetCPU, payload.TargetMemoryBytes, payload.TargetDiskBytes, targetConfiguration)
-	previous := runtimeConfiguration(payload.PreviousCPU, payload.PreviousMemoryBytes, payload.PreviousDiskBytes, previousConfiguration)
+	targetAutoRestart, previousAutoRestart := taskRestartPolicies(payload, instance)
+	target := runtimeConfiguration(payload.TargetCPU, payload.TargetMemoryBytes, payload.TargetDiskBytes, targetConfiguration, targetAutoRestart)
+	previous := runtimeConfiguration(payload.PreviousCPU, payload.PreviousMemoryBytes, payload.PreviousDiskBytes, previousConfiguration, previousAutoRestart)
 	if (instance.Status == "running" || instance.Status == "stopped") && instanceHasRuntimeConfiguration(instance, target) {
 		return runtimeConfigurationResult(instance.ID, instance.Status, target), nil
 	}
 	previousInstance := instance
 	previousInstance.CPU, previousInstance.MemoryBytes, previousInstance.ReservedDiskBytes = previous.CPU, previous.MemoryBytes, previous.ReservedDiskBytes
+	previousInstance.AutoRestart = previous.AutoRestart
 	previousInstance.Configuration = previous.Configuration
 	projectTouched := false
 	defer func() {
@@ -1087,6 +1116,7 @@ func (s *Service) handleReconfigure(ctx context.Context, runtime *tasks.Runtime,
 	}
 	targetInstance := instance
 	targetInstance.CPU, targetInstance.MemoryBytes, targetInstance.ReservedDiskBytes = target.CPU, target.MemoryBytes, target.ReservedDiskBytes
+	targetInstance.AutoRestart = target.AutoRestart
 	targetInstance.Configuration = target.Configuration
 	compose, environment, files, err := s.renderRuntimeProject(targetInstance, template, version, target.Configuration)
 	if err != nil {

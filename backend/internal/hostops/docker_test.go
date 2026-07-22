@@ -93,6 +93,22 @@ func TestValidateProjectUsesComposeConfigWithoutStartingContainers(t *testing.T)
 	}
 }
 
+func TestComposeStartReconcilesTheStoredProjectBeforeStarting(t *testing.T) {
+	runner := &recordingRunner{}
+	docker := &Docker{runner: runner}
+	instance := domain.Instance{RemoteDirectory: "/opt/dbmock/instances/id", ComposeProject: "dbmock_id"}
+	if err := docker.ComposeStart(context.Background(), domain.Host{}, instance); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 || !strings.Contains(runner.commands[0], " up -d ") ||
+		!strings.Contains(runner.commands[0], "--wait") {
+		t.Fatalf("start must reconcile the saved Compose project: %#v", runner.commands)
+	}
+	if strings.Contains(runner.commands[0], " compose start") {
+		t.Fatalf("plain compose start would retain stale stopped-container settings: %s", runner.commands[0])
+	}
+}
+
 func TestParseDockerSize(t *testing.T) {
 	if got := parseDockerSize("1.5GiB"); got != 1610612736 {
 		t.Fatalf("got %d", got)

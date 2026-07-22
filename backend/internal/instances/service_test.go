@@ -14,6 +14,8 @@ import (
 	"github.com/pika/db-mock/internal/store"
 )
 
+func boolPointer(value bool) *bool { return &value }
+
 func TestValidateInstanceAction(t *testing.T) {
 	versionID := uuid.New()
 	valid := []struct {
@@ -66,6 +68,7 @@ func TestValidateInstanceActionRequestRejectsCrossActionFields(t *testing.T) {
 		"upgrade fields on start":     {action: "start", request: ActionRequest{NewTemplateVersionID: &versionID}},
 		"image fields on reconfigure": {action: "reconfigure", request: ActionRequest{ImageSource: "public"}},
 		"runtime fields on upgrade":   {action: "upgrade", request: ActionRequest{CPU: 2}},
+		"restart policy on upgrade":   {action: "upgrade", request: ActionRequest{AutoRestart: boolPointer(true)}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := validateInstanceActionRequest(test.action, test.request); !errors.Is(err, domain.ErrInvalid) {
@@ -76,7 +79,7 @@ func TestValidateInstanceActionRequestRejectsCrossActionFields(t *testing.T) {
 	if err := validateInstanceActionRequest("upgrade", ActionRequest{NewTemplateVersionID: &versionID, ImageSource: "public"}); err != nil {
 		t.Fatalf("expected upgrade fields to be valid: %v", err)
 	}
-	if err := validateInstanceActionRequest("reconfigure", ActionRequest{CPU: 2, MemoryBytes: 1024, DiskBytes: 2048, ExtraEnvironment: map[string]string{}}); err != nil {
+	if err := validateInstanceActionRequest("reconfigure", ActionRequest{CPU: 2, MemoryBytes: 1024, DiskBytes: 2048, ExtraEnvironment: map[string]string{}, AutoRestart: boolPointer(true)}); err != nil {
 		t.Fatalf("expected runtime fields to be valid: %v", err)
 	}
 }
@@ -128,11 +131,12 @@ func TestPrepareRuntimeConfigurationPreservesImageSelection(t *testing.T) {
 		ImageReference: "postgres:17", ComposeTemplate: "services:\n  database:\n    image: {{ .Image }}\n    cpus: {{ .CPU }}\n    mem_limit: {{ .MemoryBytes }}\n    environment:\n{{ .ExtraEnvironment }}"}
 	target, raw, err := prepareRuntimeConfiguration(template, version, instance, ActionRequest{
 		CPU: 2, MemoryBytes: 4096, DiskBytes: 8192, ExtraEnvironment: map[string]string{"TZ": "Asia/Shanghai"},
+		AutoRestart: boolPointer(true),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target.CPU != 2 || target.MemoryBytes != 4096 || target.ReservedDiskBytes != 8192 {
+	if target.CPU != 2 || target.MemoryBytes != 4096 || target.ReservedDiskBytes != 8192 || !target.AutoRestart {
 		t.Fatalf("unexpected target resources: %#v", target)
 	}
 	var configuration instanceConfiguration
@@ -173,6 +177,13 @@ func TestPrepareRuntimeConfigurationRejectsUnsafeOrEmptyChanges(t *testing.T) {
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected unchanged configuration conflict, got %v", err)
 	}
+	target, _, err := prepareRuntimeConfiguration(template, version, instance, ActionRequest{
+		CPU: 1, MemoryBytes: 1024, DiskBytes: 2048, ExtraEnvironment: map[string]string{"TZ": "UTC"},
+		AutoRestart: boolPointer(true),
+	})
+	if err != nil || !target.AutoRestart {
+		t.Fatalf("automatic restart should be a persisted runtime change: %#v, %v", target, err)
+	}
 }
 
 func TestRuntimeConfigurationTaskPayloadDoesNotExposeEnvironmentValues(t *testing.T) {
@@ -205,14 +216,32 @@ func TestRuntimeConfigurationTaskPayloadDoesNotExposeEnvironmentValues(t *testin
 
 func TestInstanceHasRuntimeConfigurationRequiresEveryPersistedField(t *testing.T) {
 	raw := json.RawMessage(`{"extraEnvironment":{"TZ":"UTC"}}`)
-	instance := domain.Instance{CPU: 2, MemoryBytes: 4096, ReservedDiskBytes: 8192, Configuration: raw}
-	target := runtimeConfiguration(2, 4096, 8192, raw)
+	instance := domain.Instance{CPU: 2, MemoryBytes: 4096, ReservedDiskBytes: 8192, Configuration: raw, AutoRestart: true}
+	target := runtimeConfiguration(2, 4096, 8192, raw, true)
 	if !instanceHasRuntimeConfiguration(instance, target) {
 		t.Fatal("expected exact target configuration to match")
 	}
 	target.MemoryBytes++
 	if instanceHasRuntimeConfiguration(instance, target) {
 		t.Fatal("a resource difference must not be treated as an already committed target")
+	}
+	target.MemoryBytes--
+	target.AutoRestart = false
+	if instanceHasRuntimeConfiguration(instance, target) {
+		t.Fatal("a restart-policy difference must not be treated as an already committed target")
+	}
+}
+
+func TestTaskRestartPoliciesPreserveOldQueuedTaskCompatibility(t *testing.T) {
+	instance := domain.Instance{AutoRestart: true}
+	target, previous := taskRestartPolicies(ActionPayload{}, instance)
+	if !target || !previous {
+		t.Fatalf("old payload should preserve the stored policy, got target=%t previous=%t", target, previous)
+	}
+	target, previous = taskRestartPolicies(ActionPayload{TargetAutoRestart: boolPointer(false),
+		PreviousAutoRestart: boolPointer(true)}, instance)
+	if target || !previous {
+		t.Fatalf("new payload policies = target:%t previous:%t", target, previous)
 	}
 }
 

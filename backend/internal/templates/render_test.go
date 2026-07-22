@@ -2,6 +2,7 @@ package templates
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -71,6 +72,46 @@ func TestBuiltinsExposeHealthcheckCredentialsInsideContainers(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuiltinsRenderTheSelectedRestartPolicyForEveryService(t *testing.T) {
+	type service struct {
+		Restart string `yaml:"restart"`
+	}
+	type composeDocument struct {
+		Services map[string]service `yaml:"services"`
+	}
+	for _, enabled := range []bool{false, true} {
+		want := "no"
+		if enabled {
+			want = "unless-stopped"
+		}
+		for _, definition := range Builtins() {
+			t.Run(fmt.Sprintf("%s/enabled=%t", definition.Slug, enabled), func(t *testing.T) {
+				composeTemplate := definition.Compose
+				if composeTemplate == "" {
+					composeTemplate = singleServiceCompose(definition)
+				}
+				output, err := RenderCompose(domain.Template{Slug: definition.Slug}, domain.TemplateVersion{
+					ImageReference: definition.Image, ComposeTemplate: composeTemplate,
+				}, domain.Instance{ID: uuid.New(), HostPort: definition.Port, BindAddress: "127.0.0.1",
+					CPU: definition.MinCPU, MemoryBytes: definition.MinMemory, AutoRestart: enabled,
+					RemoteDirectory: "/opt/dbmock/instances/test"}, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var document composeDocument
+				if err = yaml.Unmarshal(output, &document); err != nil {
+					t.Fatalf("rendered Compose is invalid YAML: %v\n%s", err, output)
+				}
+				for name, rendered := range document.Services {
+					if rendered.Restart != want {
+						t.Errorf("service %s restart policy = %q, want %q", name, rendered.Restart, want)
+					}
+				}
+			})
+		}
 	}
 }
 

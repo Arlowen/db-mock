@@ -42,6 +42,7 @@ type InstanceRuntimeConfiguration struct {
 	MemoryBytes       int64
 	ReservedDiskBytes int64
 	Configuration     json.RawMessage
+	AutoRestart       bool
 }
 
 const instanceColumns = `i.id,i.name,i.project_id,i.host_id,i.template_version_id,i.environment,i.labels,
@@ -195,10 +196,9 @@ func (s *Store) IncrementRestartFailure(ctx context.Context, id uuid.UUID) (int,
 	return count, translate(err)
 }
 
-func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name string, projectID *uuid.UUID, environment string, labels json.RawMessage, autoRestart bool) (domain.Instance, error) {
+func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name string, projectID *uuid.UUID, environment string, labels json.RawMessage) (domain.Instance, error) {
 	_, err := s.pool.Exec(ctx, `UPDATE instances SET name=$2,project_id=$3,environment=$4,labels=$5,
-        auto_restart=$6,updated_at=now() WHERE id=$1 AND status<>'deleted'`, id, name, projectID,
-		environment, labels, autoRestart)
+        updated_at=now() WHERE id=$1 AND status<>'deleted'`, id, name, projectID, environment, labels)
 	if err != nil {
 		return domain.Instance{}, err
 	}
@@ -281,8 +281,8 @@ func (s *Store) CreateInstanceReconfigureTask(ctx context.Context, input TaskInp
 	var currentStatus string
 	var hostID uuid.UUID
 	var current InstanceRuntimeConfiguration
-	if err = tx.QueryRow(ctx, `SELECT status,host_id,cpu,memory_bytes,reserved_disk_bytes,configuration FROM instances WHERE id=$1 FOR UPDATE`, instanceID).
-		Scan(&currentStatus, &hostID, &current.CPU, &current.MemoryBytes, &current.ReservedDiskBytes, &current.Configuration); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT status,host_id,cpu,memory_bytes,reserved_disk_bytes,configuration,auto_restart FROM instances WHERE id=$1 FOR UPDATE`, instanceID).
+		Scan(&currentStatus, &hostID, &current.CPU, &current.MemoryBytes, &current.ReservedDiskBytes, &current.Configuration, &current.AutoRestart); err != nil {
 		return domain.Task{}, translate(err)
 	}
 	if currentStatus != expectedStatus {
@@ -302,8 +302,8 @@ func (s *Store) CreateInstanceReconfigureTask(ctx context.Context, input TaskInp
 		return domain.Task{}, taskInsertError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE instances SET cpu=$2,memory_bytes=$3,reserved_disk_bytes=$4,
-        configuration=$5,status='reconfiguring',status_message='',updated_at=now() WHERE id=$1`,
-		instanceID, target.CPU, target.MemoryBytes, target.ReservedDiskBytes, target.Configuration); err != nil {
+		configuration=$5,auto_restart=$6,status='reconfiguring',status_message='',updated_at=now() WHERE id=$1`,
+		instanceID, target.CPU, target.MemoryBytes, target.ReservedDiskBytes, target.Configuration, target.AutoRestart); err != nil {
 		return domain.Task{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -324,8 +324,8 @@ func (s *Store) ReserveInstanceRuntimeConfiguration(ctx context.Context, id uuid
 	var status string
 	var hostID uuid.UUID
 	var current InstanceRuntimeConfiguration
-	if err = tx.QueryRow(ctx, `SELECT status,host_id,cpu,memory_bytes,reserved_disk_bytes,configuration FROM instances WHERE id=$1 FOR UPDATE`, id).
-		Scan(&status, &hostID, &current.CPU, &current.MemoryBytes, &current.ReservedDiskBytes, &current.Configuration); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT status,host_id,cpu,memory_bytes,reserved_disk_bytes,configuration,auto_restart FROM instances WHERE id=$1 FOR UPDATE`, id).
+		Scan(&status, &hostID, &current.CPU, &current.MemoryBytes, &current.ReservedDiskBytes, &current.Configuration, &current.AutoRestart); err != nil {
 		return translate(err)
 	}
 	if status != "running" && status != "stopped" && status != "degraded" && status != "reconfiguring" {
@@ -335,8 +335,8 @@ func (s *Store) ReserveInstanceRuntimeConfiguration(ctx context.Context, id uuid
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE instances SET cpu=$2,memory_bytes=$3,reserved_disk_bytes=$4,
-        configuration=$5,status='reconfiguring',status_message='',updated_at=now() WHERE id=$1`,
-		id, target.CPU, target.MemoryBytes, target.ReservedDiskBytes, target.Configuration); err != nil {
+		configuration=$5,auto_restart=$6,status='reconfiguring',status_message='',updated_at=now() WHERE id=$1`,
+		id, target.CPU, target.MemoryBytes, target.ReservedDiskBytes, target.Configuration, target.AutoRestart); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -348,9 +348,9 @@ func (s *Store) FinishInstanceRuntimeConfiguration(ctx context.Context, id uuid.
 		return err
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE instances SET cpu=$2,memory_bytes=$3,reserved_disk_bytes=$4,
-        configuration=$5,status=$6,desired_state=$7,status_message=$8,updated_at=now()
-        WHERE id=$1 AND status<>'deleted'`, id, configuration.CPU, configuration.MemoryBytes,
-		configuration.ReservedDiskBytes, configuration.Configuration, status, desiredState, message)
+		configuration=$5,auto_restart=$6,status=$7,desired_state=$8,status_message=$9,updated_at=now()
+		WHERE id=$1 AND status<>'deleted'`, id, configuration.CPU, configuration.MemoryBytes,
+		configuration.ReservedDiskBytes, configuration.Configuration, configuration.AutoRestart, status, desiredState, message)
 	if err == nil && result.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}

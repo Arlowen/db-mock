@@ -103,8 +103,9 @@ func TestSettingAuditChangesOnlyExposeKnownStructuredSettings(t *testing.T) {
 func TestInstanceReconfigureAuditChangesNeverIncludeEnvironmentValues(t *testing.T) {
 	before := domain.Instance{CPU: 1, MemoryBytes: 1024, ReservedDiskBytes: 2048,
 		Configuration: json.RawMessage(`{"extraEnvironment":{"API_TOKEN":"old-secret"}}`)}
+	enabled := true
 	changes := instanceReconfigureAuditChanges(before, 2, 4096, 8192,
-		map[string]string{"API_TOKEN": "new-secret", "TZ": "Asia/Shanghai"})
+		map[string]string{"API_TOKEN": "new-secret", "TZ": "Asia/Shanghai"}, &enabled)
 	encoded, err := json.Marshal(changes)
 	if err != nil {
 		t.Fatalf("marshal changes: %v", err)
@@ -122,5 +123,8 @@ func TestInstanceReconfigureAuditChangesNeverIncludeEnvironmentValues(t *testing
 		if changes[key] == nil {
 			t.Fatalf("expected %s transition: %#v", key, changes)
 		}
+	}
+	if changes["autoRestart"] == nil {
+		t.Fatalf("expected automatic restart transition: %#v", changes)
 	}
 }

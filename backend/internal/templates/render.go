@@ -73,10 +73,14 @@ func RenderCompose(template domain.Template, version domain.TemplateVersion, ins
 	if instance.ProjectID != nil {
 		project = instance.ProjectID.String()
 	}
+	restartPolicy := "no"
+	if instance.AutoRestart {
+		restartPolicy = "unless-stopped"
+	}
 	ctx := RenderContext{InstanceID: instance.ID.String(), ShortID: short, TemplateSlug: template.Slug,
 		ProjectLabel: project, Image: version.ImageReference, BindAddress: instance.BindAddress, HostPort: instance.HostPort,
 		DataPath: path.Join(instance.RemoteDirectory, "data"), CPU: strconv.FormatFloat(instance.CPU, 'f', 2, 64),
-		MemoryBytes: instance.MemoryBytes, RestartPolicy: "unless-stopped", ExtraEnvironment: extra.String()}
+		MemoryBytes: instance.MemoryBytes, RestartPolicy: restartPolicy, ExtraEnvironment: extra.String()}
 	parsed, err := texttemplate.New("compose").Option("missingkey=error").Parse(version.ComposeTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse Compose template: %w", err)
