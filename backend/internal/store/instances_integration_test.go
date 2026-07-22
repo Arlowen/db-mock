@@ -136,6 +136,115 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 	if err != nil || retried.ID != rolledBackID || retryTask.ResourceID == nil || *retryTask.ResourceID != rolledBackID {
 		t.Fatalf("rolled-back name, port, and capacity were not reusable: instance=%#v task=%#v err=%v", retried, retryTask, err)
 	}
+
+	missingProjectID, invalidProjectInstanceID := uuid.New(), uuid.New()
+	invalidProjectInput := input(invalidProjectInstanceID, "invalid-project-db", 25002)
+	invalidProjectInput.ProjectID = &missingProjectID
+	_, _, err = target.CreateInstanceTask(ctx, invalidProjectInput, store.TaskInput{
+		RequestedBy: userID, Payload: map[string]any{"instanceId": invalidProjectInstanceID},
+	})
+	if !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("missing project error = %v, want invalid input", err)
+	}
+	if _, getErr := target.GetInstance(ctx, invalidProjectInstanceID); !errors.Is(getErr, domain.ErrNotFound) {
+		t.Fatalf("instance with a missing project was persisted: %v", getErr)
+	}
+}
+
+func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
+	ctx, pool := openInstanceStoreTest(t)
+	hostID, templateID, versionID := uuid.New(), uuid.New(), uuid.New()
+	projectID, instanceID, occupiedID, deletedID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO projects(id,name) VALUES($1,'Platform')`, []any{projectID}},
+		{`INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,connection_address,
+            data_root,status) VALUES($1,'metadata-host','127.0.0.1','tester','password','sealed','127.0.0.1',
+            '/opt/dbmock','online')`, []any{hostID}},
+		{`INSERT INTO templates(id,slug,name,name_zh,category,tier)
+            VALUES($1,'metadata-postgres','PostgreSQL','PostgreSQL','sql','standard')`, []any{templateID}},
+		{`INSERT INTO template_versions(id,template_id,version,image_reference,min_cpu,min_memory_bytes,
+            min_disk_bytes,default_port,compose_template) VALUES($1,$2,'17','postgres:17',1,1073741824,
+            10737418240,5432,'services: {}')`, []any{versionID, templateID}},
+	} {
+		if _, err := pool.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, item := range []struct {
+		id     uuid.UUID
+		name   string
+		status string
+	}{
+		{id: instanceID, name: "metadata-db", status: "running"},
+		{id: occupiedID, name: "occupied-db", status: "running"},
+		{id: deletedID, name: "deleted-db", status: "deleted"},
+	} {
+		desiredState := "running"
+		if item.status == "deleted" {
+			desiredState = "deleted"
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO instances(id,name,host_id,template_version_id,status,
+            desired_state,cpu,memory_bytes,reserved_disk_bytes,host_port,container_port,database_username,
+            encrypted_password,compose_project,remote_directory) VALUES($1,$2,$3,$4,$5,$6,1,1073741824,
+            10737418240,$7,5432,'postgres','sealed',$8,$9)`, item.id, item.name, hostID, versionID, item.status,
+			desiredState, 25430+index,
+			"dbmock_"+strings.ReplaceAll(item.id.String(), "-", ""), "/opt/dbmock/instances/"+item.id.String()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := store.New(pool)
+
+	updated, err := target.UpdateInstanceMetadata(ctx, instanceID, "  renamed-db  ", &projectID, "staging", json.RawMessage(`{"team":"platform"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedLabels map[string]string
+	if err = json.Unmarshal(updated.Labels, &storedLabels); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "renamed-db" || updated.Environment != "staging" || updated.ProjectID == nil || *updated.ProjectID != projectID || storedLabels["team"] != "platform" {
+		t.Fatalf("normalized metadata = %#v", updated)
+	}
+
+	zeroProject, missingProject := uuid.Nil, uuid.New()
+	invalidCases := []struct {
+		name        string
+		instanceID  uuid.UUID
+		value       string
+		projectID   *uuid.UUID
+		environment string
+		labels      json.RawMessage
+		want        error
+	}{
+		{name: "blank name", instanceID: instanceID, value: "   ", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
+		{name: "long name", instanceID: instanceID, value: strings.Repeat("数", 121), environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
+		{name: "unsupported environment", instanceID: instanceID, value: "renamed-db", environment: "preview", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
+		{name: "non-object labels", instanceID: instanceID, value: "renamed-db", environment: "staging", labels: json.RawMessage(`[]`), want: domain.ErrInvalid},
+		{name: "zero project", instanceID: instanceID, value: "renamed-db", projectID: &zeroProject, environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
+		{name: "missing project", instanceID: instanceID, value: "renamed-db", projectID: &missingProject, environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
+		{name: "duplicate name", instanceID: instanceID, value: " OCCUPIED-DB ", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrConflict},
+		{name: "deleted instance", instanceID: deletedID, value: "still-deleted", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrNotFound},
+		{name: "missing instance", instanceID: uuid.New(), value: "missing-db", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrNotFound},
+	}
+	for _, test := range invalidCases {
+		t.Run(test.name, func(t *testing.T) {
+			_, updateErr := target.UpdateInstanceMetadata(ctx, test.instanceID, test.value, test.projectID, test.environment, test.labels)
+			if !errors.Is(updateErr, test.want) {
+				t.Fatalf("update error = %v, want %v", updateErr, test.want)
+			}
+		})
+	}
+
+	updated, err = target.UpdateInstanceMetadata(ctx, instanceID, "renamed-db", nil, "production", json.RawMessage(`null`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ProjectID != nil || updated.Environment != "production" || string(updated.Labels) != `{}` {
+		t.Fatalf("cleared optional metadata = %#v", updated)
+	}
 }
 
 func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) {

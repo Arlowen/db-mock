@@ -3,14 +3,19 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pika/db-mock/internal/domain"
 )
+
+const maxInstanceNameLength = 120
 
 type InstanceInput struct {
 	ID                uuid.UUID
@@ -75,13 +80,55 @@ func sameOptionalUUID(left, right *uuid.UUID) bool {
 	return *left == *right
 }
 
+func normalizeInstanceMetadata(name, environment string, labels json.RawMessage) (string, json.RawMessage, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > maxInstanceNameLength {
+		return "", nil, fmt.Errorf("%w: instance name must contain between 1 and %d characters", domain.ErrInvalid, maxInstanceNameLength)
+	}
+	if environment != "development" && environment != "testing" && environment != "staging" && environment != "production" {
+		return "", nil, fmt.Errorf("%w: unsupported environment", domain.ErrInvalid)
+	}
+	if len(labels) == 0 {
+		labels = json.RawMessage(`{}`)
+	}
+	var values map[string]string
+	if err := json.Unmarshal(labels, &values); err != nil {
+		return "", nil, fmt.Errorf("%w: instance labels must be a JSON object with string values", domain.ErrInvalid)
+	}
+	if values == nil {
+		values = map[string]string{}
+	}
+	normalizedLabels, err := json.Marshal(values)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, normalizedLabels, nil
+}
+
+func instanceWriteError(err error) error {
+	var databaseError *pgconn.PgError
+	if !errors.As(err, &databaseError) {
+		return err
+	}
+	switch databaseError.Code {
+	case "23503":
+		return fmt.Errorf("%w: project does not exist", domain.ErrInvalid)
+	case "23505":
+		return domain.ErrConflict
+	default:
+		return err
+	}
+}
+
 func (s *Store) CreateInstanceTask(ctx context.Context, input InstanceInput, taskInput TaskInput) (domain.Instance, domain.Task, error) {
-	if strings.TrimSpace(input.Name) == "" || input.HostID == uuid.Nil || input.TemplateVersionID == uuid.Nil || input.CPU <= 0 || input.MemoryBytes <= 0 || input.ReservedDiskBytes <= 0 {
+	if input.HostID == uuid.Nil || input.TemplateVersionID == uuid.Nil || input.CPU <= 0 || input.MemoryBytes <= 0 || input.ReservedDiskBytes <= 0 {
 		return domain.Instance{}, domain.Task{}, domain.ErrInvalid
 	}
-	if len(input.Labels) == 0 {
-		input.Labels = json.RawMessage(`{}`)
+	name, labels, err := normalizeInstanceMetadata(input.Name, input.Environment, input.Labels)
+	if err != nil {
+		return domain.Instance{}, domain.Task{}, err
 	}
+	input.Name, input.Labels = name, labels
 	if len(input.Configuration) == 0 {
 		input.Configuration = json.RawMessage(`{}`)
 	}
@@ -159,16 +206,13 @@ func (s *Store) CreateInstanceTask(ctx context.Context, input InstanceInput, tas
         container_port,bind_address,database_username,encrypted_password,database_name,connection_uri,
         jdbc_uri,compose_project,remote_directory,configuration)
         VALUES($1,$2,$3,$4,$5,$6,$7,'provisioning','running',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-        $18,$19,$20,$21,$22) RETURNING id`, item.ID, strings.TrimSpace(input.Name), input.ProjectID,
+		$18,$19,$20,$21,$22) RETURNING id`, item.ID, input.Name, input.ProjectID,
 		input.HostID, input.TemplateVersionID, input.Environment, input.Labels, input.AutoRestart, input.CPU,
 		input.MemoryBytes, input.ReservedDiskBytes, input.HostPort, input.ContainerPort, input.BindAddress,
 		input.DatabaseUsername, input.EncryptedPassword, input.DatabaseName, input.ConnectionURI,
 		input.JDBCURI, input.ComposeProject, input.RemoteDirectory, input.Configuration).Scan(&item.ID)
 	if err != nil {
-		if strings.Contains(err.Error(), "instances_name_lower_idx") || strings.Contains(err.Error(), "instances_host_id_host_port_key") {
-			return domain.Instance{}, domain.Task{}, domain.ErrConflict
-		}
-		return domain.Instance{}, domain.Task{}, err
+		return domain.Instance{}, domain.Task{}, instanceWriteError(err)
 	}
 	task := domain.Task{ID: uuid.New()}
 	err = tx.QueryRow(ctx, `INSERT INTO tasks(id,kind,resource_type,resource_id,requested_by,host_id,payload)
@@ -229,10 +273,20 @@ func (s *Store) IncrementRestartFailure(ctx context.Context, id uuid.UUID) (int,
 }
 
 func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name string, projectID *uuid.UUID, environment string, labels json.RawMessage) (domain.Instance, error) {
-	_, err := s.pool.Exec(ctx, `UPDATE instances SET name=$2,project_id=$3,environment=$4,labels=$5,
-        updated_at=now() WHERE id=$1 AND status<>'deleted'`, id, name, projectID, environment, labels)
+	name, labels, err := normalizeInstanceMetadata(name, environment, labels)
 	if err != nil {
 		return domain.Instance{}, err
+	}
+	if projectID != nil && *projectID == uuid.Nil {
+		return domain.Instance{}, fmt.Errorf("%w: projectId must be a non-zero UUID", domain.ErrInvalid)
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE instances SET name=$2,project_id=$3,environment=$4,labels=$5,
+        updated_at=now() WHERE id=$1 AND status<>'deleted'`, id, name, projectID, environment, labels)
+	if err != nil {
+		return domain.Instance{}, instanceWriteError(err)
+	}
+	if result.RowsAffected() == 0 {
+		return domain.Instance{}, domain.ErrNotFound
 	}
 	return s.GetInstance(ctx, id)
 }
