@@ -1,6 +1,6 @@
 :root { color: #172033; background: #f5f7fb; font-synthesis: none; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 768px; background: #f5f7fb; }
+body { margin: 0; min-width: 640px; background: #f5f7fb; }
 button { font: inherit; }
 :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .skip-link { position: fixed; top: 10px; left: 12px; z-index: 1000; padding: 8px 12px; border-radius: 8px; color: #fff; background: #172033; transform: translateY(-160%); transition: transform .18s ease; }
@@ -44,6 +44,7 @@ button { font: inherit; }
 .page-header-copy { min-width: 0; }
 .page-header .ant-typography { margin-top: 0; }
 .page-header h2.ant-typography { margin-bottom: 2px; color: #172033; font-size: 20px; line-height: 28px; letter-spacing: -.2px; }
+.page-header h2.ant-typography:focus { outline: none; }
 .page-header p.ant-typography { max-width: 70ch; margin-bottom: 0; font-size: 13px; line-height: 20px; }
 .read-only-banner { margin-bottom: 16px; }
 .ant-card { border-color: #e7ebf1; box-shadow: 0 2px 10px rgb(21 40 75 / 3%); }
@@ -497,6 +498,12 @@ button { font: inherit; }
   .host-health-guidance { align-items: flex-start; flex-direction: column; gap: 9px; }
   .create-review-grid { grid-template-columns: 1fr; }
   .monitoring-alert-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .app-header { padding-inline: 16px !important; gap: 10px; }
+  .app-content { padding: 16px; }
+  .page-header p.ant-typography { max-width: 40ch; }
 }
 
 @media (prefers-reduced-motion: reduce) {

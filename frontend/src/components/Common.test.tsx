@@ -17,7 +17,7 @@ describe('PageHeader', () => {
     const target = document.createElement('div')
     document.body.append(target)
     render(<PageHeaderTargetProvider target={target}><PageHeader title="Instances" description="Managed databases" /></PageHeaderTargetProvider>)
-    expect(within(target).getByRole('heading', { name: 'Instances' })).toBeInTheDocument()
+    expect(within(target).getByRole('heading', { name: 'Instances' })).toHaveAttribute('tabindex', '-1')
     expect(within(target).getByText('Managed databases')).toBeInTheDocument()
     target.remove()
   })

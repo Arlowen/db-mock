@@ -3,13 +3,19 @@ import ReactDOM from 'react-dom/client'
 import { App as AntApp, ConfigProvider } from 'antd'
 import enUS from 'antd/locale/en_US'
 import zhCN from 'antd/locale/zh_CN'
-import { BrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { I18nextProvider, useTranslation } from 'react-i18next'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { SystemSettingsProvider } from './contexts/SystemSettingsContext'
 import i18n from './i18n'
 import './styles/global.css'
+
+function ProductApp() {
+  return <AuthProvider><SystemSettingsProvider><App /></SystemSettingsProvider></AuthProvider>
+}
+
+const router = createBrowserRouter([{ path: '*', element: <ProductApp /> }])
 
 function Root() {
   const { i18n: active, t } = useTranslation()
@@ -27,7 +33,7 @@ function Root() {
         components: { Layout: { headerBg: '#fff', siderBg: '#fff' }, Menu: { itemBorderRadius: 8 } },
       }}
     >
-      <AntApp><BrowserRouter><AuthProvider><SystemSettingsProvider><App /></SystemSettingsProvider></AuthProvider></BrowserRouter></AntApp>
+      <AntApp><RouterProvider router={router} /></AntApp>
     </ConfigProvider>
   )
 }

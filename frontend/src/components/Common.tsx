@@ -23,7 +23,7 @@ export function PageHeaderTargetProvider({ target, children }: { target: HTMLEle
 
 export function PageHeader({ title, description }: { title: ReactNode; description?: ReactNode }) {
   const target = useContext(PageHeaderTargetContext)
-  const copy = <div className="page-header-copy"><Typography.Title level={2}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>
+  const copy = <div className="page-header-copy"><Typography.Title level={2} tabIndex={-1}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>
   if (target === undefined) return <div className="page-header">{copy}</div>
   return target ? createPortal(<div className="page-header">{copy}</div>, target) : null
 }
