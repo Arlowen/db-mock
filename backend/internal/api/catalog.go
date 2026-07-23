@@ -1,9 +1,11 @@
 package api
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -279,6 +281,13 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 
 const templatePackageMaxBytes int64 = 60 << 20
 
+func templatePackageValidationError(err error) error {
+	if errors.Is(err, zip.ErrFormat) {
+		return fmt.Errorf("%w: template package is not a valid ZIP archive", domain.ErrInvalid)
+	}
+	return fmt.Errorf("%w: %v", domain.ErrInvalid, err)
+}
+
 func (s *Server) uploadTemplate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, templatePackageMaxBytes+(1<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
@@ -319,7 +328,7 @@ func (s *Server) uploadTemplate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		actor, _ := auth.ActorFrom(r.Context())
 		_ = s.audit(r, actor, "template.upload", "template", nil, header.Filename, nil, "failure", "Template package validation failed")
-		httpx.Error(w, r, fmt.Errorf("%w: %v", domain.ErrInvalid, err))
+		httpx.Error(w, r, templatePackageValidationError(err))
 		return
 	}
 	directory := filepath.Join(s.config.ArtifactDirectory, "templates")

@@ -14,7 +14,7 @@ import type { DatabaseTemplate } from '../lib/types'
 import { bytes } from '../lib/types'
 
 export function CatalogPage() {
-  const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message, modal } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [details, setDetails] = useState<DatabaseTemplate | null>(null)
+  const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message, modal } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [uploadError, setUploadError] = useState(''); const [uploading, setUploading] = useState(false); const [uploadDraftDirty, setUploadDraftDirty] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [details, setDetails] = useState<DatabaseTemplate | null>(null)
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const load = useCallback(async () => {
     try {
@@ -40,8 +40,45 @@ export function CatalogPage() {
     })
   }, [i18n.language, items, search, t, tier])
   const customEmpty = tier === 'custom' && search.trim() === '' && filtered.length === 0
-  const showUpload = () => { setFile(null); setUploadOpen(true) }
-  const upload = async () => { const raw = file?.originFileObj; if (!raw) return; const form = new FormData(); form.append('package', raw); try { setUploading(true); await api('/templates/custom', { method: 'POST', body: form }); message.success(t('templateUploaded')); setUploadOpen(false); setFile(null); setSearch(''); setTier('custom'); await load() } catch (e) { message.error(errorMessage(e)) } finally { setUploading(false) } }
+  const showUpload = () => { setFile(null); setUploadError(''); setUploadDraftDirty(false); setUploadOpen(true) }
+  const finishCloseUpload = () => { setUploadOpen(false); setFile(null); setUploadError(''); setUploadDraftDirty(false) }
+  const closeUpload = () => {
+    if (uploading) return
+    if (!uploadDraftDirty) { finishCloseUpload(); return }
+    modal.confirm({
+      title: t('discardTemplateUploadDraftTitle'),
+      content: t('discardTemplateUploadDraftHint'),
+      okText: t('discardChanges'),
+      cancelText: t('continueEditing'),
+      okButtonProps: { danger: true },
+      onOk: finishCloseUpload,
+    })
+  }
+  const changeTemplateFile = (nextFile: UploadFile | null) => {
+    setFile(nextFile)
+    setUploadError('')
+    setUploadDraftDirty(!!nextFile)
+  }
+  const upload = async () => {
+    const raw = file?.originFileObj
+    if (!raw) return
+    const form = new FormData()
+    form.append('package', raw)
+    try {
+      setUploading(true)
+      setUploadError('')
+      await api('/templates/custom', { method: 'POST', body: form })
+      message.success(t('templateUploaded'))
+      finishCloseUpload()
+      setSearch('')
+      setTier('custom')
+      await load()
+    } catch (error) {
+      if (error instanceof Error) setUploadError(errorMessage(error))
+    } finally {
+      setUploading(false)
+    }
+  }
   const removeTemplate = (item: DatabaseTemplate) => { const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name; modal.confirm({ title: t('deleteTemplateConfirm', { name: displayName }), content: t('deleteTemplateHint'), okText: t('delete'), cancelText: t('cancel'), okButtonProps: { danger: true }, onOk: async () => { try { await api(`/templates/${item.id}`, { method: 'DELETE' }); if (details?.id === item.id) setDetails(null); message.success(t('templateDeleted')); await load() } catch (error) { message.error(errorMessage(error)); throw error } } }) }
   const resetFilters = () => { setSearch(''); setTier('all') }
   return <><PageHeader title={t('catalog')} description={t('catalogDescription')} />
@@ -69,7 +106,7 @@ export function CatalogPage() {
         {version && <div className="template-meta"><span>v{version.version}</span><span>{version.minCpu} CPU</span><span>{bytes(version.minMemoryBytes)}</span><span>{bytes(version.minDiskBytes)}</span></div>}
       </Card>
     })}</div>}
-    <Modal title={t('uploadTemplate')} open={uploadOpen} onCancel={() => { if (!uploading) setUploadOpen(false) }} onOk={() => void upload()} confirmLoading={uploading} okText={t('uploadTemplate')} okButtonProps={{ disabled: !file }}><Typography.Paragraph type="secondary">{t('uploadTemplateHint')}</Typography.Paragraph><Alert className="template-version-alert" type="info" showIcon message={t('immutableTemplateVersionTitle')} description={t('immutableTemplateVersionHint')} /><Upload.Dragger accept=".zip" maxCount={1} beforeUpload={() => false} fileList={file ? [file] : []} disabled={uploading} onChange={({ fileList }) => setFile(fileList.at(-1) ?? null)}><p className="ant-upload-drag-icon"><UploadOutlined /></p><p>{t('dropTemplatePackage')}</p></Upload.Dragger></Modal>
+    <Modal title={t('uploadTemplate')} open={uploadOpen} onCancel={closeUpload} onOk={() => void upload()} confirmLoading={uploading} closable={!uploading} maskClosable={!uploading} cancelButtonProps={{ disabled: uploading }} okText={t('uploadTemplate')} okButtonProps={{ disabled: !file }}><Typography.Paragraph type="secondary">{t('uploadTemplateHint')}</Typography.Paragraph><Alert className="template-version-alert" type="info" showIcon message={t('immutableTemplateVersionTitle')} description={t('immutableTemplateVersionHint')} />{uploadError && <Alert className="form-save-alert" type="error" showIcon message={t('templateUploadFailed')} description={uploadError} />}<Upload.Dragger accept=".zip" maxCount={1} beforeUpload={() => false} fileList={file ? [file] : []} disabled={uploading} onChange={({ fileList }) => changeTemplateFile(fileList.at(-1) ?? null)}><p className="ant-upload-drag-icon"><UploadOutlined /></p><p>{t('dropTemplatePackage')}</p></Upload.Dragger></Modal>
     <TemplateDetailsModal template={details} canCreate={canOperate} onClose={() => setDetails(null)} onCreate={(versionID) => { setDetails(null); navigate(`/instances?create=1&template=${versionID}`) }} />
   </>
 }

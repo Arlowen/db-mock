@@ -66,6 +66,24 @@ interface RegistryValues {
   clearCaCertificate?: boolean
 }
 
+const registryDraftFields: Array<keyof RegistryValues> = ['name', 'url', 'username', 'password', 'caCertificate', 'clearPassword', 'clearCaCertificate']
+
+function registryFieldValue(values: RegistryValues, key: keyof RegistryValues) {
+  const value = values[key]
+  if (key === 'name') return String(value ?? '').trim()
+  if (key === 'url') return String(value ?? '').trim().replace(/\/+$/, '')
+  if (key === 'clearPassword' || key === 'clearCaCertificate') return !!value
+  return value ?? ''
+}
+
+function registryDraftChanged(values: RegistryValues, baseline: RegistryValues | null) {
+  return !baseline || registryDraftFields.some((key) => registryFieldValue(values, key) !== registryFieldValue(baseline, key))
+}
+
+function imageUploadDraftChanged(values: UploadValues, selectedFile: UploadFile | null) {
+  return !!selectedFile || !!values.name?.trim() || !!values.expectedSha256?.trim()
+}
+
 interface RegistryTestResult {
   status: string
   message: string
@@ -111,6 +129,8 @@ export function ImagesPage() {
   const [hosts, setHosts] = useState<Host[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
+  const [supportingDataError, setSupportingDataError] = useState('')
+  const [contentAvailable, setContentAvailable] = useState(false)
   const [activeTab, setActiveTab] = useState(params.get('tab') === 'registries' ? 'registries' : 'images')
   const [search, setSearch] = useState('')
   const [architecture, setArchitecture] = useState('')
@@ -120,10 +140,11 @@ export function ImagesPage() {
   const [uploadError, setUploadError] = useState('')
   const [uploadPhase, setUploadPhase] = useState<ImageUploadPhase | 'idle' | 'paused' | 'error'>('idle')
   const [savingRegistry, setSavingRegistry] = useState(false)
+  const [registrySaveError, setRegistrySaveError] = useState('')
+  const [registryTestErrors, setRegistryTestErrors] = useState<Record<string, string>>({})
   const [testingRegistry, setTestingRegistry] = useState('')
   const [imageOpen, setImageOpen] = useState(false)
   const [registryOpen, setRegistryOpen] = useState(false)
-  const [uploadDraftDirty, setUploadDraftDirty] = useState(false)
   const [registryDraftDirty, setRegistryDraftDirty] = useState(false)
   const [selectedImage, setSelectedImage] = useState<ImageArtifact | null>(null)
   const [editingRegistry, setEditingRegistry] = useState<Registry | null>(null)
@@ -139,27 +160,31 @@ export function ImagesPage() {
   const [registryForm] = Form.useForm<RegistryValues>()
   const uploadAbort = useRef<AbortController | null>(null)
   const cleanupScanRequest = useRef(0)
+  const registryBaseline = useRef<RegistryValues | null>(null)
+  const uploadName = Form.useWatch('name', uploadForm)
+  const registryName = Form.useWatch('name', registryForm)
+  const registryURL = Form.useWatch('url', registryForm)
+  const registrySaveReady = !!registryName?.trim() && isRegistryURL(registryURL?.trim() ?? '') && (!editingRegistry || registryDraftDirty)
 
   const load = useCallback(async () => {
-    try {
-      setPageError('')
-      const [imageResponse, registryResponse, templateResponse, hostResponse, settingsResponse] = await Promise.all([
-        api<{ items: ImageArtifact[] }>('/images'),
-        api<{ items: Registry[] }>('/registries'),
-        api<{ items: DatabaseTemplate[] }>('/templates'),
-        api<{ items: Host[] }>('/hosts'),
-        api<Record<string, unknown>>('/settings'),
-      ])
-      setImages(imageResponse.items)
-      setRegistries(registryResponse.items)
-      setTemplates(templateResponse.items)
-      setHosts(hostResponse.items)
-      setUploadSettings(normalizeUploadSettings(settingsResponse.uploads))
-    } catch (error) {
-      setPageError(errorMessage(error))
-    } finally {
-      setLoading(false)
-    }
+    const [imageResponse, registryResponse, templateResponse, hostResponse, settingsResponse] = await Promise.allSettled([
+      api<{ items: ImageArtifact[] }>('/images'),
+      api<{ items: Registry[] }>('/registries'),
+      api<{ items: DatabaseTemplate[] }>('/templates'),
+      api<{ items: Host[] }>('/hosts'),
+      api<Record<string, unknown>>('/settings'),
+    ])
+    if (imageResponse.status === 'fulfilled') setImages(imageResponse.value.items)
+    if (registryResponse.status === 'fulfilled') setRegistries(registryResponse.value.items)
+    if (templateResponse.status === 'fulfilled') setTemplates(templateResponse.value.items)
+    if (hostResponse.status === 'fulfilled') setHosts(hostResponse.value.items)
+    if (settingsResponse.status === 'fulfilled') setUploadSettings(normalizeUploadSettings(settingsResponse.value.uploads))
+    if (imageResponse.status === 'fulfilled' || registryResponse.status === 'fulfilled') setContentAvailable(true)
+    const primaryFailure = [imageResponse, registryResponse].find((result) => result.status === 'rejected')
+    const supportingFailure = [templateResponse, hostResponse, settingsResponse].find((result) => result.status === 'rejected')
+    setPageError(primaryFailure?.status === 'rejected' ? errorMessage(primaryFailure.reason) : '')
+    setSupportingDataError(supportingFailure?.status === 'rejected' ? errorMessage(supportingFailure.reason) : '')
+    setLoading(false)
   }, [])
 
   useEffect(() => { void load() }, [load])
@@ -199,13 +224,11 @@ export function ImagesPage() {
     setUploadError('')
     setUploadPhase('idle')
     uploadForm.resetFields()
-    setUploadDraftDirty(false)
     setImageOpen(true)
   }
 
   const showRegistry = (item?: Registry) => {
-    setEditingRegistry(item ?? null)
-    registryForm.setFieldsValue(item ? {
+    const values: RegistryValues = item ? {
       name: item.name,
       url: item.url,
       username: item.username ?? '',
@@ -213,19 +236,27 @@ export function ImagesPage() {
       caCertificate: '',
       clearPassword: false,
       clearCaCertificate: false,
-    } : { name: '', url: '', username: '', password: '', caCertificate: '', clearPassword: false, clearCaCertificate: false })
+    } : { name: '', url: '', username: '', password: '', caCertificate: '', clearPassword: false, clearCaCertificate: false }
+    registryForm.resetFields()
+    setEditingRegistry(item ?? null)
+    setRegistrySaveError('')
     setRegistryDraftDirty(false)
+    registryBaseline.current = values
+    registryForm.setFieldsValue(values)
     setRegistryOpen(true)
   }
 
   const changeFile = (nextFile: UploadFile | null) => {
-    setUploadDraftDirty(true)
     setFile(nextFile)
     const nativeFile = nextFile?.originFileObj
     setUploadError(nativeFile && nativeFile.size > uploadSettings.maxBytes ? t('imageFileTooLarge', { size: bytes(nativeFile.size), max: bytes(uploadSettings.maxBytes) }) : '')
     setProgress(0)
     setUploadPhase('idle')
-    if (nextFile && !uploadForm.getFieldValue('name')) uploadForm.setFieldValue('name', archiveName(nextFile.name))
+    const values = uploadForm.getFieldsValue()
+    if (nextFile && !values.name) {
+      values.name = archiveName(nextFile.name)
+      uploadForm.setFieldValue('name', values.name)
+    }
   }
 
   const upload = async () => {
@@ -242,7 +273,6 @@ export function ImagesPage() {
       setUploadError('')
       const uploadedImage = await uploadInChunks(file.originFileObj, setProgress, values.expectedSha256?.trim().toLowerCase() ?? '', values.name.trim(), setUploadPhase, controller.signal, uploadSettings.chunkBytes)
       message.success(t('imageUploadComplete'))
-      setUploadDraftDirty(false)
       setImageOpen(false)
       setFile(null)
       setProgress(0)
@@ -271,12 +301,12 @@ export function ImagesPage() {
     setProgress(0)
     setUploadError('')
     setUploadPhase('idle')
-    setUploadDraftDirty(false)
     uploadForm.resetFields()
   }
   const closeImageUpload = () => {
     if (uploading) { pauseUpload(); return }
-    if (!uploadDraftDirty) { finishCloseImageUpload(); return }
+    const hasUnsavedChanges = imageUploadDraftChanged(uploadForm.getFieldsValue(), file)
+    if (!hasUnsavedChanges) { finishCloseImageUpload(); return }
     modal.confirm({
       title: t('discardImageUploadDraftTitle'),
       content: t('discardImageUploadDraftHint'),
@@ -300,12 +330,15 @@ export function ImagesPage() {
   const finishCloseRegistry = () => {
     setRegistryOpen(false)
     setEditingRegistry(null)
+    setRegistrySaveError('')
     setRegistryDraftDirty(false)
+    registryBaseline.current = null
     registryForm.resetFields()
   }
   const closeRegistry = () => {
     if (savingRegistry) return
-    if (!registryDraftDirty) { finishCloseRegistry(); return }
+    const hasUnsavedChanges = registryDraftChanged(registryForm.getFieldsValue(), registryBaseline.current)
+    if (!hasUnsavedChanges) { finishCloseRegistry(); return }
     modal.confirm({
       title: t('discardRegistryChangesTitle'),
       content: t('discardRegistryChangesHint'),
@@ -318,6 +351,7 @@ export function ImagesPage() {
 
   const saveRegistry = async () => {
     try {
+      setRegistrySaveError('')
       setSavingRegistry(true)
       const values = await registryForm.validateFields()
       const saved = await api<Registry>(editingRegistry ? `/registries/${editingRegistry.id}` : '/registries', {
@@ -325,14 +359,11 @@ export function ImagesPage() {
         body: values,
       })
       message.success(t('saved'))
-      setRegistryDraftDirty(false)
-      setRegistryOpen(false)
-      setEditingRegistry(null)
-      registryForm.resetFields()
+      finishCloseRegistry()
       await load()
       void testRegistry(saved)
     } catch (error) {
-      if (error instanceof Error) message.error(errorMessage(error))
+      if (error instanceof Error) setRegistrySaveError(errorMessage(error))
     } finally {
       setSavingRegistry(false)
     }
@@ -341,11 +372,16 @@ export function ImagesPage() {
   const testRegistry = async (item: Registry) => {
     try {
       setTestingRegistry(item.id)
+      setRegistryTestErrors((current) => {
+        const next = { ...current }
+        delete next[item.id]
+        return next
+      })
       const result = await api<RegistryTestResult>(`/registries/${item.id}/test`, { method: 'POST' })
       setRegistries((current) => current.map((registry) => registry.id === item.id ? { ...registry, status: result.status, statusMessage: result.message, statusCode: result.statusCode, lastTestedAt: result.checkedAt } : registry))
       if (result.status === 'online') message.success(t('registryTestSuccess'))
     } catch (error) {
-      message.error(errorMessage(error))
+      setRegistryTestErrors((current) => ({ ...current, [item.id]: errorMessage(error) }))
     } finally {
       setTestingRegistry('')
     }
@@ -423,6 +459,7 @@ export function ImagesPage() {
     : <EmptyState compact action={canOperate ? showImageUpload : undefined} actionLabel={canOperate ? t('uploadImage') : undefined} description={t('imagesEmptyDescription')} />
   const showImageFilters = images.length > 0 || hasImageFilters
   const hasDeploymentData = images.length > 0 || registries.length > 0
+  const showDeploymentContent = loading || contentAvailable || hasDeploymentData
   const imageListActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && images.length > 0 && <><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}</Space>
 
   const selectedMatches = selectedImage ? matchingVersions(selectedImage, templates) : []
@@ -540,7 +577,9 @@ export function ImagesPage() {
               {item.hasCaCertificate && <Tag color="cyan">{t('customCA')}</Tag>}
               {!item.hasPassword && !item.hasCaCertificate && <Tag>{t('standardTLS')}</Tag>}
             </Space>
-            {item.statusMessage && <Alert className="registry-test-result" type={item.status === 'online' ? 'success' : item.status === 'offline' ? 'error' : 'warning'} showIcon message={t(item.statusMessage)} description={item.statusCode ? `HTTP ${item.statusCode}` : undefined} />}
+            {registryTestErrors[item.id]
+              ? <Alert className="registry-test-result" type="error" showIcon message={t('registryTestFailed')} description={registryTestErrors[item.id]} />
+              : item.statusMessage && <Alert className="registry-test-result" type={item.status === 'online' ? 'success' : item.status === 'offline' ? 'error' : 'warning'} showIcon message={t(item.statusMessage)} description={item.statusCode ? `HTTP ${item.statusCode}` : undefined} />}
             {canOperate && <div className="registry-card-footer">
               <Button icon={<CheckCircleOutlined />} loading={testingRegistry === item.id} onClick={() => void testRegistry(item)}>{t('testRegistry')}</Button>
               <Space size={4}>
@@ -561,7 +600,8 @@ export function ImagesPage() {
       description={t('imagesDescription')}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    {(hasDeploymentData || !pageError) && <Tabs activeKey={activeTab} onChange={changeTab} items={[
+    {supportingDataError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {showDeploymentContent && <Tabs activeKey={activeTab} onChange={changeTab} items={[
       { key: 'images', label: <span className="tab-count">{t('offlineImages')}<span>{images.length}</span></span>, children: imageTab },
       { key: 'registries', label: <span className="tab-count">{t('registries')}<span>{registries.length}</span></span>, children: registryTab },
     ]} />}
@@ -573,7 +613,7 @@ export function ImagesPage() {
       width={680}
       style={{ top: 32 }}
       styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }}
-      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={closeImageUpload}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || uploading || fileTooLarge} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
+      footer={<div className="workflow-modal-footer"><Button danger={uploading} onClick={closeImageUpload}>{uploading ? t('pauseUpload') : t('cancel')}</Button><Space>{file && progress > 0 && !uploading && <Button onClick={() => void discardUpload()}>{t('discardUpload')}</Button>}<Button type="primary" loading={uploading} disabled={!file || !uploadName?.trim() || uploading || fileTooLarge} icon={<CloudUploadOutlined />} onClick={() => void upload()}>{progress > 0 ? t('continueUpload') : t('uploadImage')}</Button></Space></div>}
     >
       <Typography.Paragraph type="secondary" className="image-upload-intro">{t('imageUploadHint')}</Typography.Paragraph>
       <Upload.Dragger
@@ -588,7 +628,7 @@ export function ImagesPage() {
         <p>{t('dropImageArchive')}</p>
         <p className="ant-upload-hint">{t('imageArchiveFormats')}</p>
       </Upload.Dragger>
-      <Form form={uploadForm} layout="vertical" requiredMark={false} className="image-upload-form" onValuesChange={() => setUploadDraftDirty(true)}>
+      <Form form={uploadForm} layout="vertical" requiredMark={false} className="image-upload-form">
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input placeholder={t('imageDisplayNamePlaceholder')} disabled={uploading} /></Form.Item>
         <Form.Item name="expectedSha256" label={`${t('expectedChecksum')} (${t('optional')})`} extra={t('checksumHint')} rules={[{ pattern: /^[a-fA-F0-9]{64}$/, message: t('invalidChecksum') }]}><Input className="checksum-input" placeholder={t('checksumPlaceholder')} disabled={uploading} /></Form.Item>
       </Form>
@@ -604,13 +644,15 @@ export function ImagesPage() {
       onOk={() => void saveRegistry()}
       confirmLoading={savingRegistry}
       okText={t('save')}
+      okButtonProps={{ disabled: !registrySaveReady }}
       cancelButtonProps={{ disabled: savingRegistry }}
       width={620}
       style={{ top: 32 }}
       styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       <Typography.Paragraph type="secondary" className="registry-form-intro">{t('registryFormDescription')}</Typography.Paragraph>
-      <Form form={registryForm} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={() => setRegistryDraftDirty(true)}>
+      {registrySaveError && <Alert className="form-save-alert" type="error" showIcon message={t('registrySaveFailed')} description={registrySaveError} />}
+      <Form form={registryForm} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={(_, values) => { setRegistrySaveError(''); setRegistryDraftDirty(registryDraftChanged(values, registryBaseline.current)) }}>
         <div className="form-grid">
           <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input autoFocus aria-label={t('name')} /></Form.Item>
           <Form.Item name="url" label={t('registryURL')} rules={[{ required: true }, { validator: (_, value?: string) => !value || isRegistryURL(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidRegistryURL'))) }]}><Input aria-label={t('registryURL')} type="url" placeholder={t('registryURLPlaceholder')} /></Form.Item>

@@ -1,12 +1,16 @@
 package api
 
 import (
+	"archive/zip"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/pika/db-mock/internal/domain"
 )
 
 func TestValidateRegistry(t *testing.T) {
@@ -76,6 +80,16 @@ func TestProbeRegistryConnectionFailure(t *testing.T) {
 func TestNewRegistryProbeClientRejectsInvalidCA(t *testing.T) {
 	if _, err := newRegistryProbeClient("not a certificate"); err == nil {
 		t.Fatal("expected invalid CA certificate to fail")
+	}
+}
+
+func TestTemplatePackageValidationErrorClassifiesInvalidZip(t *testing.T) {
+	err := templatePackageValidationError(zip.ErrFormat)
+	if !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("invalid ZIP should be invalid input, got %v", err)
+	}
+	if got := err.Error(); got != "invalid input: template package is not a valid ZIP archive" {
+		t.Fatalf("error = %q", got)
 	}
 }
 
