@@ -59,3 +59,28 @@ export function normalizeMonitoringSettings(value: unknown): MonitoringSettings 
     alerts,
   }
 }
+
+export function isMonitoringSettingsValid(value: unknown): value is MonitoringSettings {
+  const source = record(value)
+  const alerts = record(source.alerts)
+  const intervalSeconds = source.intervalSeconds
+  const retentionDays = source.retentionDays
+  const diskWarningPercent = source.diskWarningPercent
+  const diskCriticalPercent = source.diskCriticalPercent
+  return typeof intervalSeconds === 'number'
+    && Number.isInteger(intervalSeconds)
+    && intervalSeconds >= 5
+    && intervalSeconds <= 3600
+    && typeof retentionDays === 'number'
+    && Number.isInteger(retentionDays)
+    && retentionDays >= 1
+    && retentionDays <= 365
+    && typeof diskWarningPercent === 'number'
+    && diskWarningPercent >= 1
+    && diskWarningPercent <= 99
+    && typeof diskCriticalPercent === 'number'
+    && diskCriticalPercent >= 2
+    && diskCriticalPercent <= 100
+    && diskCriticalPercent > diskWarningPercent
+    && monitoringAlertKeys.every((key) => typeof alerts[key] === 'boolean')
+}

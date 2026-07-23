@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultMonitoringSettings, normalizeMonitoringSettings } from './monitoring-settings'
+import { defaultMonitoringSettings, isMonitoringSettingsValid, normalizeMonitoringSettings } from './monitoring-settings'
 
 describe('monitoring settings', () => {
   it('backfills alert switches for settings created by older versions', () => {
@@ -14,5 +14,12 @@ describe('monitoring settings', () => {
     expect(policy.alerts.hostOffline).toBe(false)
     expect(policy.alerts.upgradeFailed).toBe(false)
     expect(policy.alerts.sshCredentialInvalid).toBe(true)
+  })
+
+  it('only marks complete policies with safe threshold ordering as valid', () => {
+    expect(isMonitoringSettingsValid(defaultMonitoringSettings)).toBe(true)
+    expect(isMonitoringSettingsValid({ ...defaultMonitoringSettings, diskCriticalPercent: 70 })).toBe(false)
+    expect(isMonitoringSettingsValid({ ...defaultMonitoringSettings, intervalSeconds: 5.5 })).toBe(false)
+    expect(isMonitoringSettingsValid({ ...defaultMonitoringSettings, alerts: { hostOffline: true } })).toBe(false)
   })
 })

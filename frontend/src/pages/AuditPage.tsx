@@ -29,7 +29,8 @@ export function AuditPage() {
   const [selected, setSelected] = useState<Audit | null>(null)
   const [clearOpen, setClearOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
-  const [before, setBefore] = useState<Dayjs>(dayjs().subtract(30, 'day'))
+  const [clearError, setClearError] = useState('')
+  const [before, setBefore] = useState<Dayjs | null>(dayjs().subtract(30, 'day'))
   const [confirm, setConfirm] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -51,20 +52,28 @@ export function AuditPage() {
   useEffect(() => { setLoading(true); void load() }, [load])
 
   const clear = async () => {
+    if (!before || before.isAfter(dayjs()) || confirm !== 'CLEAR') return
     try {
       setClearing(true)
+      setClearError('')
       const result = await api<{ deleted: number }>('/audit/clear', { method: 'POST', body: { before: before.toISOString(), confirm } })
       message.success(t('deletedRecords', { count: result.deleted }))
       setClearOpen(false)
       setConfirm('')
       await load()
     } catch (error) {
-      message.error(errorMessage(error))
+      setClearError(errorMessage(error))
     } finally {
       setClearing(false)
     }
   }
-  const showClear = () => { setBefore(dayjs().subtract(30, 'day')); setConfirm(''); setClearOpen(true) }
+  const showClear = () => { setBefore(dayjs().subtract(30, 'day')); setConfirm(''); setClearError(''); setClearOpen(true) }
+  const closeClear = () => {
+    if (clearing) return
+    setClearOpen(false)
+    setConfirm('')
+    setClearError('')
+  }
   const exportQuery = new URLSearchParams()
   if (deferredSearch) exportQuery.set('search', deferredSearch)
   if (resourceType) exportQuery.set('resourceType', resourceType)
@@ -72,6 +81,7 @@ export function AuditPage() {
   const hasFilters = !!(search || resourceType)
   const resetFilters = () => { setSearch(''); setResourceType(''); setPage(1) }
   const maxPage = Math.max(1, Math.ceil(items.length / pageSize))
+  const clearCutoffValid = !!before && !before.isAfter(dayjs())
   useEffect(() => { if (page > maxPage) setPage(maxPage) }, [maxPage, page])
   const showList = !loadError || items.length > 0
   const resourcePath = selected ? auditResourcePath(selected) : ''
@@ -125,6 +135,17 @@ export function AuditPage() {
       </div>}
     </Drawer>
 
-    {canManageSettings && <Modal title={t('clear')} open={clearOpen} onCancel={() => { if (clearing) return; setClearOpen(false); setConfirm('') }} onOk={() => void clear()} confirmLoading={clearing} closable={!clearing} maskClosable={!clearing} cancelButtonProps={{ disabled: clearing }} okButtonProps={{ danger: true, disabled: confirm !== 'CLEAR' }}><Typography.Paragraph type="danger">{t('auditDeleteWarning')}</Typography.Paragraph><Form layout="vertical"><Form.Item label={t('deleteBefore')}><DatePicker aria-label={t('deleteBefore')} showTime value={before} onChange={(value) => value && setBefore(value)} style={{ width: '100%' }} /></Form.Item><Form.Item label={t('typeClearToConfirm')} htmlFor="audit-clear-confirm"><Input id="audit-clear-confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></Form.Item></Form></Modal>}
+    {canManageSettings && <Modal title={t('auditClearTitle')} open={clearOpen} onCancel={closeClear} onOk={() => void clear()} confirmLoading={clearing} closable={!clearing} maskClosable={!clearing} cancelButtonProps={{ disabled: clearing }} okText={t('auditClearConfirm')} okButtonProps={{ danger: true, disabled: confirm !== 'CLEAR' || !clearCutoffValid }} destroyOnHidden>
+      <Alert className="audit-clear-warning" type="warning" showIcon message={t('auditDeleteWarning')} />
+      {clearError && <Alert className="ops-alert" type="error" showIcon message={t('auditClearFailed')} description={clearError} />}
+      <Form layout="vertical">
+        <Form.Item label={t('deleteBefore')} validateStatus={clearCutoffValid ? undefined : 'error'} help={clearCutoffValid ? undefined : t('auditClearCutoffRequired')}>
+          <DatePicker aria-label={t('deleteBefore')} showTime value={before} onChange={setBefore} disabledDate={(current) => current.isAfter(dayjs(), 'day')} status={clearCutoffValid ? undefined : 'error'} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label={t('typeClearToConfirm')} htmlFor="audit-clear-confirm">
+          <Input id="audit-clear-confirm" value={confirm} onChange={(event) => { setConfirm(event.target.value); setClearError('') }} autoComplete="off" />
+        </Form.Item>
+      </Form>
+    </Modal>}
   </>
 }

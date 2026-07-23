@@ -47,3 +47,20 @@ export function uploadSettingsFromForm(form: UploadSettingsForm): Pick<UploadSet
     chunkBytes: Math.round(form.chunkMiB * MiB),
   }
 }
+
+export function isUploadSettingsFormValid(value: unknown, maxAllowedBytes: number): value is UploadSettingsForm {
+  const source = record(value)
+  const maxGiB = source.maxGiB
+  const chunkMiB = source.chunkMiB
+  const maxAllowedGiB = maxAllowedBytes / GiB
+  const maxAllowedMiB = maxAllowedBytes / MiB
+  return typeof maxGiB === 'number'
+    && Number.isFinite(maxGiB)
+    && maxGiB >= 1 / 1024
+    && maxGiB <= maxAllowedGiB
+    && typeof chunkMiB === 'number'
+    && Number.isInteger(chunkMiB)
+    && chunkMiB >= 1
+    && chunkMiB <= Math.min(32, maxAllowedMiB)
+    && maxGiB * GiB >= chunkMiB * MiB
+}
