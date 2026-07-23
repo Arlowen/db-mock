@@ -33,21 +33,33 @@ interface HostProbeResult {
 type VerificationReason = '' | 'connection' | 'docker_policy'
 
 const verificationFields = new Set(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot', 'portStart', 'portEnd'])
+const hostDraftFields: Array<keyof HostForm> = ['name', 'projectId', 'sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'connectionAddress', 'dataRoot', 'portStart', 'portEnd', 'manageDocker', 'maintenance', 'autoRestartDefault', 'proxyHttp', 'proxyHttps', 'proxyNoProxy']
 const safeCreateReturnPath = (value: string | null) => value?.startsWith('/instances?create=1') ? value : ''
+
+function sameHostField(values: HostForm, baseline: HostForm, key: keyof HostForm) {
+  const current = values[key]
+  const original = baseline[key]
+  if (typeof current === 'boolean' || typeof original === 'boolean') return !!current === !!original
+  return (current ?? '') === (original ?? '')
+}
+
+function hostDraftChanged(values: HostForm, baseline: HostForm | null) {
+  return !baseline || hostDraftFields.some((key) => !sameHostField(values, baseline, key))
+}
 
 function percent(used: number, limit: number): number {
   return limit > 0 ? Math.min(100, Math.round(used * 100 / limit)) : 0
 }
 
 export function HostsPage() {
-  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [detailError, setDetailError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const verificationSection = useRef<HTMLDivElement>(null); const [form] = Form.useForm<HostForm>()
+  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [detailError, setDetailError] = useState(''); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const manageDocker = Form.useWatch('manageDocker', form)
   const verificationRequired = !editing || verificationDirty
   const verificationReady = (!verificationRequired && !probe) || (!!fingerprint && !!verificationToken)
   const dockerPolicyReady = dockerManagementReady(manageDocker, probe?.passwordlessSudo, editing?.manageDocker, verificationDirty)
   useEffect(() => {
-    if (!probe && !verificationDirty) return
+    if (!probe && !verificationDirty && !verificationError) return
     const revealVerification = () => verificationSection.current?.scrollIntoView({ block: 'nearest' })
     const frame = window.requestAnimationFrame(revealVerification)
     const timer = window.setTimeout(revealVerification, 250)
@@ -55,7 +67,7 @@ export function HostsPage() {
       window.cancelAnimationFrame(frame)
       window.clearTimeout(timer)
     }
-  }, [manageDocker, probe, verificationDirty])
+  }, [manageDocker, probe, verificationDirty, verificationError])
   const load = useCallback(async () => {
     try {
       const hosts = await api<{ items: Host[] }>('/hosts')
@@ -65,9 +77,9 @@ export function HostsPage() {
       if (projectList.status === 'fulfilled') setProjects(projectList.value.items)
       if (instanceList.status === 'fulfilled') setInstances(instanceList.value.items)
       const failed = [projectList, instanceList].find((result) => result.status === 'rejected')
-      if (failed?.status === 'rejected') message.warning(errorMessage(failed.reason))
+      setSupportingDataError(failed?.status === 'rejected' ? errorMessage(failed.reason) : '')
     } catch (error) { setLoadError(errorMessage(error)) } finally { setLoading(false) }
-  }, [message])
+  }, [])
   useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 15000); return () => clearInterval(timer) }, [load])
   useEffect(() => { if (!hostID || open) return; const linked = items.find((item) => item.id === hostID); if (linked) setDetail(linked) }, [hostID, items, open])
   const loadHostContext = useCallback(async (id: string) => {
@@ -79,10 +91,71 @@ export function HostsPage() {
     } catch (error) { setDetailError(errorMessage(error)) }
   }, [])
   useEffect(() => { if (!detail?.id) { setHostTasks([]); setDetailError(''); return }; void loadHostContext(detail.id); const timer = window.setInterval(() => void loadHostContext(detail.id), 5000); return () => clearInterval(timer) }, [detail?.id, loadHostContext])
-  const show = (item?: Host) => { if (item) setDetail(null); form.resetFields(); setEditing(item ?? null); setEditorDirty(false); setFingerprint(item?.hostKey ?? ''); setVerificationToken(''); setProbe(null); setVerificationDirty(false); setVerificationReason(''); form.setFieldsValue(item ? { ...item, credential: '', passphrase: '' } : { sshPort: 22, authType: 'private_key', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, maintenance: false, autoRestartDefault: true }); setOpen(true) }
+  const show = (item?: Host) => {
+    const values = (item
+      ? { ...item, credential: '', passphrase: '' }
+      : { name: '', sshAddress: '', sshPort: 22, sshUser: '', authType: 'private_key', credential: '', passphrase: '', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, maintenance: false, autoRestartDefault: true }) as HostForm
+    if (item) setDetail(null)
+    form.resetFields()
+    setEditing(item ?? null)
+    setEditorDirty(false)
+    setVerificationError('')
+    setSaveError('')
+    setFingerprint(item?.hostKey ?? '')
+    setVerificationToken('')
+    setProbe(null)
+    setVerificationDirty(false)
+    setVerificationReason('')
+    hostBaseline.current = values
+    form.setFieldsValue(values)
+    setOpen(true)
+  }
   useEffect(() => { if (params.get('create') === '1') { if (canOperate) show(); const next = new URLSearchParams(params); next.delete('create'); if (!canOperate) next.delete('returnTo'); setParams(next, { replace: true }) } }, [canOperate, params, setParams])
-  const test = async () => { try { const values = await form.validateFields(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot', 'portStart', 'portEnd']); setTesting(true); setFingerprint(''); setVerificationToken(''); setProbe(null); const result = await api<HostProbeResult>('/hosts/test', { method: 'POST', body: { ...values, hostId: editing?.id } }); setFingerprint(result.hostKey); setVerificationToken(result.verificationToken); setProbe(result); setVerificationDirty(false); setVerificationReason(''); message.success(t('connectionVerified')) } catch (e) { if (e instanceof Error) message.error(errorMessage(e)) } finally { setTesting(false) } }
-  const submit = async () => { try { setSaving(true); const values = await form.validateFields(); if (!verificationReady) { message.warning(t('confirmFingerprint')); return } if (!dockerPolicyReady) { message.warning(t('dockerSudoRequired')); return } const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...values, verificationToken } }); setEditorDirty(false); if ('task' in result) { notifyTask(result.task); setOpen(false); if (returnTo) { navigate(`/tasks?task=${result.task.id}&continue=${encodeURIComponent(returnTo)}`); return } } else message.success(t('saved')); setOpen(false); await load() } catch (e) { if (e instanceof Error) message.error(errorMessage(e)) } finally { setSaving(false) } }
+  const test = async () => {
+    try {
+      setVerificationError('')
+      const values = await form.validateFields(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot', 'portStart', 'portEnd'])
+      setTesting(true)
+      setFingerprint('')
+      setVerificationToken('')
+      setProbe(null)
+      const result = await api<HostProbeResult>('/hosts/test', { method: 'POST', body: { ...values, hostId: editing?.id } })
+      setFingerprint(result.hostKey)
+      setVerificationToken(result.verificationToken)
+      setProbe(result)
+      setVerificationDirty(false)
+      setVerificationReason('')
+      message.success(t('connectionVerified'))
+    } catch (error) {
+      if (error instanceof Error) setVerificationError(errorMessage(error))
+    } finally {
+      setTesting(false)
+    }
+  }
+  const submit = async () => {
+    try {
+      setSaveError('')
+      setSaving(true)
+      const values = await form.validateFields()
+      if (!verificationReady) { message.warning(t('confirmFingerprint')); return }
+      if (!dockerPolicyReady) { message.warning(t('dockerSudoRequired')); return }
+      const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...values, verificationToken } })
+      setEditorDirty(false)
+      if ('task' in result) {
+        notifyTask(result.task)
+        setOpen(false)
+        if (returnTo) { navigate(`/tasks?task=${result.task.id}&continue=${encodeURIComponent(returnTo)}`); return }
+      } else {
+        message.success(t('saved'))
+      }
+      setOpen(false)
+      await load()
+    } catch (error) {
+      if (error instanceof Error) setSaveError(errorMessage(error))
+    } finally {
+      setSaving(false)
+    }
+  }
   const action = async (item: Host, actionName: string) => {
     try {
       setActioning(actionName)
@@ -92,12 +165,21 @@ export function HostsPage() {
       await Promise.all([load(), loadHostContext(item.id)])
     } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') }
   }
-  const invalidateVerification = (changed: Partial<HostForm>) => {
-    setEditorDirty(true)
+  const invalidateVerification = (changed: Partial<HostForm>, values: HostForm) => {
+    setEditorDirty(hostDraftChanged(values, hostBaseline.current))
+    setVerificationError('')
+    setSaveError('')
     const changedKeys = Object.keys(changed)
     const connectionChanged = changedKeys.some((key) => verificationFields.has(key))
     const credentialOnly = changedKeys.every((key) => key === 'credential' || key === 'passphrase')
     const dockerManagementNeedsVerification = changed.manageDocker === true && !!editing && !probe
+    const baseline = hostBaseline.current
+    const connectionMatchesBaseline = !!baseline && [...verificationFields].every((key) => sameHostField(values, baseline, key as keyof HostForm))
+    const dockerPolicyMatchesBaseline = !!baseline && (!!values.manageDocker === !!baseline.manageDocker || !values.manageDocker)
+    if (editing && connectionMatchesBaseline && dockerPolicyMatchesBaseline && (connectionChanged || changed.manageDocker !== undefined)) {
+      setFingerprint(editing.hostKey ?? ''); setVerificationToken(''); setProbe(null); setVerificationDirty(false); setVerificationReason('')
+      return
+    }
     if (changed.manageDocker === false && verificationReason === 'docker_policy' && editing) {
       setFingerprint(editing.hostKey ?? ''); setVerificationToken(''); setProbe(null); setVerificationDirty(false); setVerificationReason('')
       return
@@ -109,7 +191,7 @@ export function HostsPage() {
   }
   const openDetail = (item: Host) => { const next = new URLSearchParams(params); next.set('host', item.id); setParams(next, { replace: true }); setDetail(item) }
   const closeDetail = () => { setDetail(null); if (hostID) { const next = new URLSearchParams(params); next.delete('host'); setParams(next, { replace: true }) } }
-  const finishCloseEditor = () => { setOpen(false); setEditorDirty(false); if (editing && hostID) setDetail(items.find((item) => item.id === hostID) ?? editing) }
+  const finishCloseEditor = () => { setOpen(false); setEditorDirty(false); setVerificationError(''); setSaveError(''); hostBaseline.current = null; if (editing && hostID) setDetail(items.find((item) => item.id === hostID) ?? editing) }
   const closeEditor = () => {
     if (saving || testing) return
     if (!editorDirty) { finishCloseEditor(); return }
@@ -165,13 +247,14 @@ export function HostsPage() {
   const creationProgress = <div className="host-continuation-copy"><Typography.Paragraph type="secondary">{t('databaseCreationHostHint')}</Typography.Paragraph><Steps className="host-continuation-steps" current={0} size="small" responsive={false} items={[{ title: t('hostSetupStepConnect') }, { title: t('hostSetupStepVerify') }, { title: t('hostSetupStepCreate') }]} /></div>
   return <><PageHeader title={t('hosts')} description={t('hostsDescription')} />
     {canOperate && returnTo && <Alert className="host-continuation-banner" type="info" showIcon icon={<DatabaseOutlined />} message={t('databaseCreationPending')} description={creationProgress} action={<Space direction="vertical" size={4}><Button type="primary" size="small" onClick={() => show()}>{t('continueAddHost')}</Button><Button type="link" size="small" onClick={cancelDatabaseCreation}>{t('returnToCatalog')}</Button></Space>} />}
-    {loadError && <Alert className="instance-page-alert" type="error" showIcon message={t('hostListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('hostListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('hostSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {(items.length > 0 || !loadError) && <Card className="host-table-card"><div className="embedded-toolbar"><Typography.Text strong>{t('hosts')}</Typography.Text><Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && items.length > 0 && <Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('addHost')}</Button>}</Space></div><Table rowKey="id" loading={loading} dataSource={items} columns={columns} pagination={false} tableLayout="fixed" scroll={{ x: 989 }} locale={{ emptyText: <EmptyState compact action={canOperate ? () => show() : undefined} actionLabel={canOperate ? t('addHost') : undefined} description={t('noHostsDescription')} /> }} /></Card>}
-    <Modal title={editing ? t('edit') : t('addHost')} open={open} onCancel={closeEditor} width={760} style={{ top: 32 }} styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }} destroyOnHidden footer={<div className="workflow-modal-footer"><Button disabled={saving || testing} onClick={closeEditor}>{t('cancel')}</Button><Space>{(!editing || verificationDirty || !fingerprint) && <Button loading={testing} disabled={saving} icon={<SafetyCertificateOutlined />} onClick={() => void test()}>{t('testConnection')}</Button>}<Button type="primary" loading={saving} disabled={testing || !verificationReady || !dockerPolicyReady} onClick={() => void submit()}>{t('save')}</Button></Space></div>}>
-      <Form form={form} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={invalidateVerification}>{returnTo && !editing && <Alert className="host-continuation-modal-alert" type="info" showIcon icon={<DatabaseOutlined />} message={t('databaseCreationPending')} description={creationProgress} />}<Typography.Text className="form-section-label">{t('connectionSettings')}</Typography.Text><div className="form-grid"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input autoFocus autoComplete="off" /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="sshAddress" label={t('sshAddress')} rules={[{ required: true }]}><Input autoComplete="off" /></Form.Item><Form.Item name="sshPort" label={t('sshPort')} rules={[{ required: true }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="sshUser" label={t('sshUser')} rules={[{ required: true }]}><Input autoComplete="off" data-1p-ignore data-lpignore="true" /></Form.Item><Form.Item name="authType" label={t('authentication')}><Select options={[{ value: 'private_key', label: t('privateKey') }, { value: 'password', label: t('password') }]} /></Form.Item></div>
+    <Modal title={editing ? t('edit') : t('addHost')} open={open} onCancel={closeEditor} width={760} style={{ top: 32 }} styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }} destroyOnHidden footer={<div className="workflow-modal-footer"><Button disabled={saving || testing} onClick={closeEditor}>{t('cancel')}</Button><Space>{(!editing || verificationDirty || !fingerprint) && <Button loading={testing} disabled={saving} icon={<SafetyCertificateOutlined />} onClick={() => void test()}>{t('testConnection')}</Button>}<Button type="primary" loading={saving} disabled={testing || !verificationReady || !dockerPolicyReady || (!!editing && !editorDirty)} onClick={() => void submit()}>{t('save')}</Button></Space></div>}>
+      <Form form={form} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={invalidateVerification}>{saveError && <Alert className="form-save-alert" type="error" showIcon message={t('hostSaveFailed')} description={saveError} />}{returnTo && !editing && <Alert className="host-continuation-modal-alert" type="info" showIcon icon={<DatabaseOutlined />} message={t('databaseCreationPending')} description={creationProgress} />}<Typography.Text className="form-section-label">{t('connectionSettings')}</Typography.Text><div className="form-grid"><Form.Item name="name" label={t('name')} rules={[{ required: true }]}><Input autoFocus autoComplete="off" /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="sshAddress" label={t('sshAddress')} rules={[{ required: true }]}><Input autoComplete="off" /></Form.Item><Form.Item name="sshPort" label={t('sshPort')} rules={[{ required: true }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="sshUser" label={t('sshUser')} rules={[{ required: true }]}><Input autoComplete="off" data-1p-ignore data-lpignore="true" /></Form.Item><Form.Item name="authType" label={t('authentication')}><Select options={[{ value: 'private_key', label: t('privateKey') }, { value: 'password', label: t('password') }]} /></Form.Item></div>
         <Form.Item noStyle shouldUpdate={(a, b) => a.authType !== b.authType}>{({ getFieldValue }) => <><Form.Item name="credential" label={getFieldValue('authType') === 'password' ? t('password') : t('privateKey')} rules={!editing || verificationDirty ? [{ required: true }] : []}>{getFieldValue('authType') === 'password' ? <Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /> : <Input.TextArea rows={4} autoComplete="off" data-1p-ignore data-lpignore="true" placeholder={t('privateKeyPlaceholder')} />}</Form.Item>{getFieldValue('authType') === 'private_key' && <Form.Item name="passphrase" label={t('privateKeyPassphrase')}><Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>}</>}</Form.Item>
         <Collapse className="host-advanced" items={[{ key: 'advanced', label: <div><Typography.Text strong>{t('advancedSettings')}</Typography.Text><Typography.Text type="secondary">{t('advancedHostSettingsHint')}</Typography.Text></div>, children: <><div className="form-grid"><Form.Item name="connectionAddress" label={t('databaseConnectionAddress')}><Input placeholder={t('defaultsToSSHAddress')} /></Form.Item><Form.Item name="dataRoot" label={t('managedDataRoot')} rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="portStart" label={t('portPoolStart')}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="portEnd" label={t('portPoolEnd')}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item></div><Card size="small" title={t('proxy')} className="form-section"><div className="form-grid"><Form.Item name="proxyHttp" label="HTTP_PROXY"><Input /></Form.Item><Form.Item name="proxyHttps" label="HTTPS_PROXY"><Input /></Form.Item></div><Form.Item name="proxyNoProxy" label="NO_PROXY"><Input /></Form.Item></Card></> },{ key: 'policies', label: <div><Typography.Text strong>{t('hostPolicies')}</Typography.Text><Typography.Text type="secondary">{t('hostPoliciesHint')}</Typography.Text></div>, children: <div className="host-policy-list"><div className="host-policy-item"><div><Typography.Text strong>{t('allowDockerManagement')}</Typography.Text><Typography.Text type="secondary">{t('dockerManagementPolicyHint')}</Typography.Text>{manageDocker && verificationReason === 'docker_policy' && <Typography.Text type="danger" role="alert" className="host-policy-warning">{t('dockerPolicyVerificationRequired')}</Typography.Text>}{manageDocker && probe && !probe.passwordlessSudo && <Typography.Text type="danger" role="alert" className="host-policy-warning">{t('dockerManagementBlockedInline')}</Typography.Text>}</div><Form.Item name="manageDocker" valuePropName="checked" noStyle><Switch aria-label={t('allowDockerManagement')} /></Form.Item></div><div className="host-policy-item"><div><Typography.Text strong>{t('autoRestart')}</Typography.Text><Typography.Text type="secondary">{t('autoRestartPolicyHint')}</Typography.Text></div><Form.Item name="autoRestartDefault" valuePropName="checked" noStyle><Switch aria-label={t('autoRestart')} /></Form.Item></div><div className="host-policy-item"><div><Typography.Text strong>{t('maintenance')}</Typography.Text><Typography.Text type="secondary">{t('maintenancePolicyHint')}</Typography.Text></div><Form.Item name="maintenance" valuePropName="checked" noStyle><Switch aria-label={t('maintenance')} /></Form.Item></div></div> }]} />
-        {verificationRequired && <div ref={verificationSection} className="verification-section"><Typography.Text className="form-section-label">{t('connectionVerification')}</Typography.Text>{probe ? <><Alert type="success" showIcon message={t('connectionVerified')} description={<><Descriptions size="small" column={2} items={[{ key: 'system', label: t('testResultSystem'), children: `${probe.os}/${probe.architecture}` },{ key: 'docker', label: t('testResultDocker'), children: probe.dockerVersion ? `${probe.dockerVersion} / ${probe.composeVersion || '—'}` : t('dockerNotInstalled') },{ key: 'sudo', label: t('passwordlessSudo'), children: probe.passwordlessSudo ? t('available') : t('unavailable') },{ key: 'resources', label: t('testResultResources'), children: `${probe.cpuCount} CPU · ${bytes(probe.memoryBytes)} · ${bytes(probe.diskFreeBytes)}` },{ key: 'root', label: t('testResultDataRoot'), children: probe.dataRootWritable ? t('writable') : t('unavailable') },{ key: 'port', label: t('testResultPortPool'), children: probe.portProbeAvailable ? probe.firstAvailablePort ? t('firstAvailablePort', { port: probe.firstAvailablePort }) : t('portPoolExhausted') : t('unavailable') }]} /><Typography.Text code copyable className="fingerprint-value">{fingerprint.split(' ')[0]}</Typography.Text></>} />{probe.portProbeAvailable && !probe.firstAvailablePort && <Alert type="warning" showIcon message={t('portPoolExhausted')} description={t('portPoolExhaustedHint')} />}{manageDocker && !probe.passwordlessSudo && <Alert type="warning" showIcon message={t('dockerSudoRequired')} description={t('dockerSudoRequiredHint')} />}</> : <Alert type={verificationDirty ? 'warning' : 'info'} showIcon message={verificationDirty ? t(verificationReason === 'docker_policy' ? 'dockerPolicyVerificationRequired' : 'connectionChanged') : t('connectionVerificationHint')} />}</div>}
+        {verificationRequired && <div ref={verificationSection} className="verification-section"><Typography.Text className="form-section-label">{t('connectionVerification')}</Typography.Text>{verificationError ? <Alert type="error" showIcon message={t('hostConnectionTestFailed')} description={verificationError} /> : probe ? <><Alert type="success" showIcon message={t('connectionVerified')} description={<><Descriptions size="small" column={2} items={[{ key: 'system', label: t('testResultSystem'), children: `${probe.os}/${probe.architecture}` },{ key: 'docker', label: t('testResultDocker'), children: probe.dockerVersion ? `${probe.dockerVersion} / ${probe.composeVersion || '—'}` : t('dockerNotInstalled') },{ key: 'sudo', label: t('passwordlessSudo'), children: probe.passwordlessSudo ? t('available') : t('unavailable') },{ key: 'resources', label: t('testResultResources'), children: `${probe.cpuCount} CPU · ${bytes(probe.memoryBytes)} · ${bytes(probe.diskFreeBytes)}` },{ key: 'root', label: t('testResultDataRoot'), children: probe.dataRootWritable ? t('writable') : t('unavailable') },{ key: 'port', label: t('testResultPortPool'), children: probe.portProbeAvailable ? probe.firstAvailablePort ? t('firstAvailablePort', { port: probe.firstAvailablePort }) : t('portPoolExhausted') : t('unavailable') }]} /><Typography.Text code copyable className="fingerprint-value">{fingerprint.split(' ')[0]}</Typography.Text></>} />{probe.portProbeAvailable && !probe.firstAvailablePort && <Alert type="warning" showIcon message={t('portPoolExhausted')} description={t('portPoolExhaustedHint')} />}{manageDocker && !probe.passwordlessSudo && <Alert type="warning" showIcon message={t('dockerSudoRequired')} description={t('dockerSudoRequiredHint')} />}</> : <Alert type={verificationDirty ? 'warning' : 'info'} showIcon message={verificationDirty ? t(verificationReason === 'docker_policy' ? 'dockerPolicyVerificationRequired' : 'connectionChanged') : t('connectionVerificationHint')} />}</div>}
       </Form>
     </Modal>
     <Drawer className="host-detail-drawer" title={detail ? <div className="host-detail-title"><div><CloudServerOutlined /><Typography.Text strong>{detail.name}</Typography.Text></div><StatusTag value={detail.status} /></div> : t('hostDetails')} open={!!detail} onClose={closeDetail} width={780} destroyOnHidden footer={canOperate && detail ? <div className="workflow-drawer-footer"><Popconfirm title={t('delete')} description={activeTask ? t('hostOperationInProgress') : t('deleteHostConfirm')} disabled={relatedInstances.length > 0 || !!activeTask || !!actioning} onConfirm={() => void remove(detail)}><Button danger icon={<DeleteOutlined />} disabled={relatedInstances.length > 0 || !!activeTask || !!actioning} title={relatedInstances.length ? t('hostDeleteBlocked') : activeTask ? t('hostOperationInProgress') : t('delete')}>{t('delete')}</Button></Popconfirm><Space wrap><Button icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button><Button icon={<EditOutlined />} disabled={!!activeTask || !!actioning} onClick={() => show(detail)}>{t('edit')}</Button><Dropdown trigger={['click']} menu={{ items: [{ key: 'install', icon: <ToolOutlined />, label: t('installDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status === 'offline' || !!actioning },{ key: 'upgrade', label: t('upgradeDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || !!actioning },{ key: 'proxy', label: t('applyDockerProxy'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || detail.os === 'darwin' || !!actioning }], onClick: ({ key }) => void action(detail, key === 'install' ? 'install_docker' : key === 'upgrade' ? 'upgrade_docker' : 'configure_proxy') }}><Button icon={<MoreOutlined />} disabled={!!activeTask || !!actioning} title={activeTask ? t('hostOperationInProgress') : t('moreActions')}>{t('moreActions')}</Button></Dropdown></Space></div> : undefined}>

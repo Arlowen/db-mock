@@ -429,6 +429,7 @@ button { font: inherit; }
 .project-create-tile:hover { border-color: #7aa7ed; background: #f6f9ff; }
 .project-create-tile:active { transform: scale(.99); }
 .user-permission-note { margin-bottom: 18px; }
+.form-save-alert { margin-bottom: 18px; }
 .host-table-card .ant-card-body { padding: 0; }
 .host-table-card .ant-table-cell { vertical-align: middle; }
 .host-name-cell, .host-list-capacity { min-width: 0; display: grid; gap: 3px; }

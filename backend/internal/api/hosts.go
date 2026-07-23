@@ -124,6 +124,13 @@ func validateHostInput(input hostRequest) error {
 	return nil
 }
 
+func hostProbeError(err error) error {
+	if hostops.IsSSHCredentialInvalid(err) {
+		return fmt.Errorf("%w: SSH credential is invalid", domain.ErrInvalid)
+	}
+	return fmt.Errorf("%w: unable to reach the host over SSH", domain.ErrUnavailable)
+}
+
 func (s *Server) encryptedHostCredential(id uuid.UUID, input hostRequest) (string, error) {
 	envelope, _ := json.Marshal(map[string]string{"secret": input.Credential, "passphrase": input.Passphrase})
 	return s.vault.Seal(envelope, "host:"+id.String())
@@ -168,7 +175,7 @@ func (s *Server) testHost(w http.ResponseWriter, r *http.Request) {
 		PortStart: input.PortStart, PortEnd: input.PortEnd}
 	probe, err := s.docker.Probe(r.Context(), host)
 	if err != nil {
-		httpx.Error(w, r, err)
+		httpx.Error(w, r, hostProbeError(err))
 		return
 	}
 	status, statusMessage := hostops.ProbeStatus(probe)
