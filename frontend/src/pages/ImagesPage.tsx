@@ -454,6 +454,10 @@ export function ImagesPage() {
           options={[{ value: '', label: t('allStatuses') }, { value: 'ready', label: t('ready') }, { value: 'failed', label: t('failed') }]}
         />
         <Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>
+        {canOperate && <>
+          <Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button>
+          <Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button>
+        </>}
       </div>
     </Card>
     <Card className="image-table-card">
@@ -511,9 +515,14 @@ export function ImagesPage() {
     </Card>
   </>
 
-  const registryTab = <>
+  const registryTab = <Card
+    className="registry-section-card"
+    title={t('registries')}
+    loading={loading}
+    extra={canOperate ? <Button type="primary" icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button> : undefined}
+  >
     <Alert className="registry-controller-note" type="info" showIcon message={t('registryTestFromController')} description={t('registryTestFromControllerHint')} />
-    {loading ? <Card loading /> : <Row gutter={[16, 16]} className="registry-grid">
+    <Row gutter={[16, 16]} className="registry-grid">
       {registries.map((item) => {
         return <Col xs={24} lg={12} xl={8} key={item.id}>
           <Card className="registry-card">
@@ -542,9 +551,9 @@ export function ImagesPage() {
           </Card>
         </Col>
       })}
-      {registries.length === 0 && <Col span={24}><Card><EmptyState action={canOperate ? () => showRegistry() : undefined} actionLabel={canOperate ? t('addRegistry') : undefined} description={t('registriesEmptyDescription')} /></Card></Col>}
-    </Row>}
-  </>
+      {registries.length === 0 && <Col span={24}><EmptyState description={t('registriesEmptyDescription')} /></Col>}
+    </Row>
+  </Card>
 
   return <>
     <PageHeader
@@ -552,7 +561,7 @@ export function ImagesPage() {
       description={t('imagesDescription')}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    <Tabs activeKey={activeTab} onChange={changeTab} tabBarExtraContent={canOperate ? activeTab === 'registries' ? <Button type="primary" icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button> : <Space wrap><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></Space> : undefined} items={[
+    <Tabs activeKey={activeTab} onChange={changeTab} items={[
       { key: 'images', label: <span className="tab-count">{t('offlineImages')}<span>{images.length}</span></span>, children: imageTab },
       { key: 'registries', label: <span className="tab-count">{t('registries')}<span>{registries.length}</span></span>, children: registryTab },
     ]} />
