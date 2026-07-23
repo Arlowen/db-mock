@@ -349,6 +349,7 @@ button { font: inherit; }
 .alert-toolbar .ant-segmented { min-width: 0; max-width: 100%; overflow-x: auto; }
 .alert-toolbar .ant-select { width: 160px; }
 .alert-toolbar > .ant-btn { flex: none; }
+.alert-refresh-button { margin-left: auto; }
 .alert-list-card .ant-table-cell { vertical-align: middle; }
 .alert-title-cell { min-width: 0; display: grid; gap: 5px; }
 .alert-title-cell .ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; font-weight: 650; text-align: start; white-space: normal; }
@@ -380,6 +381,8 @@ button { font: inherit; }
 .alert-diagnostic-details code { white-space: normal; overflow-wrap: anywhere; }
 .alert-detail .ant-alert-description code { white-space: normal; overflow-wrap: anywhere; }
 .webhook-grid .ant-col { display: flex; }
+.webhook-section-card .ant-card-head-title { font-size: 14px; }
+.webhook-section-card .ant-card-extra { margin-inline-start: 16px; }
 .webhook-section-card > .ant-card-body { min-height: 260px; }
 .webhook-section-card .ant-empty { margin-block: 42px; }
 .webhook-card { width: 100%; height: 100%; }
@@ -580,6 +583,7 @@ button { font: inherit; }
   .page-header p.ant-typography { max-width: 40ch; }
   .alert-toolbar .ant-input-search { flex-basis: 100%; }
   .alert-toolbar .ant-select { flex: 1; }
+  .alert-refresh-button { margin-left: 0; }
   .alert-resource-health { align-items: flex-start; flex-wrap: wrap; }
   .alert-resource-health .ant-alert-section { min-width: 0; flex: 1 1 220px; }
   .alert-resource-health .ant-alert-actions { width: 100%; margin-inline-start: 0; padding-top: 8px; }
@@ -592,6 +596,9 @@ button { font: inherit; }
   .webhook-card-header h4.ant-typography { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
   .webhook-card-footer > .ant-space { display: grid; grid-template-columns: minmax(0, 1fr); }
   .webhook-card-footer > .ant-space .ant-btn { width: 100%; }
+  .webhook-section-card .ant-card-head { padding-inline: 16px; }
+  .webhook-section-card .ant-card-head-wrapper { align-items: center; }
+  .webhook-section-card .ant-card-extra { margin-inline-start: 10px; }
   .webhook-delete-label { display: inline; }
   .delivery-details { padding: 8px; }
   .delivery-details .ant-descriptions-item-container { align-items: flex-start; flex-direction: column; gap: 4px; }
