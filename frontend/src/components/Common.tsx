@@ -23,9 +23,9 @@ export function PageHeaderTargetProvider({ target, children }: { target: HTMLEle
 
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   const target = useContext(PageHeaderTargetContext)
-  const header = <div className="page-header"><div className="page-header-copy"><Typography.Title level={2}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>{actions && <Space className="page-header-actions" wrap>{actions}</Space>}</div>
-  if (target === undefined) return header
-  return target ? createPortal(header, target) : null
+  const copy = <div className="page-header-copy"><Typography.Title level={2}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>
+  if (target === undefined) return <div className="page-header page-header-inline">{copy}{actions && <Space className="page-header-actions" wrap>{actions}</Space>}</div>
+  return <>{target && createPortal(<div className="page-header">{copy}</div>, target)}{actions && <div className="page-content-actions"><Space wrap>{actions}</Space></div>}</>
 }
 
 export function EmptyState({ action, actionLabel, description, compact = false }: { action?: () => void; actionLabel?: ReactNode; description?: ReactNode; compact?: boolean }) {
