@@ -414,6 +414,11 @@ button { font: inherit; }
 .delivery-details code { white-space: normal; overflow-wrap: anywhere; }
 .delivery-row-focused > .ant-table-cell { background: #edf5ff !important; }
 .catalog-toolbar { margin-bottom: 16px; }
+.catalog-filter-controls { min-width: 0; display: flex; align-items: center; gap: 10px; flex: 1; }
+.catalog-search { width: min(360px, 100%); flex: 1 1 280px; }
+.catalog-tier-filter { flex: none; }
+.catalog-toolbar-actions { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.catalog-toolbar-actions > .ant-typography { white-space: nowrap; font-size: 12px; }
 .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 16px; align-items: stretch; }
 .template-card { height: 100%; display: flex; flex-direction: column; }
 .template-card .ant-card-body { min-width: 0; min-height: 242px; display: flex; flex: 1; flex-direction: column; }
@@ -427,8 +432,8 @@ button { font: inherit; }
 .template-card-description.ant-typography { width: calc(100% - 70px); min-height: 44px; margin: 0; margin-inline-start: 70px; line-height: 22px; }
 .template-card-tags { width: calc(100% - 70px); min-width: 0; min-height: 24px; margin-inline-start: 70px; overflow: hidden; }
 .template-card-tags .ant-tag { margin-inline-end: 0; }
-.template-meta { min-width: 0; margin-top: 16px; padding-top: 14px; border-top: 1px solid #eef1f5; display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; color: #667085; font-size: 12px; }
-.template-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-meta { min-width: 0; margin-top: 16px; padding-top: 14px; border-top: 1px solid #eef1f5; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; color: #667085; font-size: 12px; }
+.template-meta span { min-width: 0; overflow-wrap: anywhere; }
 .template-detail { display: grid; gap: 20px; }
 .template-detail-summary { min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; gap: 14px; }
 .template-detail-summary .ant-typography { margin: 0; }
@@ -602,6 +607,17 @@ button { font: inherit; }
   .audit-change-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .audit-detail-footer { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
   .audit-detail-footer .ant-btn { width: 100%; }
+  .catalog-toolbar .split-toolbar { align-items: stretch; flex-direction: column; }
+  .catalog-filter-controls { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .catalog-search { width: 100%; }
+  .catalog-tier-filter { width: 100%; max-width: 100%; overflow-x: auto; }
+  .catalog-tier-filter .ant-segmented-group { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .catalog-toolbar-actions { width: 100%; justify-content: space-between; }
+  .template-card .ant-card-body { min-height: 0; padding: 18px; }
+  .template-card-main { grid-template-rows: auto; gap: 12px; }
+  .template-card-header { align-items: start; }
+  .template-card-description.ant-typography { width: 100%; min-height: 0; margin-inline-start: 0; }
+  .template-card-tags { width: 100%; min-height: 0; margin-inline-start: 0; overflow: visible; }
   .project-list-card .ant-card-head { padding-inline: 16px; }
   .project-list-card .ant-card-head-wrapper { align-items: flex-start; flex-direction: column; gap: 10px; }
   .project-list-card .ant-card-extra { width: 100%; margin: 0 0 14px; }

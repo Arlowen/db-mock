@@ -39,6 +39,7 @@ export function CatalogPage() {
       return [item.name, item.nameZh, item.slug, item.category, item.description, t(categoryKey, { defaultValue: item.category }), t(descriptionKey, { defaultValue: item.description }), ...versionTerms].filter(Boolean).join(' ').toLowerCase().includes(query)
     })
   }, [i18n.language, items, search, t, tier])
+  const hasFilters = tier !== 'all' || !!search.trim()
   const customEmpty = tier === 'custom' && search.trim() === '' && filtered.length === 0
   const showUpload = () => { setFile(null); setUploadError(''); setUploadDraftDirty(false); setUploadOpen(true) }
   const finishCloseUpload = () => { setUploadOpen(false); setFile(null); setUploadError(''); setUploadDraftDirty(false) }
@@ -83,13 +84,13 @@ export function CatalogPage() {
   const resetFilters = () => { setSearch(''); setTier('all') }
   return <><PageHeader title={t('catalog')} description={t('catalogDescription')} />
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('catalogLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    {(items.length > 0 || !loadError) && <Card className="catalog-toolbar"><div className="split-toolbar"><Space wrap><Input.Search aria-label={t('catalogSearchLabel')} allowClear value={search} placeholder={t('catalogSearchPlaceholder')} style={{ width: 320 }} onChange={(e) => setSearch(e.target.value)} /><Segmented value={tier} onChange={(v) => setTier(String(v))} options={[{ value: 'all', label: t('all') }, { value: 'standard', label: t('standard') }, { value: 'experimental', label: t('experimental') }, { value: 'custom', label: t('custom') }]} /></Space>{canOperate && !customEmpty && <Button icon={<UploadOutlined />} onClick={showUpload}>{t('uploadTemplate')}</Button>}</div></Card>}
+    {(items.length > 0 || !loadError) && <Card className="catalog-toolbar"><div className="split-toolbar"><div className="catalog-filter-controls"><Input.Search className="catalog-search" aria-label={t('catalogSearchLabel')} allowClear value={search} placeholder={t('catalogSearchPlaceholder')} onChange={(e) => setSearch(e.target.value)} /><Segmented className="catalog-tier-filter" aria-label={t('catalogTierFilterLabel')} value={tier} onChange={(v) => setTier(String(v))} options={[{ value: 'all', label: t('all') }, { value: 'standard', label: t('standard') }, { value: 'experimental', label: t('experimental') }, { value: 'custom', label: t('custom') }]} /></div><div className="catalog-toolbar-actions"><Typography.Text type="secondary">{t(hasFilters ? 'catalogFilteredResultCount' : 'catalogResultCount', { filtered: filtered.length, total: items.length, count: items.length })}</Typography.Text>{canOperate && !customEmpty && <Button icon={<UploadOutlined />} onClick={showUpload}>{t('uploadTemplate')}</Button>}</div></div></Card>}
     {loading && items.length === 0 && <Card loading />}
     {!loading && (items.length > 0 || !loadError) && filtered.length === 0 && <Card><EmptyState action={customEmpty ? canOperate ? showUpload : undefined : resetFilters} actionLabel={customEmpty ? canOperate ? t('uploadTemplate') : undefined : t('clearFilters')} description={t(customEmpty ? 'customCatalogEmptyDescription' : 'catalogEmptyDescription')} /></Card>}
     {!loading && filtered.length > 0 && <div className="catalog-grid">{filtered.map((item) => {
       const version = item.versions.find((candidate) => candidate.selectable !== false)
       const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name
-      const actions = [...(canOperate ? [<Button key="create" type="link" icon={<PlusOutlined />} disabled={!version} onClick={() => version && navigate(`/instances?create=1&template=${version.id}`)}>{t('create')}</Button>] : []), <Button key="details" type="link" onClick={() => setDetails(item)}>{t('details')}</Button>]
+      const actions = [...(canOperate ? [<Button key="create" type="link" icon={<PlusOutlined />} aria-label={t('createTemplateLabel', { name: displayName })} disabled={!version} onClick={() => version && navigate(`/instances?create=1&template=${version.id}`)}>{t('create')}</Button>] : []), <Button key="details" type="link" aria-label={t('viewTemplateDetailsLabel', { name: displayName })} onClick={() => setDetails(item)}>{t('details')}</Button>]
       if (canOperate && !item.builtin) actions.push(<Button key="delete" type="link" danger icon={<DeleteOutlined />} aria-label={t('deleteTemplateLabel', { name: displayName })} onClick={() => removeTemplate(item)}>{t('delete')}</Button>)
       return <Card key={item.id} className="template-card" actions={actions}>
         <div className="template-card-main">
@@ -101,12 +102,12 @@ export function CatalogPage() {
             </div>
           </div>
           <Typography.Paragraph className="template-card-description" type="secondary" ellipsis={{ rows: 2 }}>{t(`templateDescription_${item.slug}`, { defaultValue: item.description })}</Typography.Paragraph>
-          <Space className="template-card-tags"><Tag>{t(`category_${item.category.replaceAll('-', '_')}`, { defaultValue: item.category })}</Tag>{version?.architectures.map((arch) => <Tag key={arch}>{arch}</Tag>)}</Space>
+          <Space wrap size={[6, 6]} className="template-card-tags"><Tag>{t(`category_${item.category.replaceAll('-', '_')}`, { defaultValue: item.category })}</Tag>{version?.architectures.map((arch) => <Tag key={arch}>{arch}</Tag>)}</Space>
         </div>
-        {version && <div className="template-meta"><span>v{version.version}</span><span>{version.minCpu} CPU</span><span>{bytes(version.minMemoryBytes)}</span><span>{bytes(version.minDiskBytes)}</span></div>}
+        {version && <div className="template-meta"><span>{t('version')} v{version.version}</span><span>{version.minCpu} CPU</span><span>{t('memory')} {bytes(version.minMemoryBytes)}</span><span>{t('disk')} {bytes(version.minDiskBytes)}</span></div>}
       </Card>
     })}</div>}
-    <Modal title={t('uploadTemplate')} open={uploadOpen} onCancel={closeUpload} onOk={() => void upload()} confirmLoading={uploading} closable={!uploading} maskClosable={!uploading} cancelButtonProps={{ disabled: uploading }} okText={t('uploadTemplate')} okButtonProps={{ disabled: !file }}><Typography.Paragraph type="secondary">{t('uploadTemplateHint')}</Typography.Paragraph><Alert className="template-version-alert" type="info" showIcon message={t('immutableTemplateVersionTitle')} description={t('immutableTemplateVersionHint')} />{uploadError && <Alert className="form-save-alert" type="error" showIcon message={t('templateUploadFailed')} description={uploadError} />}<Upload.Dragger accept=".zip" maxCount={1} beforeUpload={() => false} fileList={file ? [file] : []} disabled={uploading} onChange={({ fileList }) => changeTemplateFile(fileList.at(-1) ?? null)}><p className="ant-upload-drag-icon"><UploadOutlined /></p><p>{t('dropTemplatePackage')}</p></Upload.Dragger></Modal>
+    <Modal title={t('uploadTemplate')} open={uploadOpen} onCancel={closeUpload} onOk={() => void upload()} confirmLoading={uploading} closable={!uploading} maskClosable={!uploading} cancelButtonProps={{ disabled: uploading }} okText={t('uploadTemplate')} okButtonProps={{ disabled: !file }} style={{ top: 32 }} styles={{ body: { maxHeight: 'calc(100dvh - 190px)', overflowY: 'auto', paddingRight: 4 } }}><Typography.Paragraph type="secondary">{t('uploadTemplateHint')}</Typography.Paragraph><Alert className="template-version-alert" type="info" showIcon message={t('immutableTemplateVersionTitle')} description={t('immutableTemplateVersionHint')} />{uploadError && <Alert className="form-save-alert" type="error" showIcon message={t('templateUploadFailed')} description={uploadError} />}<Upload.Dragger accept=".zip" maxCount={1} beforeUpload={() => false} fileList={file ? [file] : []} disabled={uploading} onChange={({ fileList }) => changeTemplateFile(fileList.at(-1) ?? null)}><p className="ant-upload-drag-icon"><UploadOutlined /></p><p>{t('dropTemplatePackage')}</p></Upload.Dragger></Modal>
     <TemplateDetailsModal template={details} canCreate={canOperate} onClose={() => setDetails(null)} onCreate={(versionID) => { setDetails(null); navigate(`/instances?create=1&template=${versionID}`) }} />
   </>
 }
@@ -125,6 +126,8 @@ function TemplateDetailsModal({ template, canCreate, onClose, onCreate }: { temp
     title={t('templateDetails')}
     open={!!template}
     width={720}
+    style={{ top: 32 }}
+    styles={{ body: { maxHeight: 'calc(100dvh - 190px)', overflowY: 'auto', paddingRight: 4 } }}
     destroyOnHidden
     onCancel={onClose}
     footer={<><Button onClick={onClose}>{t('close')}</Button>{canCreate && <Button type="primary" icon={<PlusOutlined />} disabled={!version} onClick={() => version && onCreate(version.id)}>{t('createInstance')}</Button>}</>}
