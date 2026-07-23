@@ -323,8 +323,8 @@ button { font: inherit; }
 .alert-icon.severity-warning { color: #d46b08; background: #fff7e6; }
 .alert-list-card .ant-card-body { padding: 0; }
 .alert-toolbar { padding: 14px 16px; border-bottom: 1px solid #f0f2f5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.alert-toolbar .ant-input-search { min-width: 240px; flex: 1; }
-.alert-toolbar .ant-segmented { max-width: 100%; overflow-x: auto; }
+.alert-toolbar .ant-input-search { min-width: 240px; flex: 1 1 280px; }
+.alert-toolbar .ant-segmented { min-width: 0; max-width: 100%; overflow-x: auto; }
 .alert-toolbar .ant-select { width: 160px; }
 .alert-toolbar > .ant-btn { flex: none; }
 .alert-list-card .ant-table-cell { vertical-align: middle; }
@@ -476,6 +476,11 @@ button { font: inherit; }
 .brand-lockup { display: flex; align-items: center; gap: 16px; }
 .brand-lockup .ant-typography { margin: 0; }
 
+@media (max-width: 1400px) {
+  .alert-toolbar .ant-input-search { flex-basis: 240px; }
+  .alert-toolbar .ant-segmented { order: 3; width: 100%; }
+}
+
 @media (max-width: 1000px) {
   .app-content { padding: 22px; }
   .app-header { padding-inline: 22px !important; gap: 14px; }
@@ -498,8 +503,6 @@ button { font: inherit; }
   .image-toolbar > .ant-select { flex: 1; }
   .image-cleanup-controls { align-items: stretch; flex-direction: column; }
   .image-cleanup-controls .ant-select { width: 100%; }
-  .alert-toolbar .ant-input-search { flex-basis: calc(100% - 172px); }
-  .alert-toolbar .ant-segmented { order: 3; width: 100%; }
   .host-capacity-grid { grid-template-columns: 1fr; }
   .host-health-facts { grid-template-columns: 1fr; }
   .host-health-guidance { align-items: flex-start; flex-direction: column; gap: 9px; }
@@ -511,6 +514,8 @@ button { font: inherit; }
   .app-header { padding-inline: 16px !important; gap: 10px; }
   .app-content { padding: 16px; }
   .page-header p.ant-typography { max-width: 40ch; }
+  .alert-toolbar .ant-input-search { flex-basis: 100%; }
+  .alert-toolbar .ant-select { flex: 1; }
   .settings-section-actions { align-items: stretch; flex-direction: column; }
   .settings-section-actions .ant-btn { width: 100%; }
 }
