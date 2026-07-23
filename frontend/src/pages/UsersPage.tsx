@@ -1,4 +1,4 @@
-import { EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Card, Form, Grid, Input, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -170,7 +170,7 @@ export function UsersPage() {
           <Button className="user-name-button" type="link" onClick={() => show(item)}>{item.displayName}</Button>
           {item.id === currentUser?.id && <Tag color="blue">{t('currentAccount')}</Tag>}
         </Space>
-        <Typography.Text type="secondary">{item.username}</Typography.Text>
+        <Typography.Text type="secondary">@{item.username}</Typography.Text>
       </div>
     </Space>
   }
@@ -197,7 +197,7 @@ export function UsersPage() {
 
   const columns = [
     {
-      title: t('username'),
+      title: t('user'),
       dataIndex: 'username',
       width: 230,
       render: (_value: string, item: User) => identity(item),
@@ -221,7 +221,7 @@ export function UsersPage() {
     {(items.length > 0 || !loadError) && <Card className="user-table-card" title={t('users')} extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('createUser')}</Button>}>
       <div className="user-toolbar">
         <div className="user-filter-controls">
-          <Input.Search className="user-search" allowClear aria-label={t('searchUsersLabel')} placeholder={t('searchUsersPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} />
+          <Input className="user-search" allowClear prefix={<SearchOutlined />} aria-label={t('searchUsersLabel')} placeholder={t('searchUsersPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} />
           <Select className="user-filter" aria-label={t('role')} value={roleFilter} onChange={(value) => { setRoleFilter(value); setPage(1) }} options={[
             { value: '', label: t('allRoles') },
             { value: 'admin', label: t('role_admin') },
@@ -252,7 +252,7 @@ export function UsersPage() {
     </Card>}
 
     <Modal
-      title={editing ? `${t('edit')} · ${editing.displayName}` : t('createUser')}
+      title={editing ? t('editUserTitle', { username: editing.username }) : t('createUser')}
       open={open}
       onCancel={closeEditor}
       onOk={() => void save()}
