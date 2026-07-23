@@ -45,6 +45,10 @@ export function imageArtifactSupportsAnyArchitecture(imageArchitectures: string[
   return targetArchitectures.some((architecture) => imageArchitectures.includes(architecture))
 }
 
+export function isSupportedImageArchive(filename: string): boolean {
+  return /\.(?:tar|tar\.gz|tgz)$/i.test(filename.trim())
+}
+
 export function imageSourceSelectionReady(source: string, registryID?: string, imageArtifactID?: string): boolean {
   if (source === 'public') return true
   if (source === 'registry') return !!registryID

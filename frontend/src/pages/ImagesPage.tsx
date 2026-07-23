@@ -44,7 +44,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { ApiError, api, discardImageUpload, errorMessage, uploadInChunks } from '../lib/api'
 import type { ImageUploadPhase } from '../lib/api'
-import { isRegistryURL } from '../lib/image-source'
+import { isRegistryURL, isSupportedImageArchive } from '../lib/image-source'
 import { formatDateTime } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import type { DatabaseTemplate, Host, ImageArtifact, Registry } from '../lib/types'
@@ -247,11 +247,16 @@ export function ImagesPage() {
   }
 
   const changeFile = (nextFile: UploadFile | null) => {
-    setFile(nextFile)
     const nativeFile = nextFile?.originFileObj
-    setUploadError(nativeFile && nativeFile.size > uploadSettings.maxBytes ? t('imageFileTooLarge', { size: bytes(nativeFile.size), max: bytes(uploadSettings.maxBytes) }) : '')
     setProgress(0)
     setUploadPhase('idle')
+    if (nativeFile && !isSupportedImageArchive(nativeFile.name)) {
+      setFile(null)
+      setUploadError(t('unsupportedImageArchive'))
+      return
+    }
+    setFile(nextFile)
+    setUploadError(nativeFile && nativeFile.size > uploadSettings.maxBytes ? t('imageFileTooLarge', { size: bytes(nativeFile.size), max: bytes(uploadSettings.maxBytes) }) : '')
     const values = uploadForm.getFieldsValue()
     if (nextFile && !values.name) {
       values.name = archiveName(nextFile.name)
@@ -556,12 +561,12 @@ export function ImagesPage() {
     className="registry-section-card"
     title={t('registries')}
     loading={loading}
-    extra={canOperate ? <Button type="primary" icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button> : undefined}
+    extra={canOperate && registries.length > 0 ? <Button type="primary" icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button> : undefined}
   >
     <Alert className="registry-controller-note" type="info" showIcon message={t('registryTestFromController')} description={t('registryTestFromControllerHint')} />
     <Row gutter={[16, 16]} className="registry-grid">
       {registries.map((item) => {
-        return <Col xs={24} lg={12} xl={8} key={item.id}>
+        return <Col xs={24} xl={12} xxl={8} key={item.id}>
           <Card className="registry-card">
             <div className="registry-card-header">
               <span className="registry-icon"><CloudServerOutlined /></span>
@@ -590,7 +595,7 @@ export function ImagesPage() {
           </Card>
         </Col>
       })}
-      {registries.length === 0 && <Col span={24}><EmptyState description={t('registriesEmptyDescription')} /></Col>}
+      {registries.length === 0 && <Col span={24}><EmptyState compact action={canOperate ? () => showRegistry() : undefined} actionLabel={canOperate ? t('addRegistry') : undefined} description={t('registriesEmptyDescription')} /></Col>}
     </Row>
   </Card>
 

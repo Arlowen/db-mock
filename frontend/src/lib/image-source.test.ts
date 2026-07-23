@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, isRegistryURL, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
+import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, isRegistryURL, isSupportedImageArchive, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
 
 describe('image source matching', () => {
   it('resolves Docker Hub shorthand and explicit registries', () => {
@@ -55,5 +55,14 @@ describe('image source matching', () => {
     expect(imageSourceSelectionReady('offline')).toBe(false)
     expect(imageSourceSelectionReady('offline', undefined, 'image-id')).toBe(true)
     expect(imageSourceSelectionReady('unknown')).toBe(false)
+  })
+
+  it('accepts only supported offline image archive filenames', () => {
+    expect(isSupportedImageArchive('postgres-17.tar')).toBe(true)
+    expect(isSupportedImageArchive('postgres-17.tar.gz')).toBe(true)
+    expect(isSupportedImageArchive('postgres-17.TGZ')).toBe(true)
+    expect(isSupportedImageArchive('postgres-17.zip')).toBe(false)
+    expect(isSupportedImageArchive('postgres-17.tar.gz.txt')).toBe(false)
+    expect(isSupportedImageArchive('')).toBe(false)
   })
 })
