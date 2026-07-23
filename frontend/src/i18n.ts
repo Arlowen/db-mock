@@ -66,8 +66,8 @@ export const zh: Record<string, string> = {
 
   projectsDescription: '项目用于逻辑分组；操作权限由当前账号角色决定。', createProject: '创建项目', editProject: '编辑项目', projectListLoadFailed: '无法加载项目',
   hostsDescription: '仅支持直连 SSH；Linux 可选择自动安装 Docker，macOS 需要预装 Docker Desktop。', hostListLoadFailed: '无法加载主机',
-  catalogDescription: '固定版本、感知主机架构的 Docker Compose 模板；实验性模板仅建议用于开发和测试。',
-  instancesDescription: '运行在单台主机上的 Docker Compose 数据库实例。',
+  catalogDescription: '固定版本、感知主机架构的 Docker Compose 模板；实验性模板仅建议用于开发和测试。', catalogLoadFailed: '无法加载数据库目录',
+  instancesDescription: '运行在单台主机上的 Docker Compose 数据库实例。', instanceListLoadFailed: '无法加载数据库部署信息',
   instancesSearchLabel: '搜索数据库实例', instancesSearchPlaceholder: '搜索名称、模板、主机或标签',
   instanceResultCount: '共 {{count}} 个实例', instanceFilteredResultCount: '筛选出 {{filtered}} / {{total}} 个实例',
   imagesDescription: '支持断点续传的 Docker 镜像包与带认证的 OCI 镜像仓库。',
@@ -407,8 +407,8 @@ export const en: Record<string, string> = {
 
   projectsDescription: 'Logical grouping for resources; the signed-in account role controls operations.', createProject: 'Create project', editProject: 'Edit project', projectListLoadFailed: 'Unable to load projects',
   hostsDescription: 'Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop.', hostListLoadFailed: 'Unable to load hosts',
-  catalogDescription: 'Pinned, architecture-aware Docker Compose templates. Experimental templates are for development and test workloads.',
-  instancesDescription: 'Single-host Docker Compose database instances.',
+  catalogDescription: 'Pinned, architecture-aware Docker Compose templates. Experimental templates are for development and test workloads.', catalogLoadFailed: 'Unable to load the database catalog',
+  instancesDescription: 'Single-host Docker Compose database instances.', instanceListLoadFailed: 'Unable to load database deployment information',
   instancesSearchLabel: 'Search database instances', instancesSearchPlaceholder: 'Search name, template, host, or label',
   instanceResultCount: '{{count}} instances', instanceFilteredResultCount: '{{filtered}} of {{total}} instances',
   imagesDescription: 'Resumable Docker image archives and authenticated OCI registries.',

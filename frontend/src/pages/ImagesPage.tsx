@@ -422,7 +422,8 @@ export function ImagesPage() {
     ? <EmptyState compact action={resetImageFilters} actionLabel={t('clearFilters')} description={t('imagesFilteredEmptyDescription')} />
     : <EmptyState compact action={canOperate ? showImageUpload : undefined} actionLabel={canOperate ? t('uploadImage') : undefined} description={t('imagesEmptyDescription')} />
   const showImageFilters = images.length > 0 || hasImageFilters
-  const imageListActions = <Space wrap><Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && <>{images.length > 0 && <Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button>}<Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}</Space>
+  const hasDeploymentData = images.length > 0 || registries.length > 0
+  const imageListActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && images.length > 0 && <><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}</Space>
 
   const selectedMatches = selectedImage ? matchingVersions(selectedImage, templates) : []
   const selectedCompatibleHosts = selectedImage ? hosts.filter((host) => host.status === 'online' && !host.maintenance && selectedImage.architectures.includes(host.architecture || '')) : []
@@ -560,10 +561,10 @@ export function ImagesPage() {
       description={t('imagesDescription')}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    <Tabs activeKey={activeTab} onChange={changeTab} items={[
+    {(hasDeploymentData || !pageError) && <Tabs activeKey={activeTab} onChange={changeTab} items={[
       { key: 'images', label: <span className="tab-count">{t('offlineImages')}<span>{images.length}</span></span>, children: imageTab },
       { key: 'registries', label: <span className="tab-count">{t('registries')}<span>{registries.length}</span></span>, children: registryTab },
-    ]} />
+    ]} />}
 
     <Modal
       title={t('uploadImage')}

@@ -14,9 +14,20 @@ import type { DatabaseTemplate } from '../lib/types'
 import { bytes } from '../lib/types'
 
 export function CatalogPage() {
-  const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message, modal } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [details, setDetails] = useState<DatabaseTemplate | null>(null)
+  const { t, i18n } = useTranslation(); const navigate = useNavigate(); const { message, modal } = App.useApp(); const [items, setItems] = useState<DatabaseTemplate[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [uploading, setUploading] = useState(false); const [search, setSearch] = useState(''); const [tier, setTier] = useState('all'); const [uploadOpen, setUploadOpen] = useState(false); const [file, setFile] = useState<UploadFile | null>(null); const [details, setDetails] = useState<DatabaseTemplate | null>(null)
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
-  const load = useCallback(() => api<{ items: DatabaseTemplate[] }>('/templates').then((r) => setItems(r.items)).catch((e) => message.error(errorMessage(e))).finally(() => setLoading(false)), [message]); useEffect(() => { void load() }, [load])
+  const load = useCallback(async () => {
+    try {
+      const response = await api<{ items: DatabaseTemplate[] }>('/templates')
+      setItems(response.items)
+      setLoadError('')
+    } catch (error) {
+      setLoadError(errorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+  useEffect(() => { void load() }, [load])
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
     return items.filter((item) => {
@@ -34,9 +45,10 @@ export function CatalogPage() {
   const removeTemplate = (item: DatabaseTemplate) => { const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name; modal.confirm({ title: t('deleteTemplateConfirm', { name: displayName }), content: t('deleteTemplateHint'), okText: t('delete'), cancelText: t('cancel'), okButtonProps: { danger: true }, onOk: async () => { try { await api(`/templates/${item.id}`, { method: 'DELETE' }); if (details?.id === item.id) setDetails(null); message.success(t('templateDeleted')); await load() } catch (error) { message.error(errorMessage(error)); throw error } } }) }
   const resetFilters = () => { setSearch(''); setTier('all') }
   return <><PageHeader title={t('catalog')} description={t('catalogDescription')} />
-    <Card className="catalog-toolbar"><div className="split-toolbar"><Space wrap><Input.Search aria-label={t('catalogSearchLabel')} allowClear value={search} placeholder={t('catalogSearchPlaceholder')} style={{ width: 320 }} onChange={(e) => setSearch(e.target.value)} /><Segmented value={tier} onChange={(v) => setTier(String(v))} options={[{ value: 'all', label: t('all') }, { value: 'standard', label: t('standard') }, { value: 'experimental', label: t('experimental') }, { value: 'custom', label: t('custom') }]} /></Space>{canOperate && <Button icon={<UploadOutlined />} onClick={showUpload}>{t('uploadTemplate')}</Button>}</div></Card>
-    {loading && <Card loading />}
-    {!loading && filtered.length === 0 && <Card><EmptyState action={customEmpty ? canOperate ? showUpload : undefined : resetFilters} actionLabel={customEmpty ? canOperate ? t('uploadTemplate') : undefined : t('clearFilters')} description={t(customEmpty ? 'customCatalogEmptyDescription' : 'catalogEmptyDescription')} /></Card>}
+    {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('catalogLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {(items.length > 0 || !loadError) && <Card className="catalog-toolbar"><div className="split-toolbar"><Space wrap><Input.Search aria-label={t('catalogSearchLabel')} allowClear value={search} placeholder={t('catalogSearchPlaceholder')} style={{ width: 320 }} onChange={(e) => setSearch(e.target.value)} /><Segmented value={tier} onChange={(v) => setTier(String(v))} options={[{ value: 'all', label: t('all') }, { value: 'standard', label: t('standard') }, { value: 'experimental', label: t('experimental') }, { value: 'custom', label: t('custom') }]} /></Space>{canOperate && !customEmpty && <Button icon={<UploadOutlined />} onClick={showUpload}>{t('uploadTemplate')}</Button>}</div></Card>}
+    {loading && items.length === 0 && <Card loading />}
+    {!loading && (items.length > 0 || !loadError) && filtered.length === 0 && <Card><EmptyState action={customEmpty ? canOperate ? showUpload : undefined : resetFilters} actionLabel={customEmpty ? canOperate ? t('uploadTemplate') : undefined : t('clearFilters')} description={t(customEmpty ? 'customCatalogEmptyDescription' : 'catalogEmptyDescription')} /></Card>}
     {!loading && filtered.length > 0 && <div className="catalog-grid">{filtered.map((item) => {
       const version = item.versions.find((candidate) => candidate.selectable !== false)
       const displayName = i18n.language === 'zh-CN' ? item.nameZh || item.name : item.name

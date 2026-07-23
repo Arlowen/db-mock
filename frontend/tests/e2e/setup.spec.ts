@@ -189,7 +189,7 @@ test('initializes the platform and switches the embedded interface language', as
 
   await page.goto('/instances')
   await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从目录选择模板部署。')).toBeVisible()
-  await expect(page.locator('.page-header').getByRole('button', { name: '接入主机' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '接入主机' })).toHaveCount(1)
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [
     { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
     { id: '22222222-2222-4222-8222-222222222222', name: 'E2E Staging', status: 'offline', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
@@ -509,8 +509,8 @@ test('initializes the platform and switches the embedded interface language', as
 
   await page.goto('/images')
   await expect(page.getByText('尚未上传离线镜像。上传 docker save 导出的镜像包，即可在无法访问镜像仓库时部署数据库。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '上传离线镜像' }).first()).toBeVisible()
-  await page.getByRole('button', { name: '上传离线镜像' }).first().click()
+  await expect(page.getByRole('button', { name: '上传离线镜像' })).toHaveCount(1)
+  await page.getByRole('button', { name: '上传离线镜像' }).click()
   const uploadImageDialog = page.getByRole('dialog', { name: '上传离线镜像' })
   await expect(uploadImageDialog.getByText('支持断点续传')).toBeVisible()
   await expect(uploadImageDialog.getByLabel('显示名称')).toHaveValue('')
@@ -730,6 +730,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.locator('.database-icon')).toHaveCount(19)
   await page.locator('.catalog-toolbar').getByText('自定义', { exact: true }).click()
   await expect(page.getByText('尚未上传自定义模板。上传可信的 Compose 模板包后，它会出现在这里。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '上传 Compose 模板' })).toHaveCount(1)
   await page.locator('.ant-empty').getByRole('button', { name: '上传 Compose 模板' }).click()
   const uploadTemplateDialog = page.getByRole('dialog', { name: '上传 Compose 模板' })
   await expect(uploadTemplateDialog.getByText('上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。')).toBeVisible()
