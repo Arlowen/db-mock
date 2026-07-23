@@ -66,7 +66,10 @@ export const zh: Record<string, string> = {
   errorDetail_selected_host_is_not_available: '目标主机当前离线或处于维护模式，暂时不能变更运行配置。',
 
   projectsDescription: '项目用于逻辑分组；操作权限由当前账号角色决定。', createProject: '创建项目', editProject: '编辑项目', projectListLoadFailed: '无法加载项目', projectSaveFailed: '无法保存项目',
-  hostsDescription: '仅支持直连 SSH；Linux 可选择自动安装 Docker，macOS 需要预装 Docker Desktop。', hostListLoadFailed: '无法加载主机', hostSupportingDataLoadFailed: '部分主机信息未更新',
+  projectSearchLabel: '搜索项目', projectSearchPlaceholder: '搜索项目名称或描述', projectResultCount: '共 {{count}} 个项目', projectFilteredResultCount: '筛选出 {{filtered}} / {{total}} 个项目', projectFilteredEmptyDescription: '没有符合当前搜索条件的项目。',
+  projectFormHint: '项目用于组织相关主机和数据库；创建后可随时调整名称、描述和颜色。', projectNameHint: '项目名称必须唯一，建议使用团队、环境或业务线名称。', projectNameRequired: '请输入项目名称', projectNameLength: '项目名称不能超过 120 个字符', projectDescriptionLength: '项目描述不能超过 500 个字符', projectColorHint: '颜色用于在项目列表中快速识别分组。',
+  projectDeleteBlockedHint: '该项目仍包含主机或数据库实例，请先将资源移出项目后再删除。',
+  hostsDescription: '仅支持直连 SSH；Linux 可选择自动安装 Docker，macOS 需要预装 Docker Desktop。', hostListLoadFailed: '无法加载主机', hostSupportingDataLoadFailed: '部分主机信息未更新', hostResultCount: '共 {{count}} 台主机', hostFilteredResultCount: '当前项目 {{filtered}} / {{total}} 台主机', hostsFilteredEmptyDescription: '该项目下还没有主机。',
   catalogDescription: '固定版本、感知主机架构的 Docker Compose 模板；实验性模板仅建议用于开发和测试。', catalogLoadFailed: '无法加载数据库目录',
   instancesDescription: '运行在单台主机上的 Docker Compose 数据库实例。', instanceListLoadFailed: '无法加载数据库部署信息', instanceSupportingDataLoadFailed: '部分创建条件未更新', instanceCreationDataUnavailable: '实例列表仍可查看，但模板或主机信息暂不可用。重试后即可继续创建数据库。',
   instancesSearchLabel: '搜索数据库实例', instancesSearchPlaceholder: '搜索名称、模板、主机或标签',
@@ -413,7 +416,10 @@ export const en: Record<string, string> = {
   errorDetail_selected_host_is_not_available: 'The target host is offline or in maintenance and cannot accept a runtime change.',
 
   projectsDescription: 'Logical grouping for resources; the signed-in account role controls operations.', createProject: 'Create project', editProject: 'Edit project', projectListLoadFailed: 'Unable to load projects', projectSaveFailed: 'Unable to save project',
-  hostsDescription: 'Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop.', hostListLoadFailed: 'Unable to load hosts', hostSupportingDataLoadFailed: 'Some host information is not up to date',
+  projectSearchLabel: 'Search projects', projectSearchPlaceholder: 'Search project name or description', projectResultCount: '{{count}} projects', projectFilteredResultCount: '{{filtered}} of {{total}} projects', projectFilteredEmptyDescription: 'No projects match the current search.',
+  projectFormHint: 'Projects group related hosts and databases. You can update the name, description, and color later.', projectNameHint: 'Project names must be unique. Use a team, environment, or product-area name.', projectNameRequired: 'Enter a project name', projectNameLength: 'The project name cannot exceed 120 characters', projectDescriptionLength: 'The project description cannot exceed 500 characters', projectColorHint: 'Color makes the project easier to identify in lists.',
+  projectDeleteBlockedHint: 'This project still contains hosts or database instances. Move those resources out of the project before deleting it.',
+  hostsDescription: 'Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop.', hostListLoadFailed: 'Unable to load hosts', hostSupportingDataLoadFailed: 'Some host information is not up to date', hostResultCount: '{{count}} hosts', hostFilteredResultCount: '{{filtered}} of {{total}} hosts in this project', hostsFilteredEmptyDescription: 'This project does not have any hosts yet.',
   catalogDescription: 'Pinned, architecture-aware Docker Compose templates. Experimental templates are for development and test workloads.', catalogLoadFailed: 'Unable to load the database catalog',
   instancesDescription: 'Single-host Docker Compose database instances.', instanceListLoadFailed: 'Unable to load database deployment information', instanceSupportingDataLoadFailed: 'Some creation prerequisites are not up to date', instanceCreationDataUnavailable: 'You can still view existing instances, but template or host data is temporarily unavailable. Retry to continue creating a database.',
   instancesSearchLabel: 'Search database instances', instancesSearchPlaceholder: 'Search name, template, host, or label',

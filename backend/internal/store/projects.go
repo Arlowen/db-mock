@@ -26,7 +26,11 @@ func (s *Store) CreateProject(ctx context.Context, name, description, color stri
 }
 
 func (s *Store) ListProjects(ctx context.Context) ([]domain.Project, error) {
-	rows, err := s.pool.Query(ctx, "SELECT id,name,description,color,created_at,updated_at FROM projects ORDER BY lower(name)")
+	rows, err := s.pool.Query(ctx, `SELECT p.id,p.name,p.description,p.color,
+        (SELECT count(*) FROM hosts h WHERE h.project_id=p.id),
+        (SELECT count(*) FROM instances i WHERE i.project_id=p.id AND i.status<>'deleted'),
+        p.created_at,p.updated_at
+        FROM projects p ORDER BY lower(p.name)`)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +38,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]domain.Project, error) {
 	items := make([]domain.Project, 0)
 	for rows.Next() {
 		var item domain.Project
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Color, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Color, &item.HostCount, &item.InstanceCount, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -44,16 +48,25 @@ func (s *Store) ListProjects(ctx context.Context) ([]domain.Project, error) {
 
 func (s *Store) GetProject(ctx context.Context, id uuid.UUID) (domain.Project, error) {
 	var item domain.Project
-	err := s.pool.QueryRow(ctx, "SELECT id,name,description,color,created_at,updated_at FROM projects WHERE id=$1", id).Scan(
-		&item.ID, &item.Name, &item.Description, &item.Color, &item.CreatedAt, &item.UpdatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT p.id,p.name,p.description,p.color,
+        (SELECT count(*) FROM hosts h WHERE h.project_id=p.id),
+        (SELECT count(*) FROM instances i WHERE i.project_id=p.id AND i.status<>'deleted'),
+        p.created_at,p.updated_at FROM projects p WHERE p.id=$1`, id).Scan(
+		&item.ID, &item.Name, &item.Description, &item.Color, &item.HostCount, &item.InstanceCount, &item.CreatedAt, &item.UpdatedAt)
 	return item, translate(err)
 }
 
 func (s *Store) UpdateProject(ctx context.Context, id uuid.UUID, name, description, color string) (domain.Project, error) {
 	var item domain.Project
-	err := s.pool.QueryRow(ctx, `UPDATE projects SET name=$2,description=$3,color=$4,updated_at=now()
-        WHERE id=$1 RETURNING id,name,description,color,created_at,updated_at`, id, strings.TrimSpace(name), description, color).Scan(
-		&item.ID, &item.Name, &item.Description, &item.Color, &item.CreatedAt, &item.UpdatedAt)
+	err := s.pool.QueryRow(ctx, `WITH updated AS (
+        UPDATE projects SET name=$2,description=$3,color=$4,updated_at=now()
+        WHERE id=$1 RETURNING id,name,description,color,created_at,updated_at
+      )
+      SELECT u.id,u.name,u.description,u.color,
+        (SELECT count(*) FROM hosts h WHERE h.project_id=u.id),
+        (SELECT count(*) FROM instances i WHERE i.project_id=u.id AND i.status<>'deleted'),
+        u.created_at,u.updated_at FROM updated u`, id, strings.TrimSpace(name), description, color).Scan(
+		&item.ID, &item.Name, &item.Description, &item.Color, &item.HostCount, &item.InstanceCount, &item.CreatedAt, &item.UpdatedAt)
 	return item, translate(err)
 }
 
