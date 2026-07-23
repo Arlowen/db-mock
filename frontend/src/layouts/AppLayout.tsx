@@ -115,9 +115,11 @@ export function AppLayout() {
   }
   return <><a className="skip-link" href="#main-content">{t('skipToContent')}</a><Layout className="app-layout">
     <Sider width={244} collapsedWidth={72} collapsed={collapsed} className="app-sider" theme="light">
-      <button className="sidebar-brand" aria-label={t('dashboard')} onClick={() => navigate('/')}><BrandLogo small />{!collapsed && <span>DB Mock</span>}</button>
+      <div className="sidebar-header">
+        <button className="sidebar-brand" aria-label={t('dashboard')} onClick={() => navigate('/')}><BrandLogo small />{!collapsed && <span>DB Mock</span>}</button>
+        <Button className="sidebar-collapse" type="text" aria-label={collapsed ? t('expandMenu') : t('collapse')} title={collapsed ? t('expandMenu') : t('collapse')} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
+      </div>
       <Menu mode="inline" selectedKeys={[selected]} items={items} onClick={({ key }) => navigate(key)} />
-      <div className="sider-footer"><Button type="text" block aria-label={collapsed ? t('expandMenu') : t('collapse')} title={collapsed ? t('expandMenu') : t('collapse')} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)}>{collapsed ? '' : t('collapse')}</Button></div>
     </Sider>
     <Layout>
       <Header className="app-header">

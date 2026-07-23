@@ -10,14 +10,19 @@ button { font: inherit; }
 .app-layout > .ant-layout { min-width: 0; }
 .app-sider { position: sticky !important; top: 0; height: 100vh; border-right: 1px solid #e9edf3; box-shadow: 3px 0 18px rgb(20 45 90 / 3%); z-index: 10; }
 .app-sider .ant-layout-sider-children { display: flex; flex-direction: column; }
-.sidebar-brand { height: 64px; width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 19px; font-weight: 750; color: #15213a; cursor: pointer; white-space: nowrap; }
+.sidebar-header { position: relative; height: 64px; flex: none; }
+.sidebar-brand { height: 64px; width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 52px 0 16px; font-size: 19px; font-weight: 750; color: #15213a; cursor: pointer; white-space: nowrap; }
+.sidebar-collapse.ant-btn { position: absolute; top: 16px; right: 10px; width: 32px; height: 32px; padding: 0; color: #667085; }
+.sidebar-collapse.ant-btn:active { transform: scale(.96); }
 .brand-logo { width: 68px; height: 68px; object-fit: contain; flex: none; filter: drop-shadow(0 7px 12px rgb(24 60 120 / 16%)); }
 .brand-logo.small { width: 40px; height: 40px; filter: drop-shadow(0 3px 6px rgb(24 60 120 / 13%)); }
+.app-sider.ant-layout-sider-collapsed .sidebar-brand { padding: 0 28px 0 7px; }
+.app-sider.ant-layout-sider-collapsed .brand-logo.small { width: 34px; height: 34px; }
+.app-sider.ant-layout-sider-collapsed .sidebar-collapse.ant-btn { top: 17px; right: 3px; width: 26px; height: 30px; }
 .app-sider .ant-menu { border: 0 !important; padding: 2px 10px; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d8dee9 transparent; }
 .app-sider .ant-menu-item { height: 36px; line-height: 36px; margin-block: 2px; }
 .app-sider .ant-menu-item-group-title { padding: 9px 14px 3px; line-height: 18px; color: #98a2b3; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .app-sider.ant-layout-sider-collapsed .ant-menu-item-group-title { height: 10px; padding: 0; font-size: 0; }
-.sider-footer { flex: none; margin: 6px 10px 10px; }
 .app-header { position: sticky; top: 0; z-index: 9; height: 64px; padding: 0 28px !important; border-bottom: 1px solid #e9edf3; display: flex; justify-content: space-between; align-items: center; }
 .app-content { padding: 28px; min-width: 0; }
 .user-menu.ant-btn { height: 40px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 8px; color: #344054; border-radius: 10px; }
