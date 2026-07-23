@@ -2,7 +2,7 @@ import {
   BellOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SendOutlined,
 } from '@ant-design/icons'
 import {
-  Alert as InlineAlert, App, Button, Card, Checkbox, Col, Descriptions, Drawer, Form, Input, Modal, Popconfirm, Row,
+  Alert as InlineAlert, App, Button, Card, Checkbox, Col, Descriptions, Drawer, Form, Grid, Input, Modal, Popconfirm, Row,
   Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography,
 } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -65,6 +65,7 @@ export function AlertsPage() {
   const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const { message, modal } = App.useApp()
+  const screens = Grid.useBreakpoint()
   const location = useLocation()
   const navigate = useNavigate()
   const [form] = Form.useForm<WebhookValues>()
@@ -105,6 +106,7 @@ export function AlertsPage() {
   const activeTab = canOperate && query.get('tab') === 'webhooks' ? 'webhooks' : 'alerts'
   const selectedAlertID = query.get('alert') || ''
   const selectedWebhookID = query.get('webhook') || ''
+  const compactDeliveryTable = screens.sm === false
 
   const setQuery = useCallback((values: Record<string, string | undefined>) => {
     const next = new URLSearchParams(location.search)
@@ -432,7 +434,7 @@ export function AlertsPage() {
       <div className="webhook-event-list">{item.events.map((event) => <Tag key={event}>{t(eventKey(event), { defaultValue: event })}</Tag>)}</div>
       <div className="webhook-security"><StatusTag value={item.enabled ? 'enabled' : 'disabled'} />{item.hasSecret && <Typography.Text type="secondary">{t('hmacSigningEnabled')}</Typography.Text>}</div>
       <div className="webhook-delivery-facts"><div><Typography.Text type="secondary">{t('lastDelivery')}</Typography.Text><Space size={6}>{item.lastDeliveryStatus ? <StatusTag value={item.lastDeliveryStatus} /> : <Typography.Text>{t('notTested')}</Typography.Text>}{item.lastDeliveryAt && <Typography.Text type="secondary">{formatDateTime(item.lastDeliveryAt, i18n.language, timezone)}</Typography.Text>}</Space></div><div><Typography.Text type="secondary">{t('deliveryQueue')}</Typography.Text><Space size={6}>{item.failedDeliveries > 0 && <Tag color="red">{t('failedDeliveryCount', { count: item.failedDeliveries })}</Tag>}{item.queuedDeliveries > 0 && <Tag color="gold">{t('queuedDeliveryCount', { count: item.queuedDeliveries })}</Tag>}{!item.failedDeliveries && !item.queuedDeliveries && <Typography.Text>{t('queueClear')}</Typography.Text>}</Space></div></div>
-      <div className="webhook-card-footer"><Button icon={<HistoryOutlined />} onClick={() => openDeliveryHistory(item)}>{t('deliveryHistory')}</Button><Space><Button icon={<EditOutlined />} onClick={() => showEditWebhook(item)}>{t('edit')}</Button><Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${item.id}`} disabled={!item.enabled || (!!actioning && actioning !== `test:${item.id}`)} onClick={() => void testWebhook(item)}>{t('testWebhook')}</Button><Popconfirm title={t('delete')} description={t('webhookDeleteConfirm')} okButtonProps={{ danger: true }} onConfirm={() => void deleteWebhook(item)}><Button danger aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} loading={actioning === `delete:${item.id}`} /></Popconfirm></Space></div>
+      <div className="webhook-card-footer"><Button icon={<HistoryOutlined />} onClick={() => openDeliveryHistory(item)}>{t('deliveryHistory')}</Button><Space><Button icon={<EditOutlined />} onClick={() => showEditWebhook(item)}>{t('edit')}</Button><Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${item.id}`} disabled={!item.enabled || (!!actioning && actioning !== `test:${item.id}`)} onClick={() => void testWebhook(item)}>{t('testWebhook')}</Button><Popconfirm title={t('delete')} description={t('webhookDeleteConfirm')} okButtonProps={{ danger: true }} onConfirm={() => void deleteWebhook(item)}><Button danger aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} loading={actioning === `delete:${item.id}`}><span className="webhook-delete-label">{t('delete')}</span></Button></Popconfirm></Space></div>
       </Card></Col>)}
       {webhooks.length === 0 && <Col span={24}><EmptyState action={webhookLoadError ? () => void load() : showCreateWebhook} actionLabel={webhookLoadError ? t('retry') : t('addWebhook')} description={webhookLoadError ? t('webhooksUnavailableDescription') : t('webhooksEmptyDescription')} /></Col>}
     </Row>
@@ -480,18 +482,22 @@ export function AlertsPage() {
       {!selectedWebhook && webhookLoadError && <InlineAlert className="ops-alert" type="error" showIcon message={t('webhookListLoadFailed')} description={webhookLoadError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}
       {selectedWebhook && <div className="delivery-webhook-summary"><div><Space><StatusTag value={selectedWebhook.enabled ? 'enabled' : 'disabled'} />{selectedWebhook.hasSecret && <Tag>{t('hmacSigningEnabled')}</Tag>}</Space><Typography.Text copyable ellipsis={{ tooltip: selectedWebhook.url }}>{selectedWebhook.url}</Typography.Text></div><Typography.Paragraph type="secondary">{t('deliveryHistoryDescription')}</Typography.Paragraph></div>}
       {deliveryError && <InlineAlert className="ops-alert" type="error" showIcon message={t('deliveryLoadFailed')} description={deliveryError} action={<Button size="small" onClick={() => selectedWebhookID && void loadDeliveries(selectedWebhookID)}>{t('retry')}</Button>} />}
-      <Table rowKey="id" size="small" loading={deliveryLoading} dataSource={deliveries} pagination={false} rowClassName={(item) => item.id === focusedDeliveryID ? 'delivery-row-focused' : ''} locale={{ emptyText: <EmptyState compact description={t('noDeliveries')} /> }} expandable={{ rowExpandable: (item) => !!(item.errorMessage || item.responseBody), expandedRowRender: (item) => <Descriptions className="delivery-details" size="small" column={1} items={[
+      <Table className="delivery-table" rowKey="id" size="small" loading={deliveryLoading} dataSource={deliveries} pagination={false} rowClassName={(item) => item.id === focusedDeliveryID ? 'delivery-row-focused' : ''} locale={{ emptyText: <EmptyState compact description={t('noDeliveries')} /> }} expandable={{ rowExpandable: (item) => !!(item.errorMessage || item.responseBody), expandedRowRender: (item) => <Descriptions className="delivery-details" size="small" column={1} items={[
+        { key: 'attempts', label: t('attempts'), children: item.attempts ? t('attemptCount', { count: item.attempts }) : '—' },
+        { key: 'httpStatus', label: t('httpStatus'), children: item.responseStatus || '—' },
+        { key: 'updated', label: t('lastUpdated'), children: formatDateTime(item.updatedAt, i18n.language, timezone) },
+        ...(item.status === 'retrying' ? [{ key: 'nextRetry', label: t('nextRetry'), children: formatDateTime(item.nextAttemptAt, i18n.language, timezone) }] : []),
         { key: 'error', label: t('errorDetail'), children: item.errorMessage ? <Typography.Text type="danger" code copyable>{item.errorMessage}</Typography.Text> : '—' },
         { key: 'response', label: t('responseBody'), children: item.responseBody ? <Typography.Text code copyable>{item.responseBody}</Typography.Text> : '—' },
         { key: 'event', label: t('eventIdentifier'), children: <Typography.Text code copyable>{item.eventId}</Typography.Text> },
       ]} /> }} columns={[
-        { title: t('events'), dataIndex: 'eventType', width: 130, render: (value: string) => <Typography.Text>{t(eventKey(value), { defaultValue: value })}</Typography.Text> },
-        { title: t('status'), dataIndex: 'status', width: 95, render: (value: string) => <StatusTag value={value} /> },
-        { title: t('attempts'), dataIndex: 'attempts', width: 100, render: (value: number) => value ? t('attemptCount', { count: value }) : '—' },
-        { title: t('httpStatus'), dataIndex: 'responseStatus', width: 85, render: (value?: number) => value ? <Tag color={value >= 200 && value < 300 ? 'green' : 'red'}>{value}</Tag> : '—' },
-        { title: t('lastUpdated'), dataIndex: 'updatedAt', width: 150, render: (value: string, item: WebhookDelivery) => <div className="delivery-time"><Typography.Text>{formatDateTime(value, i18n.language, timezone)}</Typography.Text>{item.status === 'retrying' && <Typography.Text type="secondary">{t('nextRetry')}: {formatDateTime(item.nextAttemptAt, i18n.language, timezone)}</Typography.Text>}</div> },
-        { title: t('actions'), width: 95, render: (_: unknown, item: WebhookDelivery) => item.status === 'failed' ? <Button size="small" type="link" loading={actioning === `retry:${item.id}`} onClick={() => void retryDelivery(item)}>{t('retryDelivery')}</Button> : null },
-      ]} scroll={{ x: 680 }} />
+        { title: t('events'), dataIndex: 'eventType', width: compactDeliveryTable ? 105 : 130, render: (value: string) => <Typography.Text>{t(eventKey(value), { defaultValue: value })}</Typography.Text> },
+        { title: t('status'), dataIndex: 'status', width: compactDeliveryTable ? 82 : 95, render: (value: string) => <StatusTag value={value} /> },
+        { title: t('attempts'), dataIndex: 'attempts', width: 100, responsive: ['sm'], render: (value: number) => value ? t('attemptCount', { count: value }) : '—' },
+        { title: t('httpStatus'), dataIndex: 'responseStatus', width: 85, responsive: ['sm'], render: (value?: number) => value ? <Tag color={value >= 200 && value < 300 ? 'green' : 'red'}>{value}</Tag> : '—' },
+        { title: t('lastUpdated'), dataIndex: 'updatedAt', width: 150, responsive: ['md'], render: (value: string, item: WebhookDelivery) => <div className="delivery-time"><Typography.Text>{formatDateTime(value, i18n.language, timezone)}</Typography.Text>{item.status === 'retrying' && <Typography.Text type="secondary">{t('nextRetry')}: {formatDateTime(item.nextAttemptAt, i18n.language, timezone)}</Typography.Text>}</div> },
+        { title: t('actions'), width: compactDeliveryTable ? 88 : 95, render: (_: unknown, item: WebhookDelivery) => item.status === 'failed' ? <Button size="small" type="link" loading={actioning === `retry:${item.id}`} onClick={() => void retryDelivery(item)}>{t('retryDelivery')}</Button> : null },
+      ]} scroll={compactDeliveryTable ? undefined : { x: 680 }} />
     </Drawer>
   </>
 }

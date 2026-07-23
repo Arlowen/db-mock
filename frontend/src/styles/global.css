@@ -352,7 +352,7 @@ button { font: inherit; }
 .alert-detail-summary p.ant-typography { margin: 0; color: #475467; line-height: 1.55; }
 .alert-detail-resource { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .alert-detail-resource .ant-btn { height: auto; padding: 0; }
-.alert-resource-health .ant-alert-action { align-self: center; }
+.alert-resource-health .ant-alert-actions { align-self: center; }
 .related-alert-list { display: grid; gap: 8px; }
 .related-alert-item { min-width: 0; padding: 10px 11px; border: 1px solid #e7ebf1; border-radius: 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; background: #fafbfd; }
 .related-alert-item > .ant-tag { margin-inline-end: 0; }
@@ -384,6 +384,7 @@ button { font: inherit; }
 .webhook-delivery-facts .ant-typography-secondary { font-size: 12px; }
 .webhook-card-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid #edf0f4; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .webhook-card-footer > .ant-space { width: 100%; justify-content: flex-end; }
+.webhook-delete-label { display: none; }
 .webhook-form-description { margin-bottom: 18px !important; }
 .webhook-secret-field > .ant-form-item:first-child { margin-bottom: 8px; }
 .webhook-secret-field > .ant-form-item:last-child { margin-bottom: 20px; }
@@ -530,6 +531,22 @@ button { font: inherit; }
   .page-header p.ant-typography { max-width: 40ch; }
   .alert-toolbar .ant-input-search { flex-basis: 100%; }
   .alert-toolbar .ant-select { flex: 1; }
+  .alert-resource-health { align-items: flex-start; flex-wrap: wrap; }
+  .alert-resource-health .ant-alert-section { min-width: 0; flex: 1 1 220px; }
+  .alert-resource-health .ant-alert-actions { width: 100%; margin-inline-start: 0; padding-top: 8px; }
+  .alert-resource-health .ant-alert-actions .ant-btn { width: 100%; }
+  .alert-drawer-footer { align-items: stretch; flex-direction: column; }
+  .alert-drawer-footer > .ant-btn { width: 100%; }
+  .alert-drawer-footer > .ant-space { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .alert-drawer-footer > .ant-space .ant-btn { width: 100%; }
+  .webhook-card-footer > .ant-btn { width: 100%; }
+  .webhook-card-header h4.ant-typography { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+  .webhook-card-footer > .ant-space { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .webhook-card-footer > .ant-space .ant-btn { width: 100%; }
+  .webhook-delete-label { display: inline; }
+  .delivery-details { padding: 8px; }
+  .delivery-details .ant-descriptions-item-container { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .delivery-details .ant-descriptions-item-label { padding-bottom: 0; }
   .user-search { flex-basis: 100%; }
   .user-filter { flex: 1; }
   .settings-section-actions { align-items: stretch; flex-direction: column; }
