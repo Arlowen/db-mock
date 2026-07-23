@@ -1,5 +1,5 @@
 import {
-  AlertOutlined, AppstoreOutlined, AuditOutlined, BellOutlined, CloudServerOutlined, ContainerOutlined,
+  AlertOutlined, AuditOutlined, BellOutlined, CloudServerOutlined, ContainerOutlined,
   DatabaseOutlined, DownOutlined, GlobalOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
   SettingOutlined, TeamOutlined, UnorderedListOutlined, UserOutlined,
 } from '@ant-design/icons'
@@ -46,29 +46,26 @@ export function AppLayout() {
     const timer = window.setInterval(loadAlerts, 30000)
     return () => { active = false; window.clearInterval(timer) }
   }, [location.pathname])
-  const routeItems = [
-    { key: '/', icon: <AppstoreOutlined />, label: t('dashboard') },
-    { key: '/projects', icon: <ProjectOutlined />, label: t('projects') },
-    { key: '/hosts', icon: <CloudServerOutlined />, label: t('hosts') },
-    { key: '/catalog', icon: <DatabaseOutlined />, label: t('catalog') },
-    { key: '/instances', icon: <ContainerOutlined />, label: t('instances') },
-    { key: '/images', icon: <UnorderedListOutlined />, label: t('images') },
-    { key: '/tasks', icon: <AuditOutlined />, label: t('tasks') },
-    { key: '/alerts', icon: <AlertOutlined />, label: t('alerts') },
-    { key: '/users', icon: <TeamOutlined />, label: t('users') },
-    { key: '/audit', icon: <AuditOutlined />, label: t('audit') },
-    { key: '/settings', icon: <SettingOutlined />, label: t('settings') },
-  ]
-  const operationalItems = [routeItems[6], routeItems[7], ...(permissions.canViewAudit ? [routeItems[9]] : [])]
-  const systemItems = [...(permissions.canManageUsers ? [routeItems[8]] : []), ...(permissions.canManageSettings ? [routeItems[10]] : [])]
+  const projectsItem = { key: '/projects', icon: <ProjectOutlined />, label: t('projects') }
+  const hostsItem = { key: '/hosts', icon: <CloudServerOutlined />, label: t('hosts') }
+  const catalogItem = { key: '/catalog', icon: <DatabaseOutlined />, label: t('catalog') }
+  const instancesItem = { key: '/instances', icon: <ContainerOutlined />, label: t('instances') }
+  const imagesItem = { key: '/images', icon: <UnorderedListOutlined />, label: t('images') }
+  const tasksItem = { key: '/tasks', icon: <AuditOutlined />, label: t('tasks') }
+  const alertsItem = { key: '/alerts', icon: <AlertOutlined />, label: t('alerts') }
+  const usersItem = { key: '/users', icon: <TeamOutlined />, label: t('users') }
+  const auditItem = { key: '/audit', icon: <AuditOutlined />, label: t('audit') }
+  const settingsItem = { key: '/settings', icon: <SettingOutlined />, label: t('settings') }
+  const routeItems = [projectsItem, hostsItem, catalogItem, instancesItem, imagesItem, tasksItem, alertsItem, usersItem, auditItem, settingsItem]
+  const operationalItems = [tasksItem, alertsItem, ...(permissions.canViewAudit ? [auditItem] : [])]
+  const systemItems = [...(permissions.canManageUsers ? [usersItem] : []), ...(permissions.canManageSettings ? [settingsItem] : [])]
   const items: MenuProps['items'] = [
-    routeItems[0],
-    { type: 'group', label: t('navResources'), children: [routeItems[1], routeItems[2]] },
-    { type: 'group', label: t('navDatabases'), children: [routeItems[3], routeItems[4], routeItems[5]] },
+    { type: 'group', label: t('navResources'), children: [projectsItem, hostsItem] },
+    { type: 'group', label: t('navDatabases'), children: [catalogItem, instancesItem, imagesItem] },
     { type: 'group', label: t('navOperations'), children: operationalItems },
   ]
   if (systemItems.length) items.push({ type: 'group', label: t('navSystem'), children: systemItems })
-  const selected = routeItems.find((item) => item.key !== '/' && location.pathname.startsWith(item.key))?.key ?? '/'
+  const selected = routeItems.find((item) => location.pathname.startsWith(item.key))?.key ?? '/projects'
   const targetLocale = oppositeLocale(i18n.language)
   const switchLanguage = async () => {
     try {
@@ -120,9 +117,9 @@ export function AppLayout() {
       <div className="sidebar-header">
         <button
           className={`sidebar-brand${collapsed ? ' sidebar-brand-collapsed' : ''}`}
-          aria-label={collapsed ? t('expandMenu') : t('dashboard')}
+          aria-label={collapsed ? t('expandMenu') : t('projects')}
           title={collapsed ? t('expandMenu') : undefined}
-          onClick={() => collapsed ? setCollapsed(false) : navigate('/')}
+          onClick={() => collapsed ? setCollapsed(false) : navigate('/projects')}
         >
           <span className="sidebar-brand-mark"><BrandLogo small />{collapsed && <MenuUnfoldOutlined className="sidebar-expand-icon" />}</span>
           {!collapsed && <span>DB Mock</span>}

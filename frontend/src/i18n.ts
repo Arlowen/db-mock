@@ -9,7 +9,7 @@ export function browserLocale(language = globalThis.navigator?.language): 'zh-CN
 
 export const zh: Record<string, string> = {
   app: 'DB Mock', appTagline: 'Docker Compose 数据库管理平台',
-  dashboard: '总览', projects: '项目', hosts: '主机', catalog: '数据库目录', instances: '数据库实例',
+  projects: '项目', hosts: '主机', catalog: '数据库目录', instances: '数据库实例',
   images: '镜像与仓库', tasks: '任务中心', alerts: '告警与 Webhook', users: '用户', audit: '审计日志', settings: '系统设置',
   navResources: '资源管理', navDatabases: '数据库管理', navOperations: '运维中心', navSystem: '系统管理',
   login: '登录', logout: '退出登录', username: '用户名', password: '密码', displayName: '昵称', language: '语言',
@@ -20,7 +20,7 @@ export const zh: Record<string, string> = {
 
   create: '创建', edit: '编辑', delete: '删除', restore: '恢复', save: '保存', saved: '已保存', cancel: '取消', confirm: '确认', close: '关闭', refresh: '刷新', clearFilters: '清除筛选',
   actions: '操作', status: '状态', name: '名称', description: '描述', createdAt: '创建时间', createdBy: '创建人', details: '详情', noData: '暂无数据', resource: '资源', lastUpdated: '最近更新', identifier: '标识符', eventIdentifier: '事件标识符',
-  search: '搜索', export: '导出 CSV', clear: '清理', download: '下载', copyFailed: '复制失败，请检查浏览器权限', viewAll: '查看全部', next: '下一步',
+  search: '搜索', export: '导出 CSV', clear: '清理', download: '下载', copyFailed: '复制失败，请检查浏览器权限', next: '下一步',
   all: '全部', allProjects: '全部项目', allHosts: '全部主机', allEnvironments: '全部环境', allStatuses: '全部状态', allResources: '全部资源', basicInfo: '基础信息',
   optional: '可选', options: '选项', color: '颜色', time: '时间', user: '用户', action: '操作', result: '结果',
   ip: 'IP 地址', message: '消息', operation: '操作类型', progress: '进度', stage: '阶段', size: '大小', severity: '级别', yes: '是', no: '否', redacted: '已隐藏',
@@ -64,7 +64,6 @@ export const zh: Record<string, string> = {
   errorDetail_runtime_configuration_has_not_changed: '运行配置没有变化。', errorDetail_host_does_not_have_enough_capacity_for_the_requested_runtime_configuration: '目标主机的可调度容量不足，请降低资源后重试。',
   errorDetail_selected_host_is_not_available: '目标主机当前离线或处于维护模式，暂时不能变更运行配置。',
 
-  dashboardDescription: '面向 Linux 与 macOS 的 Docker Compose 数据库管理平台。',
   projectsDescription: '项目用于逻辑分组；操作权限由当前账号角色决定。',
   hostsDescription: '仅支持直连 SSH；Linux 可选择自动安装 Docker，macOS 需要预装 Docker Desktop。',
   catalogDescription: '固定版本、感知主机架构的 Docker Compose 模板；实验性模板仅建议用于开发和测试。',
@@ -102,15 +101,10 @@ export const zh: Record<string, string> = {
   uploadSettings: '离线镜像上传策略', uploadSettingsHint: '限制新建上传任务的单文件大小并控制浏览器分片；修改后无需重启，进行中的上传不受影响。', uploadSettingsSaved: '离线镜像上传策略已保存', saveUploadSettings: '保存上传策略',
   maxUploadSize: '单文件上传上限', maxUploadSizeHint: '不能超过部署环境硬上限 {{ceiling}}', maxUploadSizeRange: '请输入不超过部署硬上限 {{ceiling}} 的有效容量', uploadChunkSize: '浏览器上传分片', uploadChunkSizeHint: '每个请求 1–32 MiB；网络不稳定时可适当调小', uploadChunkSizeRange: '分片大小必须在 1–32 MiB 之间', uploadLimitAboveChunk: '单文件上限不能小于上传分片',
 
-  gettingStarted: '开始使用', onboardingTitle: '完成首次数据库部署',
-  onboardingDescription: '按顺序完成主机接入和数据库创建，平台会自动检查兼容性并分配可用资源。',
-  onboardingHostTitle: '接入运行主机', onboardingHostHint: '配置直连 SSH，并检测 Docker 与主机资源。',
-  onboardingDatabaseTitle: '创建第一个数据库', onboardingDatabaseHint: '选择数据库模板，由平台推荐主机并分配端口。',
-  completed: '已完成', requiresHost: '需要先接入一台可用主机', noHostsDescription: '尚未接入主机。添加一台主机后即可部署数据库。',
+  noHostsDescription: '尚未接入主机。添加一台主机后即可部署数据库。',
   databaseCreationPending: '数据库创建尚未完成', databaseCreationHostHint: '先接入并验证一台运行主机。能力检测完成后，平台会保留已选模板并带你回到数据库创建流程。',
   discardInstanceDraftTitle: '放弃未保存的数据库配置？', discardInstanceDraftHint: '当前填写的名称、资源、凭据和运行选项尚未提交，放弃后需要重新配置。',
   hostSetupStepConnect: '接入主机', hostSetupStepVerify: '检测能力', hostSetupStepCreate: '创建数据库', continueAddHost: '继续接入主机', returnToCatalog: '返回数据库目录',
-  noInstancesYet: '尚未创建数据库实例', noTasksYet: '暂无运行或历史任务', noAlerts: '当前没有待处理告警',
   projectsEmptyDescription: '尚未创建项目。项目可用于按团队、环境或业务线组织主机和数据库。',
   discardProjectDraftTitle: '放弃未保存的项目配置？', discardProjectDraftHint: '当前填写的名称、描述和颜色尚未保存，放弃后需要重新填写。',
   deleteProjectConfirm: '删除项目“{{name}}”？', deleteProjectHint: '仅空项目可以删除；删除后无法恢复。',
@@ -356,7 +350,7 @@ export const zh: Record<string, string> = {
 
 export const en: Record<string, string> = {
   app: 'DB Mock', appTagline: 'Docker Compose database control plane',
-  dashboard: 'Dashboard', projects: 'Projects', hosts: 'Hosts', catalog: 'Database catalog', instances: 'Instances',
+  projects: 'Projects', hosts: 'Hosts', catalog: 'Database catalog', instances: 'Instances',
   images: 'Images & registries', tasks: 'Tasks', alerts: 'Alerts & webhooks', users: 'Users', audit: 'Audit log', settings: 'Settings',
   navResources: 'RESOURCES', navDatabases: 'DATABASES', navOperations: 'OPERATIONS', navSystem: 'SYSTEM',
   login: 'Sign in', logout: 'Sign out', username: 'Username', password: 'Password', displayName: 'Nickname', language: 'Language',
@@ -367,7 +361,7 @@ export const en: Record<string, string> = {
 
   create: 'Create', edit: 'Edit', delete: 'Delete', restore: 'Restore', save: 'Save', saved: 'Saved', cancel: 'Cancel', confirm: 'Confirm', close: 'Close', refresh: 'Refresh', clearFilters: 'Clear filters',
   actions: 'Actions', status: 'Status', name: 'Name', description: 'Description', createdAt: 'Created', createdBy: 'Created by', details: 'Details', noData: 'No data', resource: 'Resource', lastUpdated: 'Last updated', identifier: 'Identifier', eventIdentifier: 'Event ID',
-  search: 'Search', export: 'Export CSV', clear: 'Clear', download: 'Download', copyFailed: 'Copy failed. Check browser permissions.', viewAll: 'View all', next: 'Next',
+  search: 'Search', export: 'Export CSV', clear: 'Clear', download: 'Download', copyFailed: 'Copy failed. Check browser permissions.', next: 'Next',
   all: 'All', allProjects: 'All projects', allHosts: 'All hosts', allEnvironments: 'All environments', allStatuses: 'All statuses', allResources: 'All resources', basicInfo: 'Basics',
   optional: 'optional', options: 'Options', color: 'Color', time: 'Time', user: 'User', action: 'Action', result: 'Result',
   ip: 'IP address', message: 'Message', operation: 'Operation', progress: 'Progress', stage: 'Stage', size: 'Size', severity: 'Severity', yes: 'Yes', no: 'No', redacted: 'Redacted',
@@ -411,7 +405,6 @@ export const en: Record<string, string> = {
   errorDetail_runtime_configuration_has_not_changed: 'The runtime configuration has not changed.', errorDetail_host_does_not_have_enough_capacity_for_the_requested_runtime_configuration: 'The target host does not have enough schedulable capacity. Reduce the request and try again.',
   errorDetail_selected_host_is_not_available: 'The target host is offline or in maintenance and cannot accept a runtime change.',
 
-  dashboardDescription: 'Docker Compose database control plane for Linux and macOS.',
   projectsDescription: 'Logical grouping for resources; the signed-in account role controls operations.',
   hostsDescription: 'Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop.',
   catalogDescription: 'Pinned, architecture-aware Docker Compose templates. Experimental templates are for development and test workloads.',
@@ -449,15 +442,10 @@ export const en: Record<string, string> = {
   uploadSettings: 'Offline image upload policy', uploadSettingsHint: 'Limit new upload sessions and tune browser chunking. Changes take effect without a restart and do not interrupt uploads already in progress.', uploadSettingsSaved: 'Offline image upload policy saved', saveUploadSettings: 'Save upload policy',
   maxUploadSize: 'Maximum file size', maxUploadSizeHint: 'Cannot exceed the deployment ceiling of {{ceiling}}', maxUploadSizeRange: 'Enter a valid size no greater than the deployment ceiling of {{ceiling}}', uploadChunkSize: 'Browser upload chunk', uploadChunkSizeHint: 'Each request may use 1–32 MiB; smaller chunks can help on unstable networks', uploadChunkSizeRange: 'The chunk size must be between 1 and 32 MiB', uploadLimitAboveChunk: 'The file limit cannot be smaller than one upload chunk',
 
-  gettingStarted: 'GETTING STARTED', onboardingTitle: 'Complete your first database deployment',
-  onboardingDescription: 'Connect a host, then create a database. The platform checks compatibility and allocates available resources.',
-  onboardingHostTitle: 'Connect a runtime host', onboardingHostHint: 'Configure direct SSH and detect Docker and host resources.',
-  onboardingDatabaseTitle: 'Create your first database', onboardingDatabaseHint: 'Choose a template and let the platform recommend a host and allocate a port.',
-  completed: 'Completed', requiresHost: 'Connect an available host first', noHostsDescription: 'No hosts connected yet. Add a host to start deploying databases.',
+  noHostsDescription: 'No hosts connected yet. Add a host to start deploying databases.',
   databaseCreationPending: 'Database creation is waiting for a host', databaseCreationHostHint: 'Connect and verify a host first. After the capability probe completes, the selected template is preserved and you can return directly to database creation.',
   discardInstanceDraftTitle: 'Discard unsaved database settings?', discardInstanceDraftHint: 'The name, resources, credentials, and runtime options you entered have not been submitted. You will need to configure them again if you discard them.',
   hostSetupStepConnect: 'Connect host', hostSetupStepVerify: 'Verify capacity', hostSetupStepCreate: 'Create database', continueAddHost: 'Continue connecting host', returnToCatalog: 'Back to catalog',
-  noInstancesYet: 'No database instances yet', noTasksYet: 'No active or historical tasks', noAlerts: 'No open alerts',
   projectsEmptyDescription: 'No projects yet. Use projects to group hosts and databases by team, environment, or product area.',
   discardProjectDraftTitle: 'Discard unsaved project settings?', discardProjectDraftHint: 'The name, description, and color you entered have not been saved. You will need to enter them again if you discard them.',
   deleteProjectConfirm: 'Delete project “{{name}}”?', deleteProjectHint: 'Only empty projects can be deleted. This cannot be undone.',

@@ -344,9 +344,9 @@ export function AlertsPage() {
   </Row>
 
   return <>
-    <PageHeader title={t('alerts')} description={t('alertInboxDescription')} actions={<><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button>{canOperate && <Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button>}</>} />
+    <PageHeader title={t('alerts')} description={t('alertInboxDescription')} />
     {loadError && <InlineAlert className="instance-page-alert" type="error" showIcon message={t('alertListLoadFailed')} description={loadError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}
-    <Tabs activeKey={activeTab} onChange={(tab) => setQuery({ tab: tab === 'webhooks' ? 'webhooks' : undefined, alert: undefined, webhook: undefined })} items={[
+    <Tabs activeKey={activeTab} onChange={(tab) => setQuery({ tab: tab === 'webhooks' ? 'webhooks' : undefined, alert: undefined, webhook: undefined })} tabBarExtraContent={<Space wrap><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button>{canOperate && activeTab === 'webhooks' && <Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button>}</Space>} items={[
       { key: 'alerts', label: <Space size={6}>{t('alertEvents')}<Tag color={activeAlertCount ? 'orange' : 'default'}>{activeAlertCount}</Tag></Space>, children: alertTab },
       ...(canOperate ? [{ key: 'webhooks', label: <Space size={6}>{t('webhook')}<Tag>{webhooks.length}</Tag></Space>, children: webhookTab }] : []),
     ]} />

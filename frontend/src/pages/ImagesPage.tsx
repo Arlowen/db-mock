@@ -550,10 +550,9 @@ export function ImagesPage() {
     <PageHeader
       title={t('images')}
       description={t('imagesDescription')}
-      actions={canOperate ? <><Button icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></> : undefined}
     />
     {pageError && <Alert className="ops-alert" type="warning" showIcon message={t('imagesLoadFailed')} description={pageError} action={<Button size="small" onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    <Tabs activeKey={activeTab} onChange={changeTab} items={[
+    <Tabs activeKey={activeTab} onChange={changeTab} tabBarExtraContent={canOperate ? activeTab === 'registries' ? <Button type="primary" icon={<PlusOutlined />} onClick={() => showRegistry()}>{t('addRegistry')}</Button> : <Space wrap><Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button><Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></Space> : undefined} items={[
       { key: 'images', label: <span className="tab-count">{t('offlineImages')}<span>{images.length}</span></span>, children: imageTab },
       { key: 'registries', label: <span className="tab-count">{t('registries')}<span>{registries.length}</span></span>, children: registryTab },
     ]} />

@@ -13,14 +13,12 @@ describe('StatusTag', () => {
 })
 
 describe('PageHeader', () => {
-  it('renders the heading in the shared target and keeps actions in the page content', () => {
+  it('renders the heading in the shared header target', () => {
     const target = document.createElement('div')
     document.body.append(target)
-    const { container } = render(<PageHeaderTargetProvider target={target}><PageHeader title="Instances" description="Managed databases" actions={<button type="button">Create</button>} /></PageHeaderTargetProvider>)
+    render(<PageHeaderTargetProvider target={target}><PageHeader title="Instances" description="Managed databases" /></PageHeaderTargetProvider>)
     expect(within(target).getByRole('heading', { name: 'Instances' })).toBeInTheDocument()
     expect(within(target).getByText('Managed databases')).toBeInTheDocument()
-    expect(within(target).queryByRole('button', { name: 'Create' })).not.toBeInTheDocument()
-    expect(within(container).getByRole('button', { name: 'Create' })).toBeInTheDocument()
     target.remove()
   })
 })
