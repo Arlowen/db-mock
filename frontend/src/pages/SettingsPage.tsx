@@ -30,6 +30,9 @@ export function SettingsPage() {
   const [items, setItems] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [timezoneSaveError, setTimezoneSaveError] = useState('')
+  const [monitoringSaveError, setMonitoringSaveError] = useState('')
+  const [uploadSaveError, setUploadSaveError] = useState('')
   const [saving, setSaving] = useState(false)
   const [monitoringSaving, setMonitoringSaving] = useState(false)
   const [uploadSaving, setUploadSaving] = useState(false)
@@ -114,6 +117,7 @@ export function SettingsPage() {
   }
   const saveMonitoring = async () => {
     try {
+      setMonitoringSaveError('')
       const values = await monitoringForm.validateFields()
       setMonitoringSaving(true)
       await api('/settings/monitoring', { method: 'PUT', body: values })
@@ -122,11 +126,12 @@ export function SettingsPage() {
       setMonitoringDirty(false)
       message.success(t('monitoringSettingsSaved'))
     } catch (error) {
-      if (error instanceof Error) message.error(errorMessage(error))
+      if (error instanceof Error) setMonitoringSaveError(errorMessage(error))
     } finally { setMonitoringSaving(false) }
   }
   const saveUploadSettings = async () => {
     try {
+      setUploadSaveError('')
       const values = await uploadForm.validateFields()
       setUploadSaving(true)
       const savedUploads = uploadSettingsFromForm(values)
@@ -137,12 +142,13 @@ export function SettingsPage() {
       setUploadDirty(false)
       message.success(t('uploadSettingsSaved'))
     } catch (error) {
-      if (error instanceof Error) message.error(errorMessage(error))
+      if (error instanceof Error) setUploadSaveError(errorMessage(error))
     } finally { setUploadSaving(false) }
   }
 
   const saveTimezone = async () => {
     try {
+      setTimezoneSaveError('')
       const values = await timezoneForm.validateFields()
       const timezone = values.timezone.trim()
       setTimezoneSaving(true)
@@ -154,7 +160,7 @@ export function SettingsPage() {
       setTimezoneDirty(false)
       message.success(t('timezoneSaved'))
     } catch (error) {
-      if (error instanceof Error) message.error(errorMessage(error))
+      if (error instanceof Error) setTimezoneSaveError(errorMessage(error))
     } finally { setTimezoneSaving(false) }
   }
 
@@ -165,19 +171,21 @@ export function SettingsPage() {
 
   return <>
     <PageHeader title={t('settings')} description={t('settingsDescription')} />
-    {loadError && <Alert className="instance-page-alert" type="error" showIcon message={t('settingsLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {loadError && <Alert className="instance-page-alert" type={hasSettings ? 'warning' : 'error'} showIcon message={t('settingsLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {loading && !hasSettings ? <Card loading /> : hasSettings ? <Space direction="vertical" size={16} className="settings-stack">
-      <Card title={<Space><GlobalOutlined />{t('timezoneSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={timezoneSaving} disabled={!timezoneDirty} onClick={() => void saveTimezone()}>{t('saveTimezone')}</Button>}>
+      <Card title={<Space><GlobalOutlined />{t('timezoneSettings')}</Space>}>
         <Typography.Paragraph type="secondary">{t('timezoneSettingsHint')}</Typography.Paragraph>
-        <Form form={timezoneForm} layout="vertical" requiredMark={false} initialValues={{ timezone: defaultTimezone }} onValuesChange={(_, values) => setTimezoneDirty(values.timezone !== timezoneBaseline.current?.timezone)}>
+        <Form form={timezoneForm} layout="vertical" requiredMark={false} initialValues={{ timezone: defaultTimezone }} onValuesChange={(_, values) => { setTimezoneSaveError(''); setTimezoneDirty(values.timezone !== timezoneBaseline.current?.timezone) }}>
           <Form.Item name="timezone" label={t('timezone')} extra={t('timezoneHint')} rules={[{ required: true, message: t('timezoneRequired') }, { validator: (_, value) => isValidTimezone(value) ? Promise.resolve() : Promise.reject(new Error(t('timezoneInvalid'))) }]}>
             <AutoComplete className="settings-timezone-input" options={commonTimezones.map((value) => ({ value }))} filterOption={(input, option) => (option?.value ?? '').toLowerCase().includes(input.toLowerCase())} placeholder={defaultTimezone} />
           </Form.Item>
         </Form>
+        {timezoneSaveError && <Alert className="settings-save-error" type="error" showIcon message={t('settingsSaveFailed')} description={timezoneSaveError} />}
+        <div className="settings-section-actions"><Typography.Text type="secondary" aria-live="polite">{timezoneDirty ? t('unsavedChanges') : t('settingsUpToDate')}</Typography.Text><Button type="primary" icon={<SaveOutlined />} loading={timezoneSaving} disabled={!timezoneDirty} onClick={() => void saveTimezone()}>{t('saveTimezone')}</Button></div>
       </Card>
-      <Card title={<Space><BellOutlined />{t('monitoringSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={monitoringSaving} disabled={!monitoringDirty} onClick={() => void saveMonitoring()}>{t('saveMonitoringSettings')}</Button>}>
+      <Card title={<Space><BellOutlined />{t('monitoringSettings')}</Space>}>
         <Typography.Paragraph type="secondary">{t('monitoringSettingsHint')}</Typography.Paragraph>
-        <Form form={monitoringForm} layout="vertical" requiredMark={false} onValuesChange={(_, values) => setMonitoringDirty(JSON.stringify(values) !== JSON.stringify(monitoringBaseline.current))}>
+        <Form form={monitoringForm} layout="vertical" requiredMark={false} onValuesChange={(_, values) => { setMonitoringSaveError(''); setMonitoringDirty(JSON.stringify(values) !== JSON.stringify(monitoringBaseline.current)) }}>
           <Typography.Title level={5}>{t('collectionPolicy')}</Typography.Title>
           <Row gutter={16}>
             <Col xs={24} md={12} xl={6}><Form.Item name="intervalSeconds" label={t('monitoringInterval')} extra={t('monitoringIntervalHint')} rules={[{ required: true }, { type: 'number', min: 5, max: 3600, message: t('monitoringIntervalHint') }]}><InputNumber min={5} max={3600} precision={0} addonAfter={t('seconds')} /></Form.Item></Col>
@@ -191,15 +199,19 @@ export function SettingsPage() {
             {monitoringAlertKeys.map((key) => <div className="monitoring-alert-option" key={key}><div><Typography.Text strong>{t(`monitoringAlert_${key}`)}</Typography.Text><Typography.Paragraph type="secondary">{t(`monitoringAlertHint_${key}`)}</Typography.Paragraph></div><Form.Item name={['alerts', key]} valuePropName="checked" noStyle><Switch aria-label={t(`monitoringAlert_${key}`)} /></Form.Item></div>)}
           </div>
         </Form>
+        {monitoringSaveError && <Alert className="settings-save-error" type="error" showIcon message={t('settingsSaveFailed')} description={monitoringSaveError} />}
+        <div className="settings-section-actions"><Typography.Text type="secondary" aria-live="polite">{monitoringDirty ? t('unsavedChanges') : t('settingsUpToDate')}</Typography.Text><Button type="primary" icon={<SaveOutlined />} loading={monitoringSaving} disabled={!monitoringDirty} onClick={() => void saveMonitoring()}>{t('saveMonitoringSettings')}</Button></div>
       </Card>
-      <Card title={<Space><CloudUploadOutlined />{t('uploadSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={uploadSaving} disabled={!uploadDirty} onClick={() => void saveUploadSettings()}>{t('saveUploadSettings')}</Button>}>
+      <Card title={<Space><CloudUploadOutlined />{t('uploadSettings')}</Space>}>
         <Typography.Paragraph type="secondary">{t('uploadSettingsHint')}</Typography.Paragraph>
-        <Form form={uploadForm} layout="vertical" requiredMark={false} onValuesChange={(_, values) => setUploadDirty(JSON.stringify(values) !== JSON.stringify(uploadBaseline.current))}>
+        <Form form={uploadForm} layout="vertical" requiredMark={false} onValuesChange={(_, values) => { setUploadSaveError(''); setUploadDirty(JSON.stringify(values) !== JSON.stringify(uploadBaseline.current)) }}>
           <Row gutter={16}>
             <Col xs={24} md={12}><Form.Item name="maxGiB" label={t('maxUploadSize')} extra={t('maxUploadSizeHint', { ceiling: bytes(uploadSettings.maxAllowedBytes) })} dependencies={['chunkMiB']} rules={[{ required: true }, { type: 'number', min: 1 / 1024, max: maxAllowedGiB, message: t('maxUploadSizeRange', { ceiling: bytes(uploadSettings.maxAllowedBytes) }) }, { validator: (_, value) => value * GiB >= uploadForm.getFieldValue('chunkMiB') * MiB ? Promise.resolve() : Promise.reject(new Error(t('uploadLimitAboveChunk'))) }]}><InputNumber min={1 / 1024} max={maxAllowedGiB} step={0.001} formatter={(value, info) => info.userTyping ? info.input : value === undefined || value === null ? '' : String(Number(value))} addonAfter="GiB" /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="chunkMiB" label={t('uploadChunkSize')} extra={t('uploadChunkSizeHint')} rules={[{ required: true }, { type: 'number', min: 1, max: Math.min(32, maxAllowedMiB), message: t('uploadChunkSizeRange') }]}><InputNumber min={1} max={Math.min(32, maxAllowedMiB)} precision={0} addonAfter="MiB" /></Form.Item></Col>
           </Row>
         </Form>
+        {uploadSaveError && <Alert className="settings-save-error" type="error" showIcon message={t('settingsSaveFailed')} description={uploadSaveError} />}
+        <div className="settings-section-actions"><Typography.Text type="secondary" aria-live="polite">{uploadDirty ? t('unsavedChanges') : t('settingsUpToDate')}</Typography.Text><Button type="primary" icon={<SaveOutlined />} loading={uploadSaving} disabled={!uploadDirty} onClick={() => void saveUploadSettings()}>{t('saveUploadSettings')}</Button></div>
       </Card>
       <Row gutter={[16, 16]}>{advancedItems.map(([key, value]) => <Col xs={24} lg={12} key={key}><Card title={<Space><CodeOutlined />{key}</Space>} extra={<Button type="text" aria-label={`${t('edit')} ${key}`} icon={<EditOutlined />} onClick={() => show(key)}>{t('edit')}</Button>}><pre className="settings-json">{JSON.stringify(value, null, 2)}</pre></Card></Col>)}</Row>
       <Card className="configuration-note"><Typography.Title level={4}>{t('deploymentEnvironment')}</Typography.Title><Typography.Paragraph type="secondary">{t('deploymentEnvironmentHint')}</Typography.Paragraph></Card>
