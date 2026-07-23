@@ -40,7 +40,7 @@ export function AlertsPage() {
   const { user } = useAuth()
   const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const [form] = Form.useForm<WebhookValues>()
@@ -56,6 +56,7 @@ export function AlertsPage() {
   const [saving, setSaving] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Webhook | null>(null)
+  const [webhookDraftDirty, setWebhookDraftDirty] = useState(false)
   const [actioning, setActioning] = useState('')
   const [focusedDeliveryID, setFocusedDeliveryID] = useState('')
   const [search, setSearch] = useState('')
@@ -186,6 +187,7 @@ export function AlertsPage() {
 
   const showCreateWebhook = () => {
     setEditing(null)
+    setWebhookDraftDirty(false)
     form.resetFields()
     form.setFieldsValue({ enabled: true, events: ['alert.created'], clearSecret: false })
     setFormOpen(true)
@@ -193,9 +195,33 @@ export function AlertsPage() {
 
   const showEditWebhook = (item: Webhook) => {
     setEditing(item)
+    setWebhookDraftDirty(false)
     form.resetFields()
     form.setFieldsValue({ name: item.name, url: item.url, secret: '', clearSecret: false, events: item.events, enabled: item.enabled })
     setFormOpen(true)
+  }
+
+  const finishCloseWebhook = () => {
+    setFormOpen(false)
+    setEditing(null)
+    setWebhookDraftDirty(false)
+    form.resetFields()
+  }
+
+  const closeWebhook = () => {
+    if (saving) return
+    if (!webhookDraftDirty) {
+      finishCloseWebhook()
+      return
+    }
+    modal.confirm({
+      title: t('discardWebhookDraftTitle'),
+      content: t('discardWebhookDraftHint'),
+      okText: t('discardChanges'),
+      cancelText: t('continueEditing'),
+      okButtonProps: { danger: true },
+      onOk: finishCloseWebhook,
+    })
   }
 
   const saveWebhook = async () => {
@@ -207,8 +233,7 @@ export function AlertsPage() {
         body: values,
       })
       message.success(t('saved'))
-      setFormOpen(false)
-      form.resetFields()
+      finishCloseWebhook()
       await load(true)
     } catch (error) {
       if (error instanceof Error) message.error(errorMessage(error))
@@ -373,9 +398,9 @@ export function AlertsPage() {
       ]} /></Card></div> : !loading && <EmptyState compact description={t('resourceUnavailable')} />}
     </Drawer>
 
-    <Modal title={editing ? t('editWebhook') : t('addWebhook')} open={formOpen} onCancel={() => { if (!saving) setFormOpen(false) }} onOk={() => void saveWebhook()} confirmLoading={saving} okText={t('save')} width={620}>
+    <Modal title={editing ? t('editWebhook') : t('addWebhook')} open={formOpen} onCancel={closeWebhook} onOk={() => void saveWebhook()} confirmLoading={saving} okText={t('save')} closable={!saving} maskClosable={!saving} cancelButtonProps={{ disabled: saving }} width={620} style={{ top: 32 }} styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }} destroyOnHidden>
       <Typography.Paragraph type="secondary" className="webhook-form-description">{t('webhookFormDescription')}</Typography.Paragraph>
-      <Form form={form} layout="vertical" autoComplete="off">
+      <Form form={form} layout="vertical" autoComplete="off" onValuesChange={() => setWebhookDraftDirty(true)}>
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true }]}><Input aria-label={t('name')} maxLength={120} placeholder={t('webhookNamePlaceholder')} /></Form.Item>
         <Form.Item name="url" label={t('url')} extra={t('webhookURLHint')} rules={[{ required: true }, { type: 'url' }]}><Input aria-label={t('url')} type="url" maxLength={2048} placeholder={t('webhookURLPlaceholder')} /></Form.Item>
         <div className="webhook-secret-field"><Form.Item name="secret" label={t('hmacSecret')} extra={t(editing?.hasSecret ? 'webhookSecretEditHint' : 'webhookSecretCreateHint')}><Input.Password aria-label={t('hmacSecret')} maxLength={4096} disabled={!!clearWebhookSecret} autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>{editing?.hasSecret && <Form.Item name="clearSecret" valuePropName="checked"><Checkbox onChange={(event) => { if (event.target.checked) form.setFieldValue('secret', '') }}>{t('removeWebhookSecret')}</Checkbox></Form.Item>}</div>
