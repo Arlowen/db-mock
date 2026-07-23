@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../components/BrandLogo'
+import { PageHeaderTargetProvider } from '../components/Common'
 import { useAuth } from '../contexts/AuthContext'
 import { api, errorMessage } from '../lib/api'
 import { oppositeLocale } from '../lib/locale'
@@ -28,6 +29,7 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [activeAlerts, setActiveAlerts] = useState(0)
+  const [pageHeaderTarget, setPageHeaderTarget] = useState<HTMLDivElement | null>(null)
   const [languageSaving, setLanguageSaving] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
@@ -116,23 +118,34 @@ export function AppLayout() {
   return <><a className="skip-link" href="#main-content">{t('skipToContent')}</a><Layout className="app-layout">
     <Sider width={244} collapsedWidth={72} collapsed={collapsed} className="app-sider" theme="light">
       <div className="sidebar-header">
-        <button className="sidebar-brand" aria-label={t('dashboard')} onClick={() => navigate('/')}><BrandLogo small />{!collapsed && <span>DB Mock</span>}</button>
-        <Button className="sidebar-collapse" type="text" aria-label={collapsed ? t('expandMenu') : t('collapse')} title={collapsed ? t('expandMenu') : t('collapse')} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
+        <button
+          className={`sidebar-brand${collapsed ? ' sidebar-brand-collapsed' : ''}`}
+          aria-label={collapsed ? t('expandMenu') : t('dashboard')}
+          title={collapsed ? t('expandMenu') : undefined}
+          onClick={() => collapsed ? setCollapsed(false) : navigate('/')}
+        >
+          <span className="sidebar-brand-mark"><BrandLogo small />{collapsed && <MenuUnfoldOutlined className="sidebar-expand-icon" />}</span>
+          {!collapsed && <span>DB Mock</span>}
+        </button>
+        {!collapsed && <Button className="sidebar-collapse" type="text" aria-label={t('collapse')} title={t('collapse')} icon={<MenuFoldOutlined />} onClick={() => setCollapsed(true)} />}
       </div>
       <Menu mode="inline" selectedKeys={[selected]} items={items} onClick={({ key }) => navigate(key)} />
     </Sider>
     <Layout>
       <Header className="app-header">
-        <Typography.Text type="secondary">{routeItems.find((item) => item.key === selected)?.label}</Typography.Text>
-        <Space size={16}>
-          <Button type="text" icon={<GlobalOutlined />} loading={languageSaving} aria-label={t(targetLocale === 'en-US' ? 'switchToEnglish' : 'switchToChinese')} onClick={() => void switchLanguage()}>{targetLocale === 'en-US' ? t('languageEnglish') : t('languageChinese')}</Button>
+        <div className="app-page-header">
+          <div className="app-page-header-slot" ref={setPageHeaderTarget} />
+          <Typography.Text className="app-header-fallback" type="secondary">{routeItems.find((item) => item.key === selected)?.label}</Typography.Text>
+        </div>
+        <Space className="app-header-tools" size={12}>
+          <Button type="text" icon={<GlobalOutlined />} loading={languageSaving} aria-label={t(targetLocale === 'en-US' ? 'switchToEnglish' : 'switchToChinese')} onClick={() => void switchLanguage()}><span className="header-language-label">{targetLocale === 'en-US' ? t('languageEnglish') : t('languageChinese')}</span></Button>
           <Badge count={activeAlerts} size="small" overflowCount={99}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
           <Dropdown menu={{ items: [{ key: 'account', icon: <UserOutlined />, label: t('accountSettings'), onClick: openAccount }, { type: 'divider' }, { key: 'logout', icon: <LogoutOutlined />, label: t('logout'), onClick: () => void logout() }] }}>
             <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><Tag className="desktop-only" bordered={false}>{t(`role_${user?.role}`)}</Tag><DownOutlined className="user-menu-caret" /></Button>
           </Dropdown>
         </Space>
       </Header>
-      <Content id="main-content" tabIndex={-1} className="app-content">{!permissions.canOperate && <Alert className="read-only-banner" type="info" showIcon message={t('readOnlyMode')} description={t('readOnlyModeHint')} />}<Outlet /></Content>
+      <Content id="main-content" tabIndex={-1} className="app-content"><PageHeaderTargetProvider target={pageHeaderTarget}>{!permissions.canOperate && <Alert className="read-only-banner" type="info" showIcon message={t('readOnlyMode')} description={t('readOnlyModeHint')} />}<Outlet /></PageHeaderTargetProvider></Content>
     </Layout>
   </Layout>
     <Modal title={t('accountSettings')} open={accountOpen} onCancel={closeAccount} footer={<Button disabled={profileSaving || passwordSaving} onClick={closeAccount}>{t('close')}</Button>} forceRender destroyOnHidden maskClosable={!profileSaving && !passwordSaving} closable={!profileSaving && !passwordSaving}>

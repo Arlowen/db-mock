@@ -1,6 +1,9 @@
 import { Button, Empty, Space, Tag, Typography } from 'antd'
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+
+const PageHeaderTargetContext = createContext<HTMLElement | null | undefined>(undefined)
 
 const colors: Record<string, string> = {
   online: 'green', running: 'green', succeeded: 'green', standard: 'blue',
@@ -14,8 +17,15 @@ export function StatusTag({ value }: { value: string }) {
   return <Tag color={colors[value] ?? 'default'}>{t(value, { defaultValue: value.replaceAll('_', ' ') })}</Tag>
 }
 
+export function PageHeaderTargetProvider({ target, children }: { target: HTMLElement | null; children: ReactNode }) {
+  return <PageHeaderTargetContext.Provider value={target}>{children}</PageHeaderTargetContext.Provider>
+}
+
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
-  return <div className="page-header"><div><Typography.Title level={2}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>{actions && <Space wrap>{actions}</Space>}</div>
+  const target = useContext(PageHeaderTargetContext)
+  const header = <div className="page-header"><div className="page-header-copy"><Typography.Title level={2}>{title}</Typography.Title>{description && <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}</div>{actions && <Space className="page-header-actions" wrap>{actions}</Space>}</div>
+  if (target === undefined) return header
+  return target ? createPortal(header, target) : null
 }
 
 export function EmptyState({ action, actionLabel, description, compact = false }: { action?: () => void; actionLabel?: ReactNode; description?: ReactNode; compact?: boolean }) {
