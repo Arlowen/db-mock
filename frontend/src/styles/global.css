@@ -1,6 +1,6 @@
 :root { color: #172033; background: #f5f7fb; font-synthesis: none; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 640px; background: #f5f7fb; }
+body { margin: 0; min-width: 320px; background: #f5f7fb; }
 button { font: inherit; }
 :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .skip-link { position: fixed; top: 10px; left: 12px; z-index: 1000; padding: 8px 12px; border-radius: 8px; color: #fff; background: #172033; transform: translateY(-160%); transition: transform .18s ease; }
@@ -187,6 +187,7 @@ button { font: inherit; }
 .task-drawer-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .task-drawer-title .ant-typography:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-drawer-actions { margin-left: auto; }
 .task-detail { display: grid; gap: 16px; }
 .task-detail-summary { padding: 18px; border: 1px solid #dbe5f2; border-radius: 12px; background: linear-gradient(135deg, #f8fbff, #fbfdff); }
 .task-detail-summary.is-failed { border-color: #f2c7cc; background: linear-gradient(135deg, #fff8f8, #fffdfd); }
@@ -204,7 +205,9 @@ button { font: inherit; }
 .task-log-card .ant-card-body { padding-top: 20px; }
 .task-log-card .ant-timeline-item-last { padding-bottom: 0; }
 .task-log-entry { display: grid; gap: 3px; }
-.task-log-entry .ant-typography-secondary { font-size: 12px; }
+.task-log-entry-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.task-log-entry-meta .ant-typography-secondary { font-size: 12px; }
+.task-log-entry-meta .ant-tag { margin: 0; font-size: 11px; line-height: 18px; }
 .audit-table-card .ant-table-cell { vertical-align: middle; }
 .audit-action-link.ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; font-weight: 650; text-align: start; white-space: normal; }
 .audit-resource-cell { min-width: 0; display: flex; align-items: center; gap: 6px; }
@@ -521,7 +524,8 @@ button { font: inherit; }
 }
 
 @media (max-width: 760px) {
-  .app-header { padding-inline: 16px !important; gap: 10px; }
+  .app-header { padding-inline: 16px !important; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
+  .app-header-tools { justify-self: start; }
   .app-content { padding: 16px; }
   .page-header p.ant-typography { max-width: 40ch; }
   .alert-toolbar .ant-input-search { flex-basis: 100%; }

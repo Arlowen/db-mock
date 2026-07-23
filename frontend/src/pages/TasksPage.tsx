@@ -1,5 +1,5 @@
 import { ArrowRightOutlined, CloseCircleOutlined, CloudServerOutlined, DatabaseOutlined, ReloadOutlined, RedoOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Card, Descriptions, Drawer, Input, Popconfirm, Progress, Select, Space, Table, Tag, Timeline, Typography } from 'antd'
+import { Alert, App, Button, Card, Descriptions, Drawer, Grid, Input, Popconfirm, Progress, Select, Space, Table, Tag, Timeline, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -23,6 +23,7 @@ export function TasksPage() {
   const { user } = useAuth()
   const { canOperate } = permissionsFor(user!)
   const { message } = App.useApp()
+  const screens = Grid.useBreakpoint()
   const navigate = useNavigate()
   const notifyTask = useTaskNotification()
   const [params, setParams] = useSearchParams()
@@ -189,7 +190,8 @@ export function TasksPage() {
   const selectedResource = selected ? resourceLink(selected) : undefined
   const selectedRecoveryHost = selected?.errorCode === 'ssh_timeout' && selected.hostId ? hosts.find((host) => host.id === selected.hostId) : undefined
   const inspectRecoveryHost = () => { if (!selectedRecoveryHost) return; closeDetail(); navigate(`/hosts?host=${selectedRecoveryHost.id}`) }
-  const drawerFooter = selected ? <div className="task-drawer-footer"><Space><Button disabled={!selectedResource?.path} icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>{canOperate && <Space>{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const hasDrawerLeadingAction = !!selectedResource?.path || !!(canOperate && continueTo)
+  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{selectedResource?.path && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />
@@ -206,7 +208,7 @@ export function TasksPage() {
         {isTaskCancellationPending(selected) && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
         {selected.errorMessage && <Alert className="task-detail-alert" type={selected.status === 'failed' ? 'error' : selected.status === 'canceled' ? 'info' : 'warning'} showIcon message={selected.status === 'failed' ? t('taskFailureTitle', { stage: translateCode(t, selected.stage) }) : translateCode(t, selected.status)} description={selected.status === 'failed' ? <div className="task-error-detail"><Typography.Text>{taskSummary(selected)}</Typography.Text><Space size={6} wrap><Typography.Text type="secondary">{t('technicalDetails')}</Typography.Text>{selected.errorCode && <Tag color="red">{selected.errorCode}</Tag>}<Typography.Text code copyable>{selected.errorMessage}</Typography.Text></Space></div> : taskSummary(selected)} />}
         {selectedRecoveryHost && <Alert className="task-detail-alert task-recovery-alert" type="warning" showIcon message={t('taskRecoveryHostTitle')} description={t('taskRecoverySshTimeoutHint', { host: selectedRecoveryHost.name })} action={<Button size="small" icon={<CloudServerOutlined />} onClick={inspectRecoveryHost}>{t('inspectFailedHost')}</Button>} />}
-        <Descriptions className="task-detail-meta" bordered size="small" column={2} items={[
+        <Descriptions className="task-detail-meta" bordered size="small" column={screens.sm ? 2 : 1} items={[
           { key: 'resource', label: t('resource'), children: selectedResource?.path ? <Button type="link" icon={selectedResource.icon} onClick={() => goToResource(selected)}>{selectedResource.label}</Button> : selectedResource?.label || '—' },
           { key: 'attempts', label: t('attempts'), children: selected.attempts },
           { key: 'created', label: t('createdAt'), children: formatDateTime(selected.createdAt, i18n.language, timezone) },
@@ -216,7 +218,7 @@ export function TasksPage() {
         ]} />
         <Card className="task-log-card" size="small" title={t('executionLog')}>
           {logsError && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskLogsLoadFailed')} description={logsError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID)}>{t('retry')}</Button>} />}
-          {logs.length ? <Timeline items={logs.map((log) => ({ color: log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : selected.status === 'succeeded' ? 'green' : 'blue', children: <div className="task-log-entry"><Typography.Text type="secondary">{formatDateTime(log.createdAt, i18n.language, timezone)}</Typography.Text><Typography.Text>{translateCode(t, log.message, 'taskMessage')}</Typography.Text></div> }))} /> : !logsError && <EmptyState compact description={t('noTaskLogs')} />}
+          {logs.length ? <Timeline items={logs.map((log) => ({ color: log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : 'blue', children: <div className="task-log-entry"><div className="task-log-entry-meta"><Typography.Text type="secondary">{formatDateTime(log.createdAt, i18n.language, timezone)}</Typography.Text><Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : 'blue'}>{log.level === 'error' ? t('failure') : log.level === 'warning' ? t('warning') : t('info')}</Tag></div><Typography.Text>{translateCode(t, log.message, 'taskMessage')}</Typography.Text></div> }))} /> : !logsError && <EmptyState compact description={t('noTaskLogs')} />}
         </Card>
       </div>}
     </Drawer>
