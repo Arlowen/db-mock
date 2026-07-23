@@ -1,5 +1,5 @@
 import { ArrowRightOutlined, ClearOutlined, DownloadOutlined, EyeOutlined, FileSearchOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
-import { App, Button, Card, DatePicker, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, App, Button, Card, DatePicker, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -22,39 +22,58 @@ export function AuditPage() {
   const navigate = useNavigate()
   const [items, setItems] = useState<Audit[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
   const [resourceType, setResourceType] = useState('')
   const [selected, setSelected] = useState<Audit | null>(null)
   const [clearOpen, setClearOpen] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [before, setBefore] = useState<Dayjs>(dayjs().subtract(30, 'day'))
   const [confirm, setConfirm] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
-  const query = new URLSearchParams()
-  if (deferredSearch) query.set('search', deferredSearch)
-  if (resourceType) query.set('resourceType', resourceType)
-  const load = useCallback(() => api<{ items: Audit[] }>(`/audit?${query.toString()}`)
-    .then((value) => setItems(value.items))
-    .catch((error) => message.error(errorMessage(error)))
-    .finally(() => setLoading(false)), [message, deferredSearch, resourceType])
+  const load = useCallback(async () => {
+    try {
+      const query = new URLSearchParams()
+      if (deferredSearch) query.set('search', deferredSearch)
+      if (resourceType) query.set('resourceType', resourceType)
+      const value = await api<{ items: Audit[] }>(`/audit?${query.toString()}`)
+      setItems(value.items)
+      setLoadError('')
+    } catch (error) {
+      setLoadError(errorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [deferredSearch, resourceType])
   useEffect(() => { setLoading(true); void load() }, [load])
 
   const clear = async () => {
     try {
+      setClearing(true)
       const result = await api<{ deleted: number }>('/audit/clear', { method: 'POST', body: { before: before.toISOString(), confirm } })
       message.success(t('deletedRecords', { count: result.deleted }))
       setClearOpen(false)
       setConfirm('')
       await load()
-    } catch (error) { message.error(errorMessage(error)) }
+    } catch (error) {
+      message.error(errorMessage(error))
+    } finally {
+      setClearing(false)
+    }
   }
   const showClear = () => { setBefore(dayjs().subtract(30, 'day')); setConfirm(''); setClearOpen(true) }
   const exportQuery = new URLSearchParams()
-  if (search) exportQuery.set('search', search)
+  if (deferredSearch) exportQuery.set('search', deferredSearch)
   if (resourceType) exportQuery.set('resourceType', resourceType)
   const exportURL = `/api/v1/audit/export?${exportQuery.toString()}`
   const hasFilters = !!(search || resourceType)
-  const resetFilters = () => { setSearch(''); setResourceType('') }
+  const resetFilters = () => { setSearch(''); setResourceType(''); setPage(1) }
+  const maxPage = Math.max(1, Math.ceil(items.length / pageSize))
+  useEffect(() => { if (page > maxPage) setPage(maxPage) }, [maxPage, page])
+  const showList = !loadError || items.length > 0
   const resourcePath = selected ? auditResourcePath(selected) : ''
   const changes = useMemo(() => auditChangeEntries(selected?.changes), [selected])
 
@@ -82,10 +101,11 @@ export function AuditPage() {
 
   return <>
     <PageHeader title={t('audit')} description={t('auditDescription')} />
-    <Card className="audit-table-card">
-      <div className="split-toolbar table-toolbar"><Space wrap><Input value={search} onChange={(event) => setSearch(event.target.value)} allowClear prefix={<SearchOutlined />} placeholder={t('search')} style={{ width: 260 }} /><Select value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value) }} style={{ width: 170 }} options={[{ value: '', label: t('allResources') }, ...['platform', 'session', 'user', 'project', 'host', 'instance', 'task', 'image', 'image_upload', 'template', 'registry', 'webhook', 'alert', 'setting', 'audit'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button></Space><Space wrap><Button href={exportURL} icon={<DownloadOutlined />}>{t('export')}</Button>{canManageSettings && <Button danger icon={<ClearOutlined />} onClick={showClear}>{t('clear')}</Button>}</Space></div>
-      <Table rowKey="id" loading={loading || search !== deferredSearch} dataSource={items} columns={columns} scroll={{ x: 1250 }} pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [20, 50, 100] }} locale={{ emptyText: <EmptyState compact action={hasFilters ? resetFilters : undefined} actionLabel={t('clearFilters')} description={t('auditEmptyDescription')} /> }} />
-    </Card>
+    {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('auditListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {showList && <Card className="audit-table-card">
+      <div className="split-toolbar table-toolbar"><Space wrap><Input aria-label={t('search')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} allowClear prefix={<SearchOutlined />} placeholder={t('search')} style={{ width: 260 }} /><Select aria-label={t('resource')} value={resourceType} onChange={(value) => { setResourceType(value); setPage(1) }} style={{ width: 170 }} options={[{ value: '', label: t('allResources') }, ...['platform', 'session', 'user', 'project', 'host', 'instance', 'task', 'image', 'image_upload', 'template', 'registry', 'webhook', 'alert', 'setting', 'audit'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Button icon={<ReloadOutlined />} loading={loading} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button></Space><Space wrap><Button href={exportURL} icon={<DownloadOutlined />}>{t('export')}</Button>{canManageSettings && <Button danger icon={<ClearOutlined />} onClick={showClear}>{t('clear')}</Button>}</Space></div>
+      <Table rowKey="id" loading={loading || search !== deferredSearch} dataSource={items} columns={columns} scroll={{ x: 1250 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50, 100], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={hasFilters ? resetFilters : undefined} actionLabel={t('clearFilters')} description={hasFilters ? t('auditFilteredEmptyDescription') : t('auditEmptyDescription')} /> }} />
+    </Card>}
 
     <Drawer title={selected ? <div className="audit-detail-title"><Typography.Text strong>{translateCode(t, selected.action, 'auditAction')}</Typography.Text><Typography.Text code copyable={{ text: String(selected.id) }}>#{selected.id}</Typography.Text></div> : t('auditDetails')} open={!!selected} onClose={() => setSelected(null)} width={760} destroyOnHidden footer={selected && (resourcePath || selected.taskId) ? <Space>{resourcePath && <Button icon={<ArrowRightOutlined />} onClick={() => openPath(resourcePath)}>{t('viewResource')}</Button>}{selected.taskId && <Button type="primary" onClick={() => openPath(`/tasks?task=${selected.taskId}`)}>{t('viewTask')}</Button>}</Space> : undefined}>
       {selected && <div className="audit-detail">
@@ -105,6 +125,6 @@ export function AuditPage() {
       </div>}
     </Drawer>
 
-    {canManageSettings && <Modal title={t('clear')} open={clearOpen} onCancel={() => { setClearOpen(false); setConfirm('') }} onOk={() => void clear()} okButtonProps={{ danger: true, disabled: confirm !== 'CLEAR' }}><Typography.Paragraph type="danger">{t('auditDeleteWarning')}</Typography.Paragraph><Form layout="vertical"><Form.Item label={t('deleteBefore')}><DatePicker showTime value={before} onChange={(value) => value && setBefore(value)} style={{ width: '100%' }} /></Form.Item><Form.Item label={t('typeClearToConfirm')} htmlFor="audit-clear-confirm"><Input id="audit-clear-confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></Form.Item></Form></Modal>}
+    {canManageSettings && <Modal title={t('clear')} open={clearOpen} onCancel={() => { if (clearing) return; setClearOpen(false); setConfirm('') }} onOk={() => void clear()} confirmLoading={clearing} closable={!clearing} maskClosable={!clearing} cancelButtonProps={{ disabled: clearing }} okButtonProps={{ danger: true, disabled: confirm !== 'CLEAR' }}><Typography.Paragraph type="danger">{t('auditDeleteWarning')}</Typography.Paragraph><Form layout="vertical"><Form.Item label={t('deleteBefore')}><DatePicker aria-label={t('deleteBefore')} showTime value={before} onChange={(value) => value && setBefore(value)} style={{ width: '100%' }} /></Form.Item><Form.Item label={t('typeClearToConfirm')} htmlFor="audit-clear-confirm"><Input id="audit-clear-confirm" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></Form.Item></Form></Modal>}
   </>
 }
