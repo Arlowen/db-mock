@@ -299,13 +299,32 @@ func auditFilter(r *http.Request, limit int) store.AuditFilter {
 		Limit:               limit,
 	}
 }
+func auditPagination(r *http.Request) (int, int) {
+	const maxPage = 1000000
+	page, pageSize := 1, 20
+	if value, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && value > 0 && value <= maxPage {
+		page = value
+	}
+	if value, err := strconv.Atoi(r.URL.Query().Get("pageSize")); err == nil && value > 0 && value <= 100 {
+		pageSize = value
+	}
+	return page, pageSize
+}
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListAudit(r.Context(), auditFilter(r, 200))
+	page, pageSize := auditPagination(r)
+	filter := auditFilter(r, pageSize)
+	filter.Offset = (page - 1) * pageSize
+	total, err := s.store.CountAudit(r.Context(), filter)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+	items, err := s.store.ListAudit(r.Context(), filter)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page, "pageSize": pageSize})
 }
 func (s *Server) exportAudit(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListAudit(r.Context(), auditFilter(r, 500))
@@ -358,7 +377,7 @@ func (s *Server) clearAudit(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	if input.Confirm != "CLEAR" || input.Before.IsZero() {
+	if !validAuditClearInput(input.Confirm, input.Before, time.Now()) {
 		httpx.Error(w, r, domain.ErrInvalid)
 		return
 	}
@@ -370,6 +389,10 @@ func (s *Server) clearAudit(w http.ResponseWriter, r *http.Request) {
 	actor, _ := auth.ActorFrom(r.Context())
 	_ = s.audit(r, actor, "audit.clear", "audit", nil, "", nil, "success", "Deleted "+strconv.FormatInt(count, 10)+" audit records")
 	httpx.JSON(w, http.StatusOK, map[string]int64{"deleted": count})
+}
+
+func validAuditClearInput(confirm string, before, now time.Time) bool {
+	return confirm == "CLEAR" && !before.IsZero() && !before.After(now)
 }
 
 func (s *Server) settingRoutes(r chi.Router) {

@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeWebhook(t *testing.T) {
@@ -105,5 +107,42 @@ func TestSafeCSVCellPreventsSpreadsheetFormulas(t *testing.T) {
 		if got := safeCSVCell(value); got != value {
 			t.Fatalf("expected %q to stay unchanged, got %q", value, got)
 		}
+	}
+}
+
+func TestAuditPaginationUsesSafeDefaultsAndBounds(t *testing.T) {
+	tests := []struct {
+		query        string
+		wantPage     int
+		wantPageSize int
+	}{
+		{query: "", wantPage: 1, wantPageSize: 20},
+		{query: "?page=3&pageSize=50", wantPage: 3, wantPageSize: 50},
+		{query: "?page=0&pageSize=0", wantPage: 1, wantPageSize: 20},
+		{query: "?page=1000001&pageSize=101", wantPage: 1, wantPageSize: 20},
+		{query: "?page=invalid&pageSize=invalid", wantPage: 1, wantPageSize: 20},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest("GET", "/audit"+test.query, nil)
+		page, pageSize := auditPagination(request)
+		if page != test.wantPage || pageSize != test.wantPageSize {
+			t.Fatalf("%s: got page=%d pageSize=%d, want page=%d pageSize=%d", test.query, page, pageSize, test.wantPage, test.wantPageSize)
+		}
+	}
+}
+
+func TestAuditClearRejectsFutureCutoff(t *testing.T) {
+	now := time.Now()
+	if validAuditClearInput("CLEAR", now.Add(time.Minute), now) {
+		t.Fatal("expected a future cutoff to be rejected")
+	}
+	if validAuditClearInput("clear", now.Add(-time.Hour), now) {
+		t.Fatal("expected an invalid confirmation to be rejected")
+	}
+	if validAuditClearInput("CLEAR", time.Time{}, now) {
+		t.Fatal("expected an empty cutoff to be rejected")
+	}
+	if !validAuditClearInput("CLEAR", now.Add(-time.Hour), now) {
+		t.Fatal("expected a confirmed past cutoff to be accepted")
 	}
 }

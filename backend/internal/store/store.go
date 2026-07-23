@@ -156,11 +156,15 @@ type AuditFilter struct {
 	ResourceTypeAliases []string
 	Before              time.Time
 	Limit               int
+	Offset              int
 }
 
 func (s *Store) ListAudit(ctx context.Context, filter AuditFilter) ([]domain.AuditLog, error) {
 	if filter.Limit <= 0 || filter.Limit > 500 {
 		filter.Limit = 100
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
 	}
 	if filter.Before.IsZero() {
 		filter.Before = time.Now().Add(time.Hour)
@@ -177,8 +181,8 @@ func (s *Store) ListAudit(ctx context.Context, filter AuditFilter) ([]domain.Aud
           OR COALESCE(task_id::text,'') ILIKE '%'||$4||'%' OR message ILIKE '%'||$4||'%'
           OR changes::text ILIKE '%'||$4||'%' OR action = ANY($5::text[])
           OR resource_type = ANY($6::text[]))
-        ORDER BY created_at DESC LIMIT $7`, filter.Before, filter.ResourceType, filter.Result, filter.Search,
-		filter.ActionAliases, filter.ResourceTypeAliases, filter.Limit)
+        ORDER BY created_at DESC LIMIT $7 OFFSET $8`, filter.Before, filter.ResourceType, filter.Result, filter.Search,
+		filter.ActionAliases, filter.ResourceTypeAliases, filter.Limit, filter.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +198,26 @@ func (s *Store) ListAudit(ctx context.Context, filter AuditFilter) ([]domain.Aud
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) CountAudit(ctx context.Context, filter AuditFilter) (int64, error) {
+	if filter.Before.IsZero() {
+		filter.Before = time.Now().Add(time.Hour)
+	}
+	var total int64
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs
+        WHERE created_at < $1
+        AND ($2='' OR resource_type=$2)
+        AND ($3='' OR result=$3)
+        AND ($4='' OR username ILIKE '%'||$4||'%' OR action ILIKE '%'||$4||'%'
+          OR resource_type ILIKE '%'||$4||'%' OR COALESCE(resource_id::text,'') ILIKE '%'||$4||'%'
+          OR resource_name ILIKE '%'||$4||'%' OR result ILIKE '%'||$4||'%'
+          OR ip ILIKE '%'||$4||'%' OR request_id ILIKE '%'||$4||'%'
+          OR COALESCE(task_id::text,'') ILIKE '%'||$4||'%' OR message ILIKE '%'||$4||'%'
+          OR changes::text ILIKE '%'||$4||'%' OR action = ANY($5::text[])
+          OR resource_type = ANY($6::text[]))`, filter.Before, filter.ResourceType, filter.Result, filter.Search,
+		filter.ActionAliases, filter.ResourceTypeAliases).Scan(&total)
+	return total, err
 }
 
 func (s *Store) ClearAudit(ctx context.Context, before time.Time) (int64, error) {

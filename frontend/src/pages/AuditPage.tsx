@@ -32,6 +32,7 @@ export function AuditPage() {
   const screens = Grid.useBreakpoint()
   const navigate = useNavigate()
   const [items, setItems] = useState<Audit[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [search, setSearch] = useState('')
@@ -54,15 +55,18 @@ export function AuditPage() {
   const load = useCallback(async () => {
     try {
       const query = auditQuery(deferredSearch, resourceType, resultFilter, searchAliases)
-      const value = await api<{ items: Audit[] }>(`/audit?${query.toString()}`)
+      query.set('page', String(page))
+      query.set('pageSize', String(pageSize))
+      const value = await api<{ items: Audit[]; total: number }>(`/audit?${query.toString()}`)
       setItems(value.items)
+      setTotal(value.total)
       setLoadError('')
     } catch (error) {
       setLoadError(errorMessage(error))
     } finally {
       setLoading(false)
     }
-  }, [deferredSearch, resourceType, resultFilter, searchAliases])
+  }, [deferredSearch, page, pageSize, resourceType, resultFilter, searchAliases])
   useEffect(() => { setLoading(true); void load() }, [load])
 
   const clear = async () => {
@@ -92,7 +96,7 @@ export function AuditPage() {
   const exportURL = `/api/v1/audit/export?${auditQuery(deferredSearch, resourceType, resultFilter, searchAliases).toString()}`
   const hasFilters = !!(search || resourceType || resultFilter)
   const resetFilters = () => { setSearch(''); setResourceType(''); setResultFilter(''); setPage(1) }
-  const maxPage = Math.max(1, Math.ceil(items.length / pageSize))
+  const maxPage = Math.max(1, Math.ceil(total / pageSize))
   const clearCutoffValid = !!before && !before.isAfter(dayjs())
   useEffect(() => { if (page > maxPage) setPage(maxPage) }, [maxPage, page])
   const showList = !loadError || items.length > 0
@@ -138,7 +142,8 @@ export function AuditPage() {
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('auditListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {showList && <Card className="audit-table-card">
       <div className="split-toolbar table-toolbar"><div className="audit-filter-controls"><Input className="audit-search" aria-label={t('search')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} allowClear prefix={<SearchOutlined />} placeholder={t('auditSearchPlaceholder')} /><Select className="audit-filter" aria-label={t('resource')} value={resourceType} onChange={(value) => { setResourceType(value); setPage(1) }} options={[{ value: '', label: t('allResources') }, ...['platform', 'session', 'user', 'project', 'host', 'instance', 'task', 'image', 'image_upload', 'template', 'registry', 'webhook', 'alert', 'setting', 'audit'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Select className="audit-filter" aria-label={t('result')} value={resultFilter} onChange={(value) => { setResultFilter(value); setPage(1) }} options={[{ value: '', label: t('auditAllResults') }, { value: 'success', label: t('success') }, { value: 'failure', label: t('failure') }]} /><Button icon={<ReloadOutlined />} loading={loading} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button></div><Space className="audit-toolbar-actions" wrap><Button href={exportURL} icon={<DownloadOutlined />} disabled={!items.length}>{t('export')}</Button>{canManageSettings && <Button danger icon={<ClearOutlined />} onClick={showClear}>{t('clear')}</Button>}</Space></div>
-      <Table rowKey="id" loading={loading || search !== deferredSearch} dataSource={items} columns={columns} tableLayout="fixed" scroll={compactTable ? undefined : { x: 900 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50, 100], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={hasFilters ? resetFilters : undefined} actionLabel={t('clearFilters')} description={hasFilters ? t('auditFilteredEmptyDescription') : t('auditEmptyDescription')} /> }} />
+      <div className="audit-result-summary" aria-live="polite"><Typography.Text type="secondary">{t(hasFilters ? 'auditFilteredResultCount' : 'auditResultCount', { count: total })}</Typography.Text></div>
+      <Table rowKey="id" loading={loading || search !== deferredSearch} dataSource={items} columns={columns} tableLayout="fixed" scroll={compactTable ? undefined : { x: 900 }} pagination={{ current: page, pageSize, total, hideOnSinglePage: true, showLessItems: compactTable, showSizeChanger: !compactTable && total > 20, pageSizeOptions: [20, 50, 100], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={hasFilters ? resetFilters : undefined} actionLabel={t('clearFilters')} description={hasFilters ? t('auditFilteredEmptyDescription') : t('auditEmptyDescription')} /> }} />
     </Card>}
 
     <Drawer title={selected ? <div className="audit-detail-title"><Typography.Text strong>{translateCode(t, selected.action, 'auditAction')}</Typography.Text><Typography.Text code copyable={{ text: String(selected.id) }}>#{selected.id}</Typography.Text></div> : t('auditDetails')} open={!!selected} onClose={() => setSelected(null)} width={760} destroyOnHidden footer={selected && (resourcePath || selected.taskId) ? <Space className="audit-detail-footer">{resourcePath && <Button icon={<ArrowRightOutlined />} onClick={() => openPath(resourcePath)}>{t('viewResource')}</Button>}{selected.taskId && <Button type="primary" onClick={() => openPath(`/tasks?task=${selected.taskId}`)}>{t('viewTask')}</Button>}</Space> : undefined}>

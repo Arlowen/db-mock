@@ -234,6 +234,8 @@ button { font: inherit; }
 .task-log-entry-meta .ant-typography-secondary { font-size: 12px; }
 .task-log-entry-meta .ant-tag { margin: 0; font-size: 11px; line-height: 18px; }
 .audit-table-card .ant-table-cell { vertical-align: middle; }
+.audit-table-card .table-toolbar { margin-bottom: 10px; }
+.audit-result-summary { min-height: 22px; margin-bottom: 10px; display: flex; align-items: center; }
 .audit-filter-controls { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .audit-search { width: 260px; }
 .audit-filter { width: 150px; }
