@@ -33,12 +33,15 @@ export function TasksPage() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
+  const [resourceDataError, setResourceDataError] = useState('')
   const [status, setStatus] = useState('')
   const [selected, setSelected] = useState<Task | null>(null)
   const [logs, setLogs] = useState<TaskLog[]>([])
+  const [logsError, setLogsError] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [actioning, setActioning] = useState('')
+  const [actionError, setActionError] = useState('')
   const [search, setSearch] = useState('')
   const [resourceType, setResourceType] = useState('')
   const [page, setPage] = useState(1)
@@ -60,14 +63,15 @@ export function TasksPage() {
   }, [resourceType, status])
 
   const loadResources = useCallback(async () => {
-    try {
-      const [hostList, instanceList] = await Promise.all([api<{ items: Host[] }>('/hosts'), api<{ items: Instance[] }>('/instances')])
-      setHosts(hostList.items)
-      setInstances(instanceList.items)
-    } catch (error) {
-      message.error(errorMessage(error))
-    }
-  }, [message])
+    const [hostResponse, instanceResponse] = await Promise.allSettled([
+      api<{ items: Host[] }>('/hosts'),
+      api<{ items: Instance[] }>('/instances'),
+    ])
+    if (hostResponse.status === 'fulfilled') setHosts(hostResponse.value.items)
+    if (instanceResponse.status === 'fulfilled') setInstances(instanceResponse.value.items)
+    const failed = [hostResponse, instanceResponse].find((result) => result.status === 'rejected')
+    setResourceDataError(failed?.status === 'rejected' ? errorMessage(failed.reason) : '')
+  }, [])
 
   const loadDetail = useCallback(async (id: string, foreground = false) => {
     if (foreground) {
@@ -75,23 +79,31 @@ export function TasksPage() {
       setDetailError('')
       setSelected(null)
       setLogs([])
+      setLogsError('')
     }
-    try {
-      const [task, result] = await Promise.all([api<Task>(`/tasks/${id}`), api<{ items: TaskLog[] }>(`/tasks/${id}/logs`)])
-      setSelected(task)
-      setLogs(result.items)
+    const [taskResponse, logsResponse] = await Promise.allSettled([
+      api<Task>(`/tasks/${id}`),
+      api<{ items: TaskLog[] }>(`/tasks/${id}/logs`),
+    ])
+    if (taskResponse.status === 'fulfilled') {
+      setSelected(taskResponse.value)
       setDetailError('')
-    } catch (error) {
-      setDetailError(errorMessage(error))
-    } finally {
-      if (foreground) setDetailLoading(false)
+    } else {
+      setDetailError(errorMessage(taskResponse.reason))
     }
+    if (logsResponse.status === 'fulfilled') {
+      setLogs(logsResponse.value.items)
+      setLogsError('')
+    } else {
+      setLogsError(errorMessage(logsResponse.reason))
+    }
+    if (foreground) setDetailLoading(false)
   }, [])
 
   useEffect(() => { void loadResources() }, [loadResources])
   useEffect(() => {
     if (taskID) void loadDetail(taskID, true)
-    else { setSelected(null); setLogs([]); setDetailError('') }
+    else { setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError('') }
   }, [loadDetail, taskID])
   useEffect(() => {
     void load()
@@ -108,8 +120,8 @@ export function TasksPage() {
     return { label: task.resourceId.slice(0, 8) }
   }, [hostNames, instanceNames])
 
-  const closeDetail = () => { setSelected(null); setLogs([]); setDetailError(''); setParams({}, { replace: true }) }
-  const continueCreation = () => { if (!continueTo) return; setSelected(null); setLogs([]); setDetailError(''); navigate(continueTo) }
+  const closeDetail = () => { setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); setParams({}, { replace: true }) }
+  const continueCreation = () => { if (!continueTo) return; setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); navigate(continueTo) }
   const goToResource = (task: Task) => { const resource = resourceLink(task); if (!resource.path) return; closeDetail(); navigate(resource.path) }
   const canRetry = (task: Task) => ['failed', 'canceled', 'interrupted'].includes(task.status)
   const canCancel = (task: Task) => task.cancelable && !task.cancelAsked && ['queued', 'running'].includes(task.status)
@@ -118,6 +130,7 @@ export function TasksPage() {
     const key = `${item.id}:${name}`
     try {
       setActioning(key)
+      setActionError('')
       if (name === 'retry') {
         const retried = await api<Task>(`/tasks/${item.id}/retry`, { method: 'POST', body: {} })
         notifyTask(retried)
@@ -133,7 +146,7 @@ export function TasksPage() {
       }
       await load()
     } catch (error) {
-      message.error(errorMessage(error))
+      setActionError(errorMessage(error))
     } finally {
       setActioning('')
     }
@@ -181,10 +194,13 @@ export function TasksPage() {
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />
     {listError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('taskListLoadFailed')} description={listError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {resourceDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('taskResourceDataLoadFailed')} description={resourceDataError} action={<Button size="small" onClick={() => void loadResources()}>{t('retry')}</Button>} />}
+    {actionError && !taskID && <Alert className="instance-page-alert" type="error" showIcon closable message={t('taskActionFailed')} description={actionError} onClose={() => setActionError('')} />}
     {showFilters && <Card className="table-filter-card task-filter-card"><div className="task-filter-toolbar"><Input.Search allowClear aria-label={t('tasksSearchLabel')} placeholder={t('tasksSearchPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} className="task-filter-search" /><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value); setPage(1) }} className="task-filter-status" options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('resource')} value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value); setPage(1) }} className="task-filter-resource" options={[{ value: '', label: t('allResources') }, ...['instance', 'host'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Typography.Text type="secondary" className="task-filter-count" aria-live="polite">{search ? t('taskFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('taskResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
     {showList && <Card className="task-table-card" title={!showFilters ? t('tasks') : undefined} extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} scroll={{ x: 900 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={hasFilters ? clearFilters : undefined} actionLabel={t('clearFilters')} description={hasFilters ? t('tasksFilteredEmptyDescription') : t('tasksEmptyDescription')} /> }} /></Card>}
     <Drawer title={selected ? <div className="task-drawer-title"><Typography.Text strong>{translateCode(t, selected.kind, 'taskKind')}</Typography.Text><Typography.Text code copyable={{ text: selected.id }}>{selected.id.slice(0, 8)}</Typography.Text></div> : t('taskDetails')} open={!!taskID} onClose={closeDetail} width={760} destroyOnHidden footer={drawerFooter}>
       {detailLoading ? <Card loading /> : detailError ? <Alert type="error" showIcon message={t('taskLoadFailed')} description={detailError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID, true)}>{t('retry')}</Button>} /> : selected && <div className="task-detail">
+        {actionError && <Alert className="task-detail-alert" type="error" showIcon closable message={t('taskActionFailed')} description={actionError} onClose={() => setActionError('')} />}
         <div className={`task-detail-summary is-${selected.status}`}><div><Space><StatusTag value={selected.status} /><Typography.Text strong>{translateCode(t, selected.message, 'taskMessage')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('taskSummaryDescription', { operation: translateCode(t, selected.kind, 'taskKind'), resource: selectedResource?.label || '—' })}</Typography.Paragraph></div><Progress percent={selected.progress} status={selected.status === 'failed' ? 'exception' : selected.status === 'succeeded' ? 'success' : undefined} /></div>
         {canOperate && continueTo && <Alert className="task-detail-alert" type={selected.status === 'succeeded' ? 'success' : selected.status === 'failed' ? 'warning' : 'info'} showIcon message={selected.status === 'succeeded' ? t('hostReadyContinue') : selected.status === 'failed' ? t('hostSetupFailedContinue') : t('hostSetupInProgress')} description={selected.status === 'succeeded' ? t('hostReadyContinueHint') : selected.status === 'failed' ? t('hostSetupFailedContinueHint') : t('hostSetupInProgressHint')} action={selected.status === 'succeeded' ? <Button size="small" type="primary" onClick={continueCreation}>{t('continueCreateDatabase')}</Button> : undefined} />}
         {isTaskCancellationPending(selected) && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
@@ -199,7 +215,8 @@ export function TasksPage() {
           { key: 'duration', label: t('duration'), children: duration(selected) },
         ]} />
         <Card className="task-log-card" size="small" title={t('executionLog')}>
-          {logs.length ? <Timeline items={logs.map((log) => ({ color: log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : selected.status === 'succeeded' ? 'green' : 'blue', children: <div className="task-log-entry"><Typography.Text type="secondary">{formatDateTime(log.createdAt, i18n.language, timezone)}</Typography.Text><Typography.Text>{translateCode(t, log.message, 'taskMessage')}</Typography.Text></div> }))} /> : <EmptyState compact description={t('noTaskLogs')} />}
+          {logsError && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskLogsLoadFailed')} description={logsError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID)}>{t('retry')}</Button>} />}
+          {logs.length ? <Timeline items={logs.map((log) => ({ color: log.level === 'error' ? 'red' : log.level === 'warning' ? 'orange' : selected.status === 'succeeded' ? 'green' : 'blue', children: <div className="task-log-entry"><Typography.Text type="secondary">{formatDateTime(log.createdAt, i18n.language, timezone)}</Typography.Text><Typography.Text>{translateCode(t, log.message, 'taskMessage')}</Typography.Text></div> }))} /> : !logsError && <EmptyState compact description={t('noTaskLogs')} />}
         </Card>
       </div>}
     </Drawer>

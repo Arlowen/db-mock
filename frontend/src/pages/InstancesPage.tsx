@@ -41,23 +41,28 @@ function sameStringMap(left: Record<string, string>, right: Record<string, strin
 }
 
 export function InstancesPage() {
-  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [creating, setCreating] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createError, setCreateError] = useState(''); const [actioning, setActioning] = useState(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createError, setCreateError] = useState(''); const [actioning, setActioning] = useState(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const load = useCallback(async () => {
-    try {
-      const [instanceList, templateList, hostList, projectList, imageList, registryList] = await Promise.all([api<{ items: Instance[] }>('/instances'), api<{ items: DatabaseTemplate[] }>('/templates'), api<{ items: Host[] }>('/hosts'), api<{ items: Project[] }>('/projects'), api<{ items: ImageArtifact[] }>('/images'), api<{ items: Registry[] }>('/registries')])
-      setItems(instanceList.items)
-      setTemplates(templateList.items)
-      setHosts(hostList.items)
-      setProjects(projectList.items)
-      setImages(imageList.items)
-      setRegistries(registryList.items)
-      setLoadError('')
-    } catch (error) {
-      setLoadError(errorMessage(error))
-    } finally {
-      setLoading(false)
-    }
+    const [instanceResponse, templateResponse, hostResponse, projectResponse, imageResponse, registryResponse] = await Promise.allSettled([
+      api<{ items: Instance[] }>('/instances'),
+      api<{ items: DatabaseTemplate[] }>('/templates'),
+      api<{ items: Host[] }>('/hosts'),
+      api<{ items: Project[] }>('/projects'),
+      api<{ items: ImageArtifact[] }>('/images'),
+      api<{ items: Registry[] }>('/registries'),
+    ])
+    if (instanceResponse.status === 'fulfilled') setItems(instanceResponse.value.items)
+    if (templateResponse.status === 'fulfilled') setTemplates(templateResponse.value.items)
+    if (hostResponse.status === 'fulfilled') setHosts(hostResponse.value.items)
+    if (projectResponse.status === 'fulfilled') setProjects(projectResponse.value.items)
+    if (imageResponse.status === 'fulfilled') setImages(imageResponse.value.items)
+    if (registryResponse.status === 'fulfilled') setRegistries(registryResponse.value.items)
+    setLoadError(instanceResponse.status === 'rejected' ? errorMessage(instanceResponse.reason) : '')
+    const supportingFailure = [templateResponse, hostResponse, projectResponse, imageResponse, registryResponse].find((result) => result.status === 'rejected')
+    setSupportingDataError(supportingFailure?.status === 'rejected' ? errorMessage(supportingFailure.reason) : '')
+    setCreationDataReady(templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled')
+    setLoading(false)
   }, [])
   const hasOnlineHost = hosts.some((host) => host.status === 'online' && !host.maintenance)
   const createRequested = params.get('create') === '1'
@@ -74,7 +79,7 @@ export function InstancesPage() {
   const addRequiredHost = useCallback(() => navigate(`/hosts?create=1&returnTo=${encodeURIComponent(createIntent())}`), [createIntent, navigate])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
-    if (loading || loadError || !createRequested) return
+    if (loading || loadError || !creationDataReady || !createRequested) return
     if (!canOperate) { setParams({}, { replace: true }); return }
     if (!hasOnlineHost) { addRequiredHost(); return }
     if (requestedImageAvailable && !requestedImageHostAvailable) { addRequiredHost(); return }
@@ -84,7 +89,7 @@ export function InstancesPage() {
     form.resetFields()
     form.setFieldsValue({ environment: 'development', bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined })
     setDrawer(true)
-  }, [addRequiredHost, canOperate, createRequested, form, hasOnlineHost, loadError, loading, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedTemplateAvailable, requestedTemplateID, setParams])
+  }, [addRequiredHost, canOperate, createRequested, creationDataReady, form, hasOnlineHost, loadError, loading, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedTemplateAvailable, requestedTemplateID, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
   const selectedRegistryID = Form.useWatch('registryId', { form, preserve: true })
@@ -187,10 +192,10 @@ export function InstancesPage() {
   const showFilters = items.length > 0 || hasFilters
   const resetPage = () => setPage(1)
   const clearFilters = () => { setSearch(''); setProjectFilter(''); setHostFilter(''); setEnvironmentFilter(''); setStatusFilter(''); resetPage() }
-  const emptyAction = hasFilters ? clearFilters : canOperate ? openCreate : undefined
-  const emptyActionLabel = hasFilters ? t('clearFilters') : canOperate ? hasOnlineHost ? t('createInstance') : t('addHost') : undefined
-  const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : t('instancesEmptyDescription')
-  const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && items.length > 0 && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
+  const emptyAction = hasFilters ? clearFilters : canOperate ? creationDataReady ? openCreate : () => { setLoading(true); void load() } : undefined
+  const emptyActionLabel = hasFilters ? t('clearFilters') : canOperate ? creationDataReady ? hasOnlineHost ? t('createInstance') : t('addHost') : t('retry') : undefined
+  const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : creationDataReady ? t('instancesEmptyDescription') : t('instanceCreationDataUnavailable')
+  const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && creationDataReady && items.length > 0 && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
   const parameterInput = (parameter: TemplateParameter) => {
     if (parameter.type === 'number') return <InputNumber min={parameter.min} max={parameter.max} step={parameter.step} style={{ width: '100%' }} />
     if (parameter.type === 'boolean') return <Switch />
@@ -200,6 +205,7 @@ export function InstancesPage() {
   const parameterRequiredRule = (parameter: TemplateParameter) => ({ validator: (_: unknown, value: TemplateParameterValue | undefined) => !parameter.required || value !== undefined && (typeof value !== 'string' || value.trim() !== '') ? Promise.resolve() : Promise.reject(new Error(t('templateParameterRequired', { label: localizedTemplateText(parameter.label, parameter.labelZh, i18n.language) }))) })
   return <><PageHeader title={t('instances')} description={t('instancesDescription')} />
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('instanceListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {showFilters && <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('project')} value={projectFilter} onChange={(value) => { setProjectFilter(value); resetPage() }} className="instance-filter-project" options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('environment')} value={environmentFilter} onChange={(value) => { setEnvironmentFilter(value); resetPage() }} className="instance-filter-environment" options={[{ value: '', label: t('allEnvironments') }, ...['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed', 'reconfiguring', 'backing_up', 'restoring'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
     {(items.length > 0 || !loadError) && <Card className="instance-table-card" title={!showFilters ? t('instances') : undefined} extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} scroll={{ x: 968 }} pagination={{ current: page, pageSize, showSizeChanger: true, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
     <Drawer title={t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateError(''); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0)} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}><Steps current={step} size="small" responsive={false} items={[{ title: t('template') }, { title: t('basicInfo') }, { title: t('resources') }, { title: t('options') }, { title: t('confirm') }]} /><Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
