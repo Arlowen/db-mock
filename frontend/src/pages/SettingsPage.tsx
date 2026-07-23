@@ -1,5 +1,5 @@
 import { BellOutlined, CloudUploadOutlined, CodeOutlined, EditOutlined, GlobalOutlined, SaveOutlined } from '@ant-design/icons'
-import { App, AutoComplete, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Space, Switch, Typography } from 'antd'
+import { Alert, App, AutoComplete, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Space, Switch, Typography } from 'antd'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useBeforeUnload, useBlocker } from 'react-router-dom'
@@ -29,6 +29,7 @@ export function SettingsPage() {
   const { reload: reloadSystemSettings } = useSystemSettings()
   const [items, setItems] = useState<Settings>({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [saving, setSaving] = useState(false)
   const [monitoringSaving, setMonitoringSaving] = useState(false)
   const [uploadSaving, setUploadSaving] = useState(false)
@@ -50,6 +51,7 @@ export function SettingsPage() {
 
   const load = useCallback(() => api<Settings>('/settings').then((response) => {
     setItems(response)
+    setLoadError('')
     const timezoneValues = { timezone: normalizeTimezone(response.timezone) }
     const monitoringValues = normalizeMonitoringSettings(response.monitoring)
     const uploads = normalizeUploadSettings(response.uploads)
@@ -64,7 +66,7 @@ export function SettingsPage() {
     setTimezoneDirty(false)
     setMonitoringDirty(false)
     setUploadDirty(false)
-  }).catch((error) => message.error(errorMessage(error))).finally(() => setLoading(false)), [message, monitoringForm, timezoneForm, uploadForm])
+  }).catch((error) => setLoadError(errorMessage(error))).finally(() => setLoading(false)), [monitoringForm, timezoneForm, uploadForm])
 
   useEffect(() => { void load() }, [load])
 
@@ -157,12 +159,14 @@ export function SettingsPage() {
   }
 
   const advancedItems = Object.entries(items).filter(([key]) => key !== 'monitoring' && key !== 'uploads' && key !== 'timezone')
+  const hasSettings = Object.keys(items).length > 0
   const maxAllowedGiB = uploadSettings.maxAllowedBytes / GiB
   const maxAllowedMiB = uploadSettings.maxAllowedBytes / MiB
 
   return <>
     <PageHeader title={t('settings')} description={t('settingsDescription')} />
-    {loading ? <Card loading /> : <Space direction="vertical" size={16} className="settings-stack">
+    {loadError && <Alert className="instance-page-alert" type="error" showIcon message={t('settingsLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {loading && !hasSettings ? <Card loading /> : hasSettings ? <Space direction="vertical" size={16} className="settings-stack">
       <Card title={<Space><GlobalOutlined />{t('timezoneSettings')}</Space>} extra={<Button type="primary" icon={<SaveOutlined />} loading={timezoneSaving} disabled={!timezoneDirty} onClick={() => void saveTimezone()}>{t('saveTimezone')}</Button>}>
         <Typography.Paragraph type="secondary">{t('timezoneSettingsHint')}</Typography.Paragraph>
         <Form form={timezoneForm} layout="vertical" requiredMark={false} initialValues={{ timezone: defaultTimezone }} onValuesChange={(_, values) => setTimezoneDirty(values.timezone !== timezoneBaseline.current?.timezone)}>
@@ -199,7 +203,7 @@ export function SettingsPage() {
       </Card>
       <Row gutter={[16, 16]}>{advancedItems.map(([key, value]) => <Col xs={24} lg={12} key={key}><Card title={<Space><CodeOutlined />{key}</Space>} extra={<Button type="text" aria-label={`${t('edit')} ${key}`} icon={<EditOutlined />} onClick={() => show(key)}>{t('edit')}</Button>}><pre className="settings-json">{JSON.stringify(value, null, 2)}</pre></Card></Col>)}</Row>
       <Card className="configuration-note"><Typography.Title level={4}>{t('deploymentEnvironment')}</Typography.Title><Typography.Paragraph type="secondary">{t('deploymentEnvironmentHint')}</Typography.Paragraph></Card>
-    </Space>}
+    </Space> : null}
     <Modal title={editing || t('settings')} open={!!editing} onCancel={closeRawEditor} onOk={() => void save()} confirmLoading={saving} okText={t('save')} okButtonProps={{ icon: <SaveOutlined />, disabled: !rawDirty }} width={680}><Input.TextArea aria-label={editing || t('settings')} className="json-editor" rows={18} value={raw} onChange={(event) => { setRaw(event.target.value); setRawDirty(event.target.value !== rawBaseline.current) }} spellCheck={false} /></Modal>
     <Modal title={t('unsavedSettingsTitle')} open={blocker.state === 'blocked'} onCancel={() => { if (blocker.state === 'blocked') blocker.reset() }} onOk={() => { if (blocker.state === 'blocked') blocker.proceed() }} okText={t('discardChanges')} cancelText={t('continueEditing')} okButtonProps={{ danger: true }}>
       <Typography.Paragraph>{t('unsavedSettingsHint')}</Typography.Paragraph>

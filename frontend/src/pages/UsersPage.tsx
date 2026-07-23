@@ -12,9 +12,19 @@ import type { User, UserRole } from '../lib/types'
 interface UserForm { username?: string; displayName: string; password?: string; locale: string; role: UserRole; disabled?: boolean }
 
 export function UsersPage() {
-  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const { user: currentUser, reload: reloadCurrentUser } = useAuth(); const [items, setItems] = useState<User[]>([]); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [draftDirty, setDraftDirty] = useState(false); const [open, setOpen] = useState(false); const [editing, setEditing] = useState<User | null>(null); const [form] = Form.useForm<UserForm>()
+  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const { user: currentUser, reload: reloadCurrentUser } = useAuth(); const [items, setItems] = useState<User[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [saving, setSaving] = useState(false); const [draftDirty, setDraftDirty] = useState(false); const [open, setOpen] = useState(false); const [editing, setEditing] = useState<User | null>(null); const [form] = Form.useForm<UserForm>()
   const selectedRole = Form.useWatch('role', form)
-  const load = useCallback(() => api<{ items: User[] }>('/users').then((value) => setItems(value.items)).catch((error) => message.error(errorMessage(error))).finally(() => setLoading(false)), [message])
+  const load = useCallback(async () => {
+    try {
+      const response = await api<{ items: User[] }>('/users')
+      setItems(response.items)
+      setLoadError('')
+    } catch (error) {
+      setLoadError(errorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
   useEffect(() => { void load() }, [load])
   const show = (item?: User) => { setEditing(item || null); setDraftDirty(false); form.resetFields(); form.setFieldsValue(item ? { displayName: item.displayName, locale: item.locale, role: item.role, disabled: !!item.disabledAt } : { locale: i18n.language, role: 'viewer', disabled: false }); setOpen(true) }
   const finishCloseEditor = () => { setOpen(false); setEditing(null); setDraftDirty(false); form.resetFields() }
@@ -40,7 +50,9 @@ export function UsersPage() {
     { title: t('createdAt'), dataIndex: 'createdAt', width: 170, render: (value: string) => formatDateTime(value, i18n.language, timezone) },
     { title: '', width: 56, fixed: 'right' as const, render: (_: unknown, item: User) => <Button type="text" aria-label={`${t('edit')} ${item.displayName}`} title={t('edit')} icon={<EditOutlined />} onClick={() => show(item)} /> },
   ]
-  return <><PageHeader title={t('users')} description={t('usersDescription')} /><Card title={t('users')} extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('create')}</Button>}><Table rowKey="id" loading={loading} dataSource={items} pagination={false} columns={columns} scroll={{ x: 926 }} /></Card>
+  return <><PageHeader title={t('users')} description={t('usersDescription')} />
+    {loadError && <Alert className="instance-page-alert" type="error" showIcon message={t('userListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {(items.length > 0 || !loadError) && <Card title={t('users')} extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('createUser')}</Button>}><Table rowKey="id" loading={loading} dataSource={items} pagination={false} columns={columns} scroll={{ x: 926 }} /></Card>}
     <Modal title={editing ? `${t('edit')} · ${editing.displayName}` : t('createUser')} open={open} onCancel={closeEditor} onOk={() => void save()} confirmLoading={saving} closable={!saving} maskClosable={!saving} cancelButtonProps={{ disabled: saving }} okText={t('save')} destroyOnHidden><Form form={form} layout="vertical" autoComplete="off" onValuesChange={() => setDraftDirty(true)}>{!editing && <><Alert className="user-permission-note" type="info" showIcon message={t('newUserPermissionsHint')} /><Form.Item name="username" label={t('username')} rules={[{ required: true }]}><Input autoFocus autoComplete="off" data-1p-ignore data-lpignore="true" /></Form.Item></>}<Form.Item name="displayName" label={t('displayName')} rules={[{ required: true }]}><Input autoFocus={!!editing} /></Form.Item><Form.Item name="role" label={t('role')} extra={<Space direction="vertical" size={0}><span>{t(selectedRole === 'admin' ? 'roleAdminHint' : selectedRole === 'operator' ? 'roleOperatorHint' : 'roleViewerHint')}</span>{editing && <span>{t(editing.id === currentUser?.id ? 'cannotChangeCurrentRole' : 'roleChangeSessionHint')}</span>}</Space>} rules={[{ required: true }]}><Select disabled={editing?.id === currentUser?.id} options={[{ value: 'admin', label: t('role_admin') }, { value: 'operator', label: t('role_operator') }, { value: 'viewer', label: t('role_viewer') }]} /></Form.Item><Form.Item name="password" label={editing ? `${t('password')} (${t('leaveEmptyToKeep')})` : t('password')} extra={editing ? t(editing.id === currentUser?.id ? 'passwordResetSelfHint' : 'passwordResetOtherHint') : undefined} rules={editing ? [] : [{ required: true }]}><Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item><Form.Item name="locale" label={t('language')} rules={[{ required: true }]}><Select options={[{ value: 'zh-CN', label: t('languageChinese') }, { value: 'en-US', label: t('languageEnglish') }]} /></Form.Item>{editing && <Form.Item name="disabled" label={t('disableAccount')} valuePropName="checked" extra={t(editing.id === currentUser?.id ? 'cannotDisableCurrentUser' : 'disableUserHint')}><Switch aria-label={t('disableAccount')} disabled={editing.id === currentUser?.id} /></Form.Item>}</Form></Modal>
   </>
 }
