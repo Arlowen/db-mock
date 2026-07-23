@@ -287,8 +287,20 @@ func auditBefore(r *http.Request) time.Time {
 	parsed, _ := time.Parse(time.RFC3339, value)
 	return parsed
 }
+func auditFilter(r *http.Request, limit int) store.AuditFilter {
+	query := r.URL.Query()
+	return store.AuditFilter{
+		Search:              strings.TrimSpace(query.Get("search")),
+		ResourceType:        query.Get("resourceType"),
+		Result:              query.Get("result"),
+		ActionAliases:       query["actionAlias"],
+		ResourceTypeAliases: query["resourceTypeAlias"],
+		Before:              auditBefore(r),
+		Limit:               limit,
+	}
+}
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListAudit(r.Context(), r.URL.Query().Get("search"), r.URL.Query().Get("resourceType"), auditBefore(r), 200)
+	items, err := s.store.ListAudit(r.Context(), auditFilter(r, 200))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -296,7 +308,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 }
 func (s *Server) exportAudit(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListAudit(r.Context(), r.URL.Query().Get("search"), r.URL.Query().Get("resourceType"), auditBefore(r), 500)
+	items, err := s.store.ListAudit(r.Context(), auditFilter(r, 500))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

@@ -148,18 +148,37 @@ func auditSensitiveKey(key string) bool {
 	return false
 }
 
-func (s *Store) ListAudit(ctx context.Context, search, resourceType string, before time.Time, limit int) ([]domain.AuditLog, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
+type AuditFilter struct {
+	Search              string
+	ResourceType        string
+	Result              string
+	ActionAliases       []string
+	ResourceTypeAliases []string
+	Before              time.Time
+	Limit               int
+}
+
+func (s *Store) ListAudit(ctx context.Context, filter AuditFilter) ([]domain.AuditLog, error) {
+	if filter.Limit <= 0 || filter.Limit > 500 {
+		filter.Limit = 100
 	}
-	if before.IsZero() {
-		before = time.Now().Add(time.Hour)
+	if filter.Before.IsZero() {
+		filter.Before = time.Now().Add(time.Hour)
 	}
 	rows, err := s.pool.Query(ctx, `SELECT id,user_id,username,action,resource_type,resource_id,resource_name,
         ip,request_id,task_id,result,changes,message,created_at FROM audit_logs
-        WHERE created_at < $1 AND ($2='' OR resource_type=$2) AND
-        ($3='' OR username ILIKE '%'||$3||'%' OR action ILIKE '%'||$3||'%' OR resource_name ILIKE '%'||$3||'%')
-        ORDER BY created_at DESC LIMIT $4`, before, resourceType, search, limit)
+        WHERE created_at < $1
+        AND ($2='' OR resource_type=$2)
+        AND ($3='' OR result=$3)
+        AND ($4='' OR username ILIKE '%'||$4||'%' OR action ILIKE '%'||$4||'%'
+          OR resource_type ILIKE '%'||$4||'%' OR COALESCE(resource_id::text,'') ILIKE '%'||$4||'%'
+          OR resource_name ILIKE '%'||$4||'%' OR result ILIKE '%'||$4||'%'
+          OR ip ILIKE '%'||$4||'%' OR request_id ILIKE '%'||$4||'%'
+          OR COALESCE(task_id::text,'') ILIKE '%'||$4||'%' OR message ILIKE '%'||$4||'%'
+          OR changes::text ILIKE '%'||$4||'%' OR action = ANY($5::text[])
+          OR resource_type = ANY($6::text[]))
+        ORDER BY created_at DESC LIMIT $7`, filter.Before, filter.ResourceType, filter.Result, filter.Search,
+		filter.ActionAliases, filter.ResourceTypeAliases, filter.Limit)
 	if err != nil {
 		return nil, err
 	}

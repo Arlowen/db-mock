@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { auditChangeEntries, auditResourcePath, auditValueText } from './audit'
+import { auditChangeEntries, auditResourcePath, auditSearchAliases, auditValueText } from './audit'
 
 describe('audit helpers', () => {
   it('formats transitions and redacts nested secrets defensively', () => {
@@ -24,5 +24,17 @@ describe('audit helpers', () => {
   it('renders structured values without losing their contents', () => {
     expect(auditValueText({ host: 'db.internal' })).toBe('{"host":"db.internal"}')
     expect(auditValueText(undefined)).toBe('—')
+  })
+
+  it('maps localized action and resource labels back to stored audit codes', () => {
+    expect(auditSearchAliases('测试', {
+      auditAction_registry_test: '测试镜像仓库',
+      resourceType_registry: '镜像仓库',
+      unrelated: '测试数据',
+    })).toEqual({ actions: ['registry.test'], resourceTypes: [] })
+    expect(auditSearchAliases('仓库', {
+      auditAction_registry_test: '测试镜像仓库',
+      resourceType_registry: '镜像仓库',
+    })).toEqual({ actions: ['registry.test'], resourceTypes: ['registry'] })
   })
 })

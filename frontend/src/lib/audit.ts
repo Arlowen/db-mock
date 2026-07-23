@@ -62,3 +62,23 @@ export function auditValueText(value: unknown): string {
 export function isRedactedAuditValue(value: unknown): boolean {
   return value === redacted
 }
+
+export interface AuditSearchAliases {
+  actions: string[]
+  resourceTypes: string[]
+}
+
+export function auditSearchAliases(search: string, translations: Record<string, unknown>): AuditSearchAliases {
+  const normalized = search.trim().toLocaleLowerCase()
+  const aliases: AuditSearchAliases = { actions: [], resourceTypes: [] }
+  if (!normalized) return aliases
+  for (const [key, rawValue] of Object.entries(translations)) {
+    if (typeof rawValue !== 'string' || !rawValue.toLocaleLowerCase().includes(normalized)) continue
+    if (key.startsWith('auditAction_')) {
+      aliases.actions.push(key.slice('auditAction_'.length).replace('_', '.'))
+    } else if (key.startsWith('resourceType_')) {
+      aliases.resourceTypes.push(key.slice('resourceType_'.length))
+    }
+  }
+  return aliases
+}

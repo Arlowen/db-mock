@@ -209,6 +209,9 @@ button { font: inherit; }
 .task-log-entry-meta .ant-typography-secondary { font-size: 12px; }
 .task-log-entry-meta .ant-tag { margin: 0; font-size: 11px; line-height: 18px; }
 .audit-table-card .ant-table-cell { vertical-align: middle; }
+.audit-filter-controls { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.audit-search { width: 260px; }
+.audit-filter { width: 150px; }
 .audit-action-link.ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; font-weight: 650; text-align: start; white-space: normal; }
 .audit-resource-cell { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .audit-resource-cell .ant-tag { flex: none; margin: 0; }
@@ -231,6 +234,12 @@ button { font: inherit; }
 .audit-change-row > div { min-width: 0; overflow-wrap: anywhere; }
 .audit-change-row code { white-space: normal; overflow-wrap: anywhere; }
 .audit-message.ant-typography { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.audit-detail-meta code { white-space: normal; overflow-wrap: anywhere; }
+.audit-compact-record { min-width: 0; display: grid; gap: 4px; }
+.audit-compact-record > div { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.audit-compact-record .ant-tag { flex: none; margin: 0; }
+.audit-compact-record .ant-typography { min-width: 0; font-size: 12px; }
+.audit-compact-message { display: block; }
 .audit-clear-warning { margin-bottom: 18px; }
 .log-viewer, .settings-json { margin: 0; padding: 16px; border-radius: 10px; background: #101828; color: #d6e0f0; overflow: auto; max-height: 560px; min-height: 130px; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-json { min-height: 180px; max-height: 300px; }
@@ -547,6 +556,17 @@ button { font: inherit; }
   .delivery-details { padding: 8px; }
   .delivery-details .ant-descriptions-item-container { align-items: flex-start; flex-direction: column; gap: 4px; }
   .delivery-details .ant-descriptions-item-label { padding-bottom: 0; }
+  .audit-filter-controls { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .audit-search { width: 100%; }
+  .audit-filter-controls .audit-search { grid-column: 1 / -1; }
+  .audit-filter { width: 100%; }
+  .audit-filter-controls > .ant-btn { grid-column: 1 / -1; width: fit-content; }
+  .audit-toolbar-actions { width: 100%; }
+  .audit-toolbar-actions .ant-space-item { flex: 1; }
+  .audit-toolbar-actions .ant-btn { width: 100%; }
+  .audit-change-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .audit-detail-footer { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .audit-detail-footer .ant-btn { width: 100%; }
   .user-search { flex-basis: 100%; }
   .user-filter { flex: 1; }
   .settings-section-actions { align-items: stretch; flex-direction: column; }
