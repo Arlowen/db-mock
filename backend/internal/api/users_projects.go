@@ -40,6 +40,28 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	input.Username = normalizeManagedUsername(input.Username)
+	input.DisplayName = normalizeDisplayName(input.DisplayName)
+	if err := validateManagedUsername(input.Username); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := validateDisplayName(input.DisplayName); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := validateNewPassword(input.Password); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if !supportedLocale(input.Locale) {
+		httpx.Error(w, r, fmt.Errorf("%w: unsupported language preference", domain.ErrInvalid))
+		return
+	}
+	if !domain.ValidUserRole(input.Role) {
+		httpx.Error(w, r, fmt.Errorf("%w: user role must be admin, operator, or viewer", domain.ErrInvalid))
+		return
+	}
 	hash, err := appcrypto.HashPassword(input.Password)
 	if err != nil {
 		httpx.Error(w, r, err)
@@ -74,6 +96,23 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	if err = httpx.Decode(r, &input); err != nil {
 		httpx.Error(w, r, err)
 		return
+	}
+	if input.DisplayName != "" {
+		input.DisplayName = normalizeDisplayName(input.DisplayName)
+		if err = validateDisplayName(input.DisplayName); err != nil {
+			httpx.Error(w, r, err)
+			return
+		}
+	}
+	if input.Locale != "" && !supportedLocale(input.Locale) {
+		httpx.Error(w, r, fmt.Errorf("%w: unsupported language preference", domain.ErrInvalid))
+		return
+	}
+	if input.Password != "" {
+		if err = validateNewPassword(input.Password); err != nil {
+			httpx.Error(w, r, err)
+			return
+		}
 	}
 	actor, _ := auth.ActorFrom(r.Context())
 	if err = validateUserUpdate(actor.User.ID, id, input.Disabled, input.Role); err != nil {

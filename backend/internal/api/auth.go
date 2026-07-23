@@ -34,6 +34,27 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	input.Username = normalizeManagedUsername(input.Username)
+	input.DisplayName = normalizeDisplayName(input.DisplayName)
+	if input.DisplayName == "" {
+		input.DisplayName = input.Username
+	}
+	if err := validateManagedUsername(input.Username); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := validateDisplayName(input.DisplayName); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := validateNewPassword(input.Password); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if !supportedLocale(input.Locale) {
+		httpx.Error(w, r, fmt.Errorf("%w: unsupported language preference", domain.ErrInvalid))
+		return
+	}
 	user, token, err := s.auth.Setup(r.Context(), input.Username, input.DisplayName, input.Password, input.Locale, auth.ClientIP(r), r.UserAgent())
 	if err != nil {
 		httpx.Error(w, r, err)
@@ -139,6 +160,14 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword     string `json:"newPassword"`
 	}
 	if err := httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if input.CurrentPassword == "" || input.NewPassword == "" {
+		httpx.Error(w, r, fmt.Errorf("%w: current password and new password are required", domain.ErrInvalid))
+		return
+	}
+	if err := validateNewPassword(input.NewPassword); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}

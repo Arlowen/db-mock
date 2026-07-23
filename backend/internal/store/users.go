@@ -44,7 +44,7 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, locale, r
 		user.DisplayName, user.Locale, user.Role, passwordHash).Scan(&user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "users_username_lower_idx") {
-			return domain.User{}, domain.ErrConflict
+			return domain.User{}, fmt.Errorf("%w: username is already in use", domain.ErrConflict)
 		}
 		return domain.User{}, err
 	}
