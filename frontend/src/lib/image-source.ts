@@ -45,6 +45,13 @@ export function imageArtifactSupportsAnyArchitecture(imageArchitectures: string[
   return targetArchitectures.some((architecture) => imageArchitectures.includes(architecture))
 }
 
+export function imageSourceSelectionReady(source: string, registryID?: string, imageArtifactID?: string): boolean {
+  if (source === 'public') return true
+  if (source === 'registry') return !!registryID
+  if (source === 'offline') return !!imageArtifactID
+  return false
+}
+
 export function registryMatchesTemplate(registryURL: string, version: Pick<TemplateVersion, 'imageReference' | 'manifest'>): boolean {
   return templateImageReferences(version).every((reference) => registryMatchesImage(registryURL, reference))
 }

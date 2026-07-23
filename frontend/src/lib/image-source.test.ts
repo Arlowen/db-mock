@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, isRegistryURL, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
+import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, isRegistryURL, registryMatchesImage, registryMatchesTemplate, templateImageReferences } from './image-source'
 
 describe('image source matching', () => {
   it('resolves Docker Hub shorthand and explicit registries', () => {
@@ -46,5 +46,14 @@ describe('image source matching', () => {
     expect(imageArtifactSupportsAnyArchitecture(['arm64'], ['amd64', 'arm64'])).toBe(true)
     expect(imageArtifactSupportsAnyArchitecture(['arm64'], ['amd64'])).toBe(false)
     expect(imageArtifactSupportsAnyArchitecture([], ['amd64'])).toBe(false)
+  })
+
+  it('only allows the wizard to continue when the selected image source is complete', () => {
+    expect(imageSourceSelectionReady('public')).toBe(true)
+    expect(imageSourceSelectionReady('registry')).toBe(false)
+    expect(imageSourceSelectionReady('registry', 'registry-id')).toBe(true)
+    expect(imageSourceSelectionReady('offline')).toBe(false)
+    expect(imageSourceSelectionReady('offline', undefined, 'image-id')).toBe(true)
+    expect(imageSourceSelectionReady('unknown')).toBe(false)
   })
 })
