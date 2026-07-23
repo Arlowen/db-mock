@@ -421,12 +421,11 @@ export function AlertsPage() {
       { value: 'critical', label: t('critical') },
       { value: 'warning', label: t('warning') },
       { value: 'info', label: t('info', { defaultValue: 'Info' }) },
-    ]} /><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button></div>
+    ]} /></div>
     <Table rowKey="id" loading={loading} dataSource={filteredAlerts} columns={alertColumns} tableLayout="fixed" pagination={{ pageSize: 20, hideOnSinglePage: true }} scroll={{ x: 930 }} locale={{ emptyText: <EmptyState compact action={alertEmptyAction} actionLabel={alertEmptyActionLabel} description={alertEmptyDescription} /> }} />
   </Card>
 
   const webhookTab = <Card className="webhook-section-card" loading={loading}>
-    {webhooks.length > 0 && <div className="webhook-toolbar"><Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button></div>}
     <Row gutter={[16, 16]} className="webhook-grid">
       {webhooks.map((item) => <Col xs={24} lg={12} xl={8} key={item.id}><Card className="webhook-card">
       <div className="webhook-card-header"><div><Typography.Title level={4}>{item.name}</Typography.Title><Typography.Text type="secondary">{formatDateTime(item.updatedAt, i18n.language, timezone)}</Typography.Text></div><Switch aria-label={`${item.name} ${t('enabled')}`} checked={item.enabled} loading={actioning === `toggle:${item.id}`} onChange={(value) => void updateWebhookEnabled(item, value)} /></div>
@@ -442,13 +441,17 @@ export function AlertsPage() {
   const activeLoadError = activeTab === 'webhooks' ? webhookLoadError : alertLoadError
   const activeItems = activeTab === 'webhooks' ? webhooks : alerts
   const activeActionError = activeTab === 'webhooks' ? webhookActionError : alertActionError
+  const tabActions = <Space className="alert-tab-actions">
+    <Button aria-label={t('refresh')} title={t('refresh')} icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{screens.sm === false ? null : t('refresh')}</Button>
+    {canOperate && activeTab === 'webhooks' && <Button type="primary" aria-label={t('addWebhook')} title={t('addWebhook')} icon={<PlusOutlined />} onClick={showCreateWebhook}>{screens.sm === false ? null : t('addWebhook')}</Button>}
+  </Space>
 
   return <>
     <PageHeader title={t('alerts')} description={t('alertInboxDescription')} />
     {activeLoadError && <InlineAlert className="instance-page-alert" type={activeItems.length ? 'warning' : 'error'} showIcon message={t(activeTab === 'webhooks' ? 'webhookListLoadFailed' : 'alertListLoadFailed')} description={activeLoadError} action={<Button size="small" loading={loading} onClick={() => void load()}>{t('retry')}</Button>} />}
     {supportingDataError && <InlineAlert className="instance-page-alert" type="warning" showIcon message={t('alertSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => void load()}>{t('retry')}</Button>} />}
     {activeActionError && !selectedAlertID && !selectedWebhookID && <InlineAlert className="instance-page-alert" type="error" showIcon closable message={t(activeTab === 'webhooks' ? 'webhookActionFailed' : 'alertActionFailed')} description={activeActionError} onClose={() => activeTab === 'webhooks' ? setWebhookActionError('') : setAlertActionError('')} />}
-    <Tabs activeKey={activeTab} onChange={(tab) => setQuery({ tab: tab === 'webhooks' ? 'webhooks' : undefined, alert: undefined, webhook: undefined })} items={[
+    <Tabs className="alert-page-tabs" activeKey={activeTab} onChange={(tab) => setQuery({ tab: tab === 'webhooks' ? 'webhooks' : undefined, alert: undefined, webhook: undefined })} tabBarExtraContent={tabActions} items={[
       { key: 'alerts', label: <Space size={6}>{t('alertEvents')}<Tag color={activeAlertCount ? 'orange' : 'default'}>{activeAlertCount}</Tag></Space>, children: alertTab },
       ...(canOperate ? [{ key: 'webhooks', label: <Space size={6}>{t('webhook')}<Tag>{webhooks.length}</Tag></Space>, children: webhookTab }] : []),
     ]} />
