@@ -643,6 +643,7 @@ export function ImagesPage() {
     </Modal>
 
     <Modal
+      className="registry-editor-modal"
       title={editingRegistry ? t('editRegistry') : t('addRegistry')}
       open={registryOpen}
       onCancel={closeRegistry}
@@ -651,9 +652,12 @@ export function ImagesPage() {
       okText={t('save')}
       okButtonProps={{ disabled: !registrySaveReady }}
       cancelButtonProps={{ disabled: savingRegistry }}
+      closable={!savingRegistry}
+      maskClosable={!savingRegistry}
       width={620}
       style={{ top: 32 }}
       styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }}
+      destroyOnHidden
     >
       <Typography.Paragraph type="secondary" className="registry-form-intro">{t('registryFormDescription')}</Typography.Paragraph>
       {registrySaveError && <Alert className="form-save-alert" type="error" showIcon message={t('registrySaveFailed')} description={registrySaveError} />}

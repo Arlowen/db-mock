@@ -595,6 +595,7 @@ button { font: inherit; }
   .app-header-tools { justify-self: start; }
   .app-content { padding: 16px; }
   .page-header p.ant-typography { max-width: 40ch; }
+  .registry-editor-modal .form-grid { grid-template-columns: minmax(0, 1fr); }
   .alert-toolbar .ant-input-search { flex-basis: 100%; }
   .alert-toolbar .ant-select { flex: 1; }
   .alert-refresh-button { margin-left: 0; }
