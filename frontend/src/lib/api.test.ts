@@ -100,6 +100,11 @@ describe('API error messages', () => {
       .toBe('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')
   })
 
+  it('turns host connection failures into actionable setup guidance', () => {
+    expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to reach the host over SSH')))
+      .toBe('暂时无法通过 SSH 连接主机，请确认网络可达、SSH 端口已开放，并检查用户和凭据。')
+  })
+
   it('explains when host capacity cannot be detected', () => {
     expect(errorMessage(new ApiError(503, 'resource_unavailable', 'resource temporarily unavailable: unable to determine host CPU, memory, or disk capacity')))
       .toBe('无法读取主机的 CPU、内存或磁盘容量，请确认 SSH 用户可以读取系统资源信息。')
