@@ -3,7 +3,7 @@ import {
   DatabaseOutlined, DownOutlined, GlobalOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
   SettingOutlined, TeamOutlined, UnorderedListOutlined, UserOutlined,
 } from '@ant-design/icons'
-import { Alert, App, Avatar, Badge, Button, Divider, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Tag, Typography } from 'antd'
+import { Alert, App, Avatar, Badge, Button, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Tabs, Tag, Typography } from 'antd'
 import type { MenuProps } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +34,7 @@ export function AppLayout() {
   const [pageHeaderTarget, setPageHeaderTarget] = useState<HTMLDivElement | null>(null)
   const [languageSaving, setLanguageSaving] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [accountTab, setAccountTab] = useState<'profile' | 'password'>('profile')
   const [profileSaving, setProfileSaving] = useState(false)
   const [passwordSaving, setPasswordSaving] = useState(false)
   const [profileDirty, setProfileDirty] = useState(false)
@@ -106,6 +107,7 @@ export function AppLayout() {
     passwordForm.resetFields()
     setProfileDirty(false)
     setPasswordDirty(false)
+    setAccountTab('profile')
     setAccountOpen(true)
   }
   const discardAccountChanges = () => {
@@ -190,25 +192,37 @@ export function AppLayout() {
   </Layout>
     <Modal title={t('accountSettings')} open={accountOpen} onCancel={closeAccount} footer={<Button disabled={profileSaving || passwordSaving} onClick={closeAccount}>{t('close')}</Button>} forceRender destroyOnHidden maskClosable={!profileSaving && !passwordSaving} closable={!profileSaving && !passwordSaving} style={{ top: 24 }} styles={{ body: { maxHeight: 'calc(100vh - 190px)', overflowY: 'auto', paddingRight: 4 } }}>
       <Typography.Paragraph type="secondary">{t('accountSettingsHint')}</Typography.Paragraph>
-      <section className="account-settings-section" aria-labelledby="account-profile-heading">
-        <Typography.Title id="account-profile-heading" level={5}><UserOutlined /> {t('profile')}</Typography.Title>
-        <Form name="account-profile" form={profileForm} layout="vertical" requiredMark={false} onValuesChange={(_, values) => setProfileDirty(values.displayName !== profileBaseline.current.displayName || values.locale !== profileBaseline.current.locale)}>
-          <Form.Item name="displayName" label={t('displayName')} rules={[{ required: true, whitespace: true, message: t('displayNameRequired') }, { max: 100, message: t('displayNameLength') }]}><Input autoComplete="name" /></Form.Item>
-          <Form.Item name="locale" label={t('language')} rules={[{ required: true }]}><Select options={[{ value: 'zh-CN', label: t('languageChinese') }, { value: 'en-US', label: t('languageEnglish') }]} /></Form.Item>
-          <Button type="primary" loading={profileSaving} disabled={passwordSaving || !profileDirty} onClick={() => void saveProfile()}>{t('saveProfile')}</Button>
-        </Form>
-      </section>
-      <Divider />
-      <section className="account-settings-section" aria-labelledby="account-password-heading">
-        <Typography.Title id="account-password-heading" level={5}><LockOutlined /> {t('changePassword')}</Typography.Title>
-        <Alert className="account-password-hint" type="info" showIcon message={t('passwordChangeHint')} />
-        <Form name="account-password" form={passwordForm} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={(_, values) => setPasswordDirty(Object.values(values).some(Boolean))}>
-          <Form.Item name="currentPassword" label={t('currentPassword')} rules={[{ required: true }]}><Input.Password autoComplete="current-password" /></Form.Item>
-          <Form.Item name="newPassword" label={t('newPassword')} rules={[{ required: true }]}><Input.Password autoComplete="new-password" /></Form.Item>
-          <Form.Item name="confirmPassword" label={t('confirmNewPassword')} dependencies={['newPassword']} rules={[{ required: true }, { validator: (_, value) => value === passwordForm.getFieldValue('newPassword') ? Promise.resolve() : Promise.reject(new Error(t('passwordMismatch'))) }]}><Input.Password autoComplete="new-password" /></Form.Item>
-          <Button type="primary" loading={passwordSaving} disabled={profileSaving || !passwordDirty} onClick={() => void savePassword()}>{t('changePassword')}</Button>
-        </Form>
-      </section>
+      <Tabs
+        className="account-settings-tabs"
+        activeKey={accountTab}
+        onChange={(key) => setAccountTab(key as 'profile' | 'password')}
+        items={[
+          {
+            key: 'profile',
+            label: <span><UserOutlined /> {t('profile')}</span>,
+            children: <section className="account-settings-section" aria-label={t('profile')}>
+              <Form name="account-profile" form={profileForm} layout="vertical" requiredMark={false} onValuesChange={(_, values) => setProfileDirty(values.displayName !== profileBaseline.current.displayName || values.locale !== profileBaseline.current.locale)}>
+                <Form.Item name="displayName" label={t('displayName')} rules={[{ required: true, whitespace: true, message: t('displayNameRequired') }, { max: 100, message: t('displayNameLength') }]}><Input autoComplete="name" /></Form.Item>
+                <Form.Item name="locale" label={t('language')} rules={[{ required: true }]}><Select options={[{ value: 'zh-CN', label: t('languageChinese') }, { value: 'en-US', label: t('languageEnglish') }]} /></Form.Item>
+                <Button type="primary" loading={profileSaving} disabled={passwordSaving || !profileDirty} onClick={() => void saveProfile()}>{t('saveProfile')}</Button>
+              </Form>
+            </section>,
+          },
+          {
+            key: 'password',
+            label: <span><LockOutlined /> {t('changePassword')}</span>,
+            children: <section className="account-settings-section" aria-label={t('changePassword')}>
+              <Alert className="account-password-hint" type="info" showIcon message={t('passwordChangeHint')} />
+              <Form name="account-password" form={passwordForm} layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={(_, values) => setPasswordDirty(Object.values(values).some(Boolean))}>
+                <Form.Item name="currentPassword" label={t('currentPassword')} rules={[{ required: true }]}><Input.Password autoComplete="current-password" /></Form.Item>
+                <Form.Item name="newPassword" label={t('newPassword')} rules={[{ required: true }]}><Input.Password autoComplete="new-password" /></Form.Item>
+                <Form.Item name="confirmPassword" label={t('confirmNewPassword')} dependencies={['newPassword']} rules={[{ required: true }, { validator: (_, value) => value === passwordForm.getFieldValue('newPassword') ? Promise.resolve() : Promise.reject(new Error(t('passwordMismatch'))) }]}><Input.Password autoComplete="new-password" /></Form.Item>
+                <Button type="primary" loading={passwordSaving} disabled={profileSaving || !passwordDirty} onClick={() => void savePassword()}>{t('changePassword')}</Button>
+              </Form>
+            </section>,
+          },
+        ]}
+      />
     </Modal>
   </>
 }

@@ -38,7 +38,7 @@ button { font: inherit; }
 .user-menu.ant-btn { height: 40px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 8px; color: #344054; border-radius: 10px; }
 .user-menu:hover { background: #f4f6f9; }
 .user-menu-caret { color: #98a2b3; font-size: 10px; }
-.account-settings-section h5.ant-typography { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+.account-settings-tabs .ant-tabs-nav { margin-bottom: 20px; }
 .account-password-hint { margin-bottom: 18px; }
 .page-header { min-width: 0; }
 .page-header-copy { min-width: 0; }
