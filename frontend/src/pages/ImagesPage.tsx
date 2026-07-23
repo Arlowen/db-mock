@@ -421,6 +421,8 @@ export function ImagesPage() {
   const imageEmpty = hasImageFilters
     ? <EmptyState compact action={resetImageFilters} actionLabel={t('clearFilters')} description={t('imagesFilteredEmptyDescription')} />
     : <EmptyState compact action={canOperate ? showImageUpload : undefined} actionLabel={canOperate ? t('uploadImage') : undefined} description={t('imagesEmptyDescription')} />
+  const showImageFilters = images.length > 0 || hasImageFilters
+  const imageListActions = <Space wrap><Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && <>{images.length > 0 && <Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button>}<Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button></>}</Space>
 
   const selectedMatches = selectedImage ? matchingVersions(selectedImage, templates) : []
   const selectedCompatibleHosts = selectedImage ? hosts.filter((host) => host.status === 'online' && !host.maintenance && selectedImage.architectures.includes(host.architecture || '')) : []
@@ -431,7 +433,7 @@ export function ImagesPage() {
   }
 
   const imageTab = <>
-    <Card className="image-toolbar-card" size="small">
+    {showImageFilters && <Card className="image-toolbar-card" size="small">
       <div className="image-toolbar">
         <Input
           allowClear
@@ -453,19 +455,16 @@ export function ImagesPage() {
           onChange={setStatus}
           options={[{ value: '', label: t('allStatuses') }, { value: 'ready', label: t('ready') }, { value: 'failed', label: t('failed') }]}
         />
-        <Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>
-        {canOperate && <>
-          <Button icon={<ClearOutlined />} onClick={showImageCleanup}>{t('scanUnusedImages')}</Button>
-          <Button type="primary" icon={<CloudUploadOutlined />} onClick={showImageUpload}>{t('uploadImage')}</Button>
-        </>}
+        {imageListActions}
       </div>
-    </Card>
-    <Card className="image-table-card">
+    </Card>}
+    <Card className="image-table-card" title={!showImageFilters ? t('offlineImage') : undefined} extra={!showImageFilters ? imageListActions : undefined}>
       <Table
         rowKey="id"
         loading={loading}
         dataSource={filteredImages}
         pagination={false}
+        scroll={{ x: 1100 }}
         locale={{ emptyText: imageEmpty }}
         columns={[
           {
