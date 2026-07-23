@@ -323,6 +323,7 @@ button { font: inherit; }
 .alert-toolbar .ant-input-search { min-width: 240px; flex: 1; }
 .alert-toolbar .ant-segmented { max-width: 100%; overflow-x: auto; }
 .alert-toolbar .ant-select { width: 160px; }
+.alert-toolbar > .ant-btn { flex: none; }
 .alert-list-card .ant-table-cell { vertical-align: middle; }
 .alert-title-cell { min-width: 0; display: grid; gap: 5px; }
 .alert-title-cell .ant-btn { width: fit-content; max-width: 100%; height: auto; padding: 0; font-weight: 650; text-align: start; white-space: normal; }
@@ -356,6 +357,8 @@ button { font: inherit; }
 .webhook-grid .ant-col { display: flex; }
 .webhook-section-card > .ant-card-body { min-height: 260px; }
 .webhook-section-card .ant-empty { margin-block: 42px; }
+.webhook-toolbar { margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+.webhook-toolbar .ant-btn:first-child { margin-right: auto; }
 .webhook-card { width: 100%; height: 100%; }
 .webhook-card .ant-card-body { min-height: 390px; display: flex; flex-direction: column; }
 .webhook-card-header { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }

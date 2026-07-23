@@ -340,11 +340,7 @@ export function AlertsPage() {
     },
   ]
 
-  const alertTab = <Card
-    className="alert-list-card"
-    title={t('alertEvents')}
-    extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button>}
-  >
+  const alertTab = <Card className="alert-list-card">
     <div className="alert-toolbar"><Input.Search allowClear aria-label={t('search')} placeholder={t('search')} value={search} onChange={(event) => setSearch(event.target.value)} /><Segmented aria-label={t('status')} value={statusFilter} onChange={(value) => setStatusFilter(String(value))} options={[
       { value: 'active', label: `${t('activeAlerts')} ${activeAlertCount}` },
       { value: 'open', label: t('open') },
@@ -356,16 +352,12 @@ export function AlertsPage() {
       { value: 'critical', label: t('critical') },
       { value: 'warning', label: t('warning') },
       { value: 'info', label: t('info', { defaultValue: 'Info' }) },
-    ]} /></div>
+    ]} /><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button></div>
     <Table rowKey="id" loading={loading} dataSource={filteredAlerts} columns={alertColumns} tableLayout="fixed" pagination={{ pageSize: 20, hideOnSinglePage: true }} scroll={{ x: 930 }} locale={{ emptyText: <EmptyState compact action={(search || statusFilter !== 'active' || severityFilter) ? () => { setSearch(''); setStatusFilter('active'); setSeverityFilter('') } : undefined} actionLabel={t('clearFilters')} description={(search || statusFilter !== 'active' || severityFilter) ? t('alertFilteredEmptyDescription') : t('alertsEmptyDescription')} /> }} />
   </Card>
 
-  const webhookTab = <Card
-    className="webhook-section-card"
-    title={t('webhook')}
-    loading={loading}
-    extra={<Space wrap><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button><Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button></Space>}
-  >
+  const webhookTab = <Card className="webhook-section-card" loading={loading}>
+    {webhooks.length > 0 && <div className="webhook-toolbar"><Button type="primary" icon={<PlusOutlined />} onClick={showCreateWebhook}>{t('addWebhook')}</Button><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button></div>}
     <Row gutter={[16, 16]} className="webhook-grid">
       {webhooks.map((item) => <Col xs={24} lg={12} xl={8} key={item.id}><Card className="webhook-card">
       <div className="webhook-card-header"><div><Typography.Title level={4}>{item.name}</Typography.Title><Typography.Text type="secondary">{formatDateTime(item.updatedAt, i18n.language, timezone)}</Typography.Text></div><Switch aria-label={`${item.name} ${t('enabled')}`} checked={item.enabled} loading={actioning === `toggle:${item.id}`} onChange={(value) => void updateWebhookEnabled(item, value)} /></div>
@@ -375,7 +367,7 @@ export function AlertsPage() {
       <div className="webhook-delivery-facts"><div><Typography.Text type="secondary">{t('lastDelivery')}</Typography.Text><Space size={6}>{item.lastDeliveryStatus ? <StatusTag value={item.lastDeliveryStatus} /> : <Typography.Text>{t('notTested')}</Typography.Text>}{item.lastDeliveryAt && <Typography.Text type="secondary">{formatDateTime(item.lastDeliveryAt, i18n.language, timezone)}</Typography.Text>}</Space></div><div><Typography.Text type="secondary">{t('deliveryQueue')}</Typography.Text><Space size={6}>{item.failedDeliveries > 0 && <Tag color="red">{t('failedDeliveryCount', { count: item.failedDeliveries })}</Tag>}{item.queuedDeliveries > 0 && <Tag color="gold">{t('queuedDeliveryCount', { count: item.queuedDeliveries })}</Tag>}{!item.failedDeliveries && !item.queuedDeliveries && <Typography.Text>{t('queueClear')}</Typography.Text>}</Space></div></div>
       <div className="webhook-card-footer"><Button icon={<HistoryOutlined />} onClick={() => setQuery({ tab: 'webhooks', webhook: item.id, alert: undefined })}>{t('deliveryHistory')}</Button><Space><Button icon={<EditOutlined />} onClick={() => showEditWebhook(item)}>{t('edit')}</Button><Button type="primary" icon={<SendOutlined />} loading={actioning === `test:${item.id}`} disabled={!item.enabled || (!!actioning && actioning !== `test:${item.id}`)} onClick={() => void testWebhook(item)}>{t('testWebhook')}</Button><Popconfirm title={t('delete')} description={t('webhookDeleteConfirm')} okButtonProps={{ danger: true }} onConfirm={() => void deleteWebhook(item)}><Button danger aria-label={`${t('delete')} ${item.name}`} title={t('delete')} icon={<DeleteOutlined />} loading={actioning === `delete:${item.id}`} /></Popconfirm></Space></div>
       </Card></Col>)}
-      {webhooks.length === 0 && <Col span={24}><EmptyState description={t('webhooksEmptyDescription')} /></Col>}
+      {webhooks.length === 0 && <Col span={24}><EmptyState action={showCreateWebhook} actionLabel={t('addWebhook')} description={t('webhooksEmptyDescription')} /></Col>}
     </Row>
   </Card>
 
