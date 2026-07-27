@@ -6,6 +6,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { DatabaseIcon } from '../components/DatabaseIcon'
+import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import appI18n from '../i18n'
@@ -16,6 +17,7 @@ import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, ima
 import { instanceQuickAction } from '../lib/instance-actions'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
+import { taskFailureGuidance } from '../lib/task-failure'
 import { isRecoverableInstanceStatus, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
@@ -610,6 +612,7 @@ export function InstanceDetailPage() {
   }
   const project = projects.find((candidate) => candidate.id === item.projectId)
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, isRecoverableInstanceStatus(item.status))
+  const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
   const retryTask = async () => {
     if (!failedTask) return
     try {
@@ -623,10 +626,13 @@ export function InstanceDetailPage() {
   const operationPanel = operationTask && <div className={`instance-operation is-${activeTask ? 'active' : 'failed'}`}>
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={operationTask.status} /><Typography.Text strong>{translateCode(t, operationTask.kind, 'taskKind')}</Typography.Text><Typography.Text type="secondary">· {translateCode(t, operationTask.stage, 'taskStage')}</Typography.Text></Space>
-      <Typography.Paragraph type={activeTask ? 'secondary' : 'danger'}>{activeTask ? translateCode(t, operationTask.message, 'taskMessage') : operationTask.errorCode && operationTask.errorCode !== 'task_failed' ? translateCode(t, operationTask.errorCode, 'taskError') : operationTask.errorMessage || translateCode(t, operationTask.message, 'taskMessage')}</Typography.Paragraph>
+      {activeTask
+        ? <Typography.Paragraph type="secondary">{translateCode(t, operationTask.message, 'taskMessage')}</Typography.Paragraph>
+        : <TaskFailureGuidance task={operationTask} hostName={item.hostName} />}
     </div>
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space className="instance-operation-actions">
+      {failedGuidance?.inspectHost && <Button icon={<CloudServerOutlined />} onClick={() => navigate(`/hosts?host=${item.hostId}`)}>{t('inspectFailedHost')}</Button>}
       {canOperate && failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>

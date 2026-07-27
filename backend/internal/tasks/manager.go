@@ -125,7 +125,7 @@ func (m *Manager) run(parent context.Context, task domain.Task) {
 	result, err := handler(parent, runtime, task)
 	if err != nil {
 		status := "failed"
-		code := "task_failed"
+		code := classifyTaskFailure(err)
 		message := redact(err.Error())
 		switch {
 		case errors.Is(err, ErrCanceled):
@@ -142,6 +142,43 @@ func (m *Manager) run(parent context.Context, task domain.Task) {
 	}
 	if m.finish(parent, runtime, task, "succeeded", result, "", "", "info", "Task completed") {
 		m.Wake()
+	}
+}
+
+func classifyTaskFailure(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "operation_timeout"
+	case strings.Contains(message, "ssh credential is invalid") ||
+		strings.Contains(message, "unable to authenticate") ||
+		strings.Contains(message, "no supported methods remain"):
+		return "ssh_credential_invalid"
+	case strings.Contains(message, "ssh host key changed"):
+		return "ssh_host_key_changed"
+	case strings.Contains(message, "dial ssh ") ||
+		strings.Contains(message, "ssh handshake:") ||
+		strings.Contains(message, "create ssh session:") ||
+		strings.Contains(message, "create sftp client:"):
+		return "ssh_unreachable"
+	case strings.Contains(message, "no space left on device"):
+		return "host_disk_full"
+	case strings.Contains(message, "port is already allocated") ||
+		strings.Contains(message, "address already in use") ||
+		strings.Contains(message, "bind: address in use"):
+		return "port_conflict"
+	case strings.Contains(message, "instance health check failed") ||
+		strings.Contains(message, "container is unhealthy") ||
+		strings.Contains(message, "health check failed"):
+		return "health_check_failed"
+	case strings.Contains(message, "pull access denied") ||
+		strings.Contains(message, "manifest unknown") ||
+		strings.Contains(message, "failed to resolve reference") ||
+		strings.Contains(message, "failed to authorize") ||
+		strings.Contains(message, "unexpected eof"):
+		return "image_pull_failed"
+	default:
+		return "task_failed"
 	}
 }
 

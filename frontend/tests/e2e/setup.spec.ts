@@ -443,9 +443,15 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByRole('button', { name: '查看任务' })).toBeVisible()
 
   instanceStatus = 'failed'
-  relatedTasks = [{ id: '66666666-6666-4666-8666-666666666666', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', errorCode: 'ssh_timeout', errorMessage: 'ssh connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
+  relatedTasks = [{ id: '66666666-6666-4666-8666-666666666666', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 42, stage: 'image', message: 'preparing_database_image', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
   await page.reload()
-  await expect(page.getByText('SSH 连接超时')).toBeVisible()
+  await expect(page.getByText('失败原因')).toBeVisible()
+  await expect(page.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
+  await expect(page.getByText(/数据库尚未就绪/)).toBeVisible()
+  await expect(page.getByText(/重新检测成功后重试/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await page.getByRole('button', { name: '技术详情' }).click()
+  await expect(page.getByText(/dial SSH 10.0.0.8/)).toBeVisible()
   await page.getByRole('tab', { name: '连接信息' }).click()
   await expect(page.getByText('连接可用性受当前状态影响')).toBeVisible()
   await expect(page.getByText('实例当前为“失败”。连接信息仍可查看或复制，但请等待实例恢复为运行中后再尝试连接。')).toBeVisible()
@@ -456,8 +462,10 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByRole('button', { name: '重启' })).not.toBeVisible()
 
   instanceStatus = 'degraded'
-  relatedTasks = [{ id: '77777777-7777-4777-8777-777777777778', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 30, stage: 'failed', message: 'preparing_database_image', errorCode: 'task_failed', errorMessage: 'docker pull postgres:17 failed: unexpected EOF', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
+  relatedTasks = [{ id: '77777777-7777-4777-8777-777777777778', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 30, stage: 'failed', message: 'preparing_database_image', errorCode: 'image_pull_failed', errorMessage: 'docker pull postgres:17 failed: unexpected EOF', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
   await page.reload()
+  await expect(page.getByText('目标主机无法拉取所选数据库镜像。')).toBeVisible()
+  await page.getByRole('button', { name: '技术详情' }).click()
   await expect(page.getByText('docker pull postgres:17 failed: unexpected EOF')).toBeVisible()
   await expect(page.getByRole('button', { name: '重试任务' })).toBeVisible()
   await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
@@ -808,7 +816,7 @@ test('initializes the platform and switches the embedded interface language', as
 
   const failedTaskID = '33333333-3333-4333-8333-333333333333'
   const retriedTaskID = '33333333-3333-4333-8333-333333333334'
-  const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_timeout', errorMessage: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
+  const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
   const retriedTask = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
   await page.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, completedHostTask] } }))
@@ -827,11 +835,12 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto(`/tasks?task=${failedTaskID}`)
   taskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*33333333/ })
   await expect(taskDrawer.getByText('在「Compose」阶段失败')).toBeVisible()
-  await expect(taskDrawer.getByText('SSH 连接超时').first()).toBeVisible()
-  await expect(taskDrawer.getByText(/Connection timed out/)).toBeVisible()
+  await expect(taskDrawer.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
+  await expect(taskDrawer.getByText(/数据库尚未就绪/)).toBeVisible()
+  await expect(taskDrawer.getByText(/重新检测成功后重试/)).toBeVisible()
   await expect(taskDrawer.getByRole('button', { name: '查看对应资源' })).toBeVisible()
-  await expect(taskDrawer.getByText('先恢复主机连接，再重试任务')).toBeVisible()
-  await expect(taskDrawer.getByText(/检查网络、SSH 地址和登录凭据/)).toBeVisible()
+  await taskDrawer.getByRole('button', { name: '技术详情' }).click()
+  await expect(taskDrawer.getByText(/Connection timed out/)).toBeVisible()
   await taskDrawer.getByRole('button', { name: '检查故障主机' }).click()
   await expect(page).toHaveURL(/\/hosts\?host=11111111/)
   await expect(page.getByRole('dialog', { name: 'E2E Host' })).toBeVisible()

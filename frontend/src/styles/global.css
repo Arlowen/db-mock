@@ -221,10 +221,16 @@ button { font: inherit; }
 .task-detail-summary .ant-typography-secondary { margin: 8px 0 14px; }
 .task-detail-summary .ant-progress { margin-bottom: 0; }
 .task-detail-alert { margin: 0; }
-.task-recovery-alert .ant-alert-action { align-self: center; }
-.task-error-detail { min-width: 0; display: grid; align-items: start; gap: 9px; }
-.task-error-detail .ant-tag { width: fit-content; margin: 0; }
-.task-error-detail code { white-space: normal; overflow-wrap: anywhere; }
+.task-failure-guidance { min-width: 0; width: 100%; }
+.task-failure-guidance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.task-failure-guidance-item { min-width: 0; padding: 10px 12px; border: 1px solid #f0d5d8; border-radius: 9px; background: rgba(255, 255, 255, .72); display: flex; flex-direction: column; gap: 4px; line-height: 1.5; }
+.task-failure-guidance-item .ant-typography-secondary { font-size: 12px; font-weight: 600; }
+.task-failure-technical { margin-top: 4px; }
+.task-failure-technical.ant-collapse > .ant-collapse-item > .ant-collapse-header { padding: 7px 0 2px; color: #667085; }
+.task-failure-technical .ant-collapse-content-box { padding: 7px 0 2px !important; }
+.task-failure-technical code { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.instance-operation.is-failed .task-failure-guidance { margin-top: 9px; }
+.task-detail-alert .task-failure-guidance { margin-top: 8px; }
 .task-detail-meta .ant-descriptions-item-label { width: 120px; color: #667085; }
 .task-detail-meta .ant-btn-link { height: auto; padding: 0; }
 .task-log-card .ant-card-body { padding-top: 20px; }
@@ -593,6 +599,7 @@ button { font: inherit; }
   .connection-string { grid-template-columns: 1fr; gap: 6px; }
   .instance-operation, .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
   .instance-operation-actions { justify-self: start; }
+  .task-failure-guidance-grid { grid-template-columns: 1fr; }
   .backup-policy-summary { align-items: flex-start; flex-wrap: wrap; }
   .backup-policy-copy { min-width: calc(100% - 56px); }
   .ops-panel .ant-card-head-wrapper { align-items: flex-start; flex-direction: column; gap: 12px; }
@@ -626,6 +633,10 @@ button { font: inherit; }
   .task-drawer-footer > .ant-space { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
   .task-drawer-footer > .ant-space .ant-btn { width: 100%; }
   .task-drawer-actions { margin-left: 0; }
+  .task-detail-alert { align-items: flex-start; flex-wrap: wrap; }
+  .task-detail-alert .ant-alert-section { min-width: 0; flex: 1 1 220px; }
+  .task-detail-alert .ant-alert-actions { width: 100%; margin-inline-start: 0; padding-top: 8px; }
+  .task-detail-alert .ant-alert-actions .ant-btn { width: 100%; }
   .alert-toolbar .ant-input-search { flex-basis: 100%; }
   .alert-toolbar .ant-select { flex: 1; }
   .alert-refresh-button { margin-left: 0; }
