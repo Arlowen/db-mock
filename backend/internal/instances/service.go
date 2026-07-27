@@ -40,6 +40,9 @@ type CreateRequest struct {
 	TemplateVersionID  uuid.UUID         `json:"templateVersionId"`
 	Environment        string            `json:"environment"`
 	Labels             map[string]string `json:"labels"`
+	Purpose            string            `json:"purpose"`
+	Owner              string            `json:"owner"`
+	ExpiresAt          *time.Time        `json:"expiresAt"`
 	AutoRestart        *bool             `json:"autoRestart"`
 	CPU                float64           `json:"cpu"`
 	MemoryBytes        int64             `json:"memoryBytes"`
@@ -326,7 +329,8 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 		TemplateParameters: parameterValues, ImageArtifactID: request.ImageArtifactID, RegistryID: request.RegistryID})
 	short := strings.ReplaceAll(instanceID.String(), "-", "")
 	instance, task, err := s.store.CreateInstanceTask(ctx, store.InstanceInput{ID: instanceID, Name: request.Name, ProjectID: request.ProjectID,
-		HostID: host.ID, TemplateVersionID: version.ID, Environment: request.Environment, Labels: labels, AutoRestart: autoRestart,
+		HostID: host.ID, TemplateVersionID: version.ID, Environment: request.Environment, Labels: labels,
+		Purpose: request.Purpose, Owner: request.Owner, ExpiresAt: request.ExpiresAt, AutoRestart: autoRestart,
 		CPU: request.CPU, MemoryBytes: request.MemoryBytes, ReservedDiskBytes: request.DiskBytes, HostPort: request.HostPort,
 		ContainerPort: version.DefaultPort, BindAddress: request.BindAddress, DatabaseUsername: request.Username,
 		EncryptedPassword: encrypted, DatabaseName: request.DatabaseName, ComposeProject: "dbmock_" + short,

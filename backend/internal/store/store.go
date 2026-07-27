@@ -41,7 +41,7 @@ func (s *Store) IsInitialized(ctx context.Context) (bool, error) {
 }
 
 func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
-	result := domain.Dashboard{Hosts: map[string]int{}, Instances: map[string]int{}}
+	result := domain.Dashboard{Hosts: map[string]int{}, Instances: map[string]int{}, LifecycleInstances: []domain.DashboardInstance{}}
 	rows, err := s.pool.Query(ctx, "SELECT status, count(*) FROM hosts GROUP BY status")
 	if err != nil {
 		return result, err
@@ -75,7 +75,32 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
         (SELECT count(*) FROM alerts WHERE status <> 'resolved'),
         (SELECT count(*) FROM users WHERE disabled_at IS NULL),
         (SELECT count(*) FROM projects)`).Scan(&result.ActiveTasks, &result.OpenAlerts, &result.Users, &result.Projects)
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	rows, err = s.pool.Query(ctx, `SELECT i.id,i.name,i.purpose,i.owner_name,i.expires_at,i.status,
+        i.environment,t.name,v.version,h.name
+        FROM instances i
+        JOIN template_versions v ON v.id=i.template_version_id
+        JOIN templates t ON t.id=v.template_id
+        JOIN hosts h ON h.id=i.host_id
+        WHERE i.status<>'deleted' AND i.expires_at IS NOT NULL
+          AND i.expires_at <= now() + interval '7 days'
+        ORDER BY i.expires_at ASC,i.name ASC
+        LIMIT 50`)
+	if err != nil {
+		return result, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item domain.DashboardInstance
+		if err = rows.Scan(&item.ID, &item.Name, &item.Purpose, &item.Owner, &item.ExpiresAt,
+			&item.Status, &item.Environment, &item.TemplateName, &item.TemplateVersion, &item.HostName); err != nil {
+			return result, err
+		}
+		result.LifecycleInstances = append(result.LifecycleInstances, item)
+	}
+	return result, rows.Err()
 }
 
 type AuditInput struct {

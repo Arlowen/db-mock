@@ -268,12 +268,18 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
+	if strings.TrimSpace(input.Owner) == "" {
+		input.Owner = strings.TrimSpace(actor.User.DisplayName)
+		if input.Owner == "" {
+			input.Owner = actor.User.Username
+		}
+	}
 	item, task, err := s.instances.Create(r.Context(), actor.User.ID, input)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	_ = s.audit(r, actor, "instance.create", "instance", &item.ID, item.Name, &task.ID, "success", "")
+	_ = s.auditWithChanges(r, actor, "instance.create", "instance", &item.ID, item.Name, &task.ID, "success", "", instanceAuditChanges(domain.Instance{}, item))
 	httpx.JSON(w, http.StatusAccepted, map[string]any{"instance": item, "task": task})
 }
 
@@ -287,6 +293,9 @@ func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
 		Name        string            `json:"name"`
 		ProjectID   *uuid.UUID        `json:"projectId"`
 		Environment string            `json:"environment"`
+		Purpose     string            `json:"purpose"`
+		Owner       string            `json:"owner"`
+		ExpiresAt   *time.Time        `json:"expiresAt"`
 		Labels      map[string]string `json:"labels"`
 	}
 	if err = httpx.Decode(r, &input); err != nil {
@@ -299,7 +308,8 @@ func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	labels, _ := json.Marshal(input.Labels)
-	item, err := s.store.UpdateInstanceMetadata(r.Context(), id, input.Name, input.ProjectID, input.Environment, labels)
+	item, err := s.store.UpdateInstanceMetadata(r.Context(), id, input.Name, input.ProjectID,
+		input.Environment, input.Purpose, input.Owner, input.ExpiresAt, labels)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

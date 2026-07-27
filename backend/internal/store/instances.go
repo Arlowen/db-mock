@@ -16,6 +16,8 @@ import (
 )
 
 const maxInstanceNameLength = 120
+const maxInstancePurposeLength = 500
+const maxInstanceOwnerLength = 120
 
 type InstanceInput struct {
 	ID                uuid.UUID
@@ -25,6 +27,9 @@ type InstanceInput struct {
 	TemplateVersionID uuid.UUID
 	Environment       string
 	Labels            json.RawMessage
+	Purpose           string
+	Owner             string
+	ExpiresAt         *time.Time
 	AutoRestart       bool
 	CPU               float64
 	MemoryBytes       int64
@@ -51,6 +56,7 @@ type InstanceRuntimeConfiguration struct {
 }
 
 const instanceColumns = `i.id,i.name,i.project_id,i.host_id,i.template_version_id,i.environment,i.labels,
+    i.purpose,i.owner_name,i.expires_at,
     i.status,i.status_message,i.desired_state,i.auto_restart,i.restart_failures,i.cpu,i.memory_bytes,
     i.reserved_disk_bytes,i.host_port,i.container_port,i.bind_address,i.database_username,
     i.encrypted_password,i.encrypted_password<>'',i.database_name,i.connection_uri,i.jdbc_uri,
@@ -59,7 +65,8 @@ const instanceColumns = `i.id,i.name,i.project_id,i.host_id,i.template_version_i
 
 func instanceScan(item *domain.Instance) []any {
 	return []any{&item.ID, &item.Name, &item.ProjectID, &item.HostID, &item.TemplateVersionID,
-		&item.Environment, &item.Labels, &item.Status, &item.StatusMessage, &item.DesiredState,
+		&item.Environment, &item.Labels, &item.Purpose, &item.Owner, &item.ExpiresAt,
+		&item.Status, &item.StatusMessage, &item.DesiredState,
 		&item.AutoRestart, &item.RestartFailures, &item.CPU, &item.MemoryBytes, &item.ReservedDiskBytes,
 		&item.HostPort, &item.ContainerPort, &item.BindAddress, &item.DatabaseUsername,
 		&item.EncryptedPassword, &item.HasPassword, &item.DatabaseName, &item.ConnectionURI, &item.JDBCURI,
@@ -80,29 +87,37 @@ func sameOptionalUUID(left, right *uuid.UUID) bool {
 	return *left == *right
 }
 
-func normalizeInstanceMetadata(name, environment string, labels json.RawMessage) (string, json.RawMessage, error) {
+func normalizeInstanceMetadata(name, environment, purpose, owner string, labels json.RawMessage) (string, string, string, json.RawMessage, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > maxInstanceNameLength {
-		return "", nil, fmt.Errorf("%w: instance name must contain between 1 and %d characters", domain.ErrInvalid, maxInstanceNameLength)
+		return "", "", "", nil, fmt.Errorf("%w: instance name must contain between 1 and %d characters", domain.ErrInvalid, maxInstanceNameLength)
 	}
 	if environment != "development" && environment != "testing" && environment != "staging" && environment != "production" {
-		return "", nil, fmt.Errorf("%w: unsupported environment", domain.ErrInvalid)
+		return "", "", "", nil, fmt.Errorf("%w: unsupported environment", domain.ErrInvalid)
+	}
+	purpose = strings.TrimSpace(purpose)
+	if utf8.RuneCountInString(purpose) > maxInstancePurposeLength {
+		return "", "", "", nil, fmt.Errorf("%w: instance purpose must not exceed %d characters", domain.ErrInvalid, maxInstancePurposeLength)
+	}
+	owner = strings.TrimSpace(owner)
+	if utf8.RuneCountInString(owner) > maxInstanceOwnerLength {
+		return "", "", "", nil, fmt.Errorf("%w: instance owner must not exceed %d characters", domain.ErrInvalid, maxInstanceOwnerLength)
 	}
 	if len(labels) == 0 {
 		labels = json.RawMessage(`{}`)
 	}
 	var values map[string]string
 	if err := json.Unmarshal(labels, &values); err != nil {
-		return "", nil, fmt.Errorf("%w: instance labels must be a JSON object with string values", domain.ErrInvalid)
+		return "", "", "", nil, fmt.Errorf("%w: instance labels must be a JSON object with string values", domain.ErrInvalid)
 	}
 	if values == nil {
 		values = map[string]string{}
 	}
 	normalizedLabels, err := json.Marshal(values)
 	if err != nil {
-		return "", nil, err
+		return "", "", "", nil, err
 	}
-	return name, normalizedLabels, nil
+	return name, purpose, owner, normalizedLabels, nil
 }
 
 func instanceWriteError(err error) error {
@@ -124,11 +139,11 @@ func (s *Store) CreateInstanceTask(ctx context.Context, input InstanceInput, tas
 	if input.HostID == uuid.Nil || input.TemplateVersionID == uuid.Nil || input.CPU <= 0 || input.MemoryBytes <= 0 || input.ReservedDiskBytes <= 0 {
 		return domain.Instance{}, domain.Task{}, domain.ErrInvalid
 	}
-	name, labels, err := normalizeInstanceMetadata(input.Name, input.Environment, input.Labels)
+	name, purpose, owner, labels, err := normalizeInstanceMetadata(input.Name, input.Environment, input.Purpose, input.Owner, input.Labels)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
-	input.Name, input.Labels = name, labels
+	input.Name, input.Purpose, input.Owner, input.Labels = name, purpose, owner, labels
 	if len(input.Configuration) == 0 {
 		input.Configuration = json.RawMessage(`{}`)
 	}
@@ -202,12 +217,12 @@ func (s *Store) CreateInstanceTask(ctx context.Context, input InstanceInput, tas
 	}
 	item := domain.Instance{ID: input.ID}
 	err = tx.QueryRow(ctx, `INSERT INTO instances(id,name,project_id,host_id,template_version_id,environment,
-        labels,status,desired_state,auto_restart,cpu,memory_bytes,reserved_disk_bytes,host_port,
+        labels,purpose,owner_name,expires_at,status,desired_state,auto_restart,cpu,memory_bytes,reserved_disk_bytes,host_port,
         container_port,bind_address,database_username,encrypted_password,database_name,connection_uri,
         jdbc_uri,compose_project,remote_directory,configuration)
-        VALUES($1,$2,$3,$4,$5,$6,$7,'provisioning','running',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-		$18,$19,$20,$21,$22) RETURNING id`, item.ID, input.Name, input.ProjectID,
-		input.HostID, input.TemplateVersionID, input.Environment, input.Labels, input.AutoRestart, input.CPU,
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'provisioning','running',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+		$21,$22,$23,$24,$25) RETURNING id`, item.ID, input.Name, input.ProjectID,
+		input.HostID, input.TemplateVersionID, input.Environment, input.Labels, input.Purpose, input.Owner, input.ExpiresAt, input.AutoRestart, input.CPU,
 		input.MemoryBytes, input.ReservedDiskBytes, input.HostPort, input.ContainerPort, input.BindAddress,
 		input.DatabaseUsername, input.EncryptedPassword, input.DatabaseName, input.ConnectionURI,
 		input.JDBCURI, input.ComposeProject, input.RemoteDirectory, input.Configuration).Scan(&item.ID)
@@ -272,16 +287,17 @@ func (s *Store) IncrementRestartFailure(ctx context.Context, id uuid.UUID) (int,
 	return count, translate(err)
 }
 
-func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name string, projectID *uuid.UUID, environment string, labels json.RawMessage) (domain.Instance, error) {
-	name, labels, err := normalizeInstanceMetadata(name, environment, labels)
+func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name string, projectID *uuid.UUID, environment, purpose, owner string, expiresAt *time.Time, labels json.RawMessage) (domain.Instance, error) {
+	name, purpose, owner, labels, err := normalizeInstanceMetadata(name, environment, purpose, owner, labels)
 	if err != nil {
 		return domain.Instance{}, err
 	}
 	if projectID != nil && *projectID == uuid.Nil {
 		return domain.Instance{}, fmt.Errorf("%w: projectId must be a non-zero UUID", domain.ErrInvalid)
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE instances SET name=$2,project_id=$3,environment=$4,labels=$5,
-        updated_at=now() WHERE id=$1 AND status<>'deleted'`, id, name, projectID, environment, labels)
+	result, err := s.pool.Exec(ctx, `UPDATE instances SET name=$2,project_id=$3,environment=$4,purpose=$5,
+        owner_name=$6,expires_at=$7,labels=$8,updated_at=now() WHERE id=$1 AND status<>'deleted'`,
+		id, name, projectID, environment, purpose, owner, expiresAt, labels)
 	if err != nil {
 		return domain.Instance{}, instanceWriteError(err)
 	}

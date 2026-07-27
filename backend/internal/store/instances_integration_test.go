@@ -91,6 +91,10 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 
 	instanceID := uuid.New()
 	atomicInput := input(instanceID, "atomic-db", 25000)
+	expiresAt := time.Now().UTC().Add(6 * 24 * time.Hour).Truncate(time.Second)
+	atomicInput.Purpose = "Orders integration testing"
+	atomicInput.Owner = "Platform QA"
+	atomicInput.ExpiresAt = &expiresAt
 	atomicInput.Configuration = json.RawMessage(`{"extraEnvironment":{},"registryId":"` + registryID.String() + `"}`)
 	instance, task, err := target.CreateInstanceTask(ctx, atomicInput, store.TaskInput{
 		RequestedBy: userID, Payload: map[string]any{"instanceId": instanceID, "registryId": registryID},
@@ -102,6 +106,19 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 		task.Status != "queued" || task.ResourceID == nil || *task.ResourceID != instanceID ||
 		task.HostID == nil || *task.HostID != hostID {
 		t.Fatalf("atomic create returned instance=%#v task=%#v", instance, task)
+	}
+	if instance.Purpose != atomicInput.Purpose || instance.Owner != atomicInput.Owner ||
+		instance.ExpiresAt == nil || !instance.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("instance lifecycle metadata = %#v", instance)
+	}
+	dashboard, err := target.Dashboard(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dashboard.LifecycleInstances) != 1 || dashboard.LifecycleInstances[0].ID != instanceID ||
+		dashboard.LifecycleInstances[0].Purpose != atomicInput.Purpose ||
+		dashboard.LifecycleInstances[0].Owner != atomicInput.Owner {
+		t.Fatalf("dashboard lifecycle queue = %#v", dashboard.LifecycleInstances)
 	}
 	if _, err = target.GetInstance(ctx, instanceID); err != nil {
 		t.Fatalf("committed instance is unavailable: %v", err)
@@ -135,6 +152,16 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 	})
 	if err != nil || retried.ID != rolledBackID || retryTask.ResourceID == nil || *retryTask.ResourceID != rolledBackID {
 		t.Fatalf("rolled-back name, port, and capacity were not reusable: instance=%#v task=%#v err=%v", retried, retryTask, err)
+	}
+	if err = target.MarkInstanceDeleted(ctx, rolledBackID); err != nil {
+		t.Fatal(err)
+	}
+	reusedPortID := uuid.New()
+	reusedPort, _, err := target.CreateInstanceTask(ctx, input(reusedPortID, "reused-port-db", 25001), store.TaskInput{
+		RequestedBy: userID, Payload: map[string]any{"instanceId": reusedPortID},
+	})
+	if err != nil || reusedPort.HostPort != 25001 {
+		t.Fatalf("deleted instance port was not reusable: instance=%#v err=%v", reusedPort, err)
 	}
 
 	missingProjectID, invalidProjectInstanceID := uuid.New(), uuid.New()
@@ -197,7 +224,9 @@ func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
 	}
 	target := store.New(pool)
 
-	updated, err := target.UpdateInstanceMetadata(ctx, instanceID, "  renamed-db  ", &projectID, "staging", json.RawMessage(`{"team":"platform"}`))
+	expiresAt := time.Now().UTC().Add(72 * time.Hour).Truncate(time.Second)
+	updated, err := target.UpdateInstanceMetadata(ctx, instanceID, "  renamed-db  ", &projectID, "staging",
+		"  Release candidate verification  ", "  Database team  ", &expiresAt, json.RawMessage(`{"team":"platform"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +234,10 @@ func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
 	if err = json.Unmarshal(updated.Labels, &storedLabels); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "renamed-db" || updated.Environment != "staging" || updated.ProjectID == nil || *updated.ProjectID != projectID || storedLabels["team"] != "platform" {
+	if updated.Name != "renamed-db" || updated.Environment != "staging" || updated.ProjectID == nil ||
+		*updated.ProjectID != projectID || updated.Purpose != "Release candidate verification" ||
+		updated.Owner != "Database team" || updated.ExpiresAt == nil || !updated.ExpiresAt.Equal(expiresAt) ||
+		storedLabels["team"] != "platform" {
 		t.Fatalf("normalized metadata = %#v", updated)
 	}
 
@@ -231,18 +263,21 @@ func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
 	}
 	for _, test := range invalidCases {
 		t.Run(test.name, func(t *testing.T) {
-			_, updateErr := target.UpdateInstanceMetadata(ctx, test.instanceID, test.value, test.projectID, test.environment, test.labels)
+			_, updateErr := target.UpdateInstanceMetadata(ctx, test.instanceID, test.value, test.projectID,
+				test.environment, "", "", nil, test.labels)
 			if !errors.Is(updateErr, test.want) {
 				t.Fatalf("update error = %v, want %v", updateErr, test.want)
 			}
 		})
 	}
 
-	updated, err = target.UpdateInstanceMetadata(ctx, instanceID, "renamed-db", nil, "production", json.RawMessage(`null`))
+	updated, err = target.UpdateInstanceMetadata(ctx, instanceID, "renamed-db", nil, "production",
+		"", "", nil, json.RawMessage(`null`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.ProjectID != nil || updated.Environment != "production" || string(updated.Labels) != `{}` {
+	if updated.ProjectID != nil || updated.Environment != "production" || updated.Purpose != "" ||
+		updated.Owner != "" || updated.ExpiresAt != nil || string(updated.Labels) != `{}` {
 		t.Fatalf("cleared optional metadata = %#v", updated)
 	}
 }

@@ -9,6 +9,9 @@ const source: Instance = {
   hostId: 'host-1',
   templateVersionId: 'postgres-17',
   environment: 'testing',
+  purpose: 'Verify the orders release candidate',
+  owner: 'Orders QA',
+  expiresAt: '2026-07-30T16:00:00Z',
   labels: { purpose: 'integration', team: 'orders' },
   status: 'running',
   desiredState: 'running',
@@ -40,6 +43,7 @@ describe('deploymentCopyDraft', () => {
     expect(deploymentCopyDraft(source, ['project-1'])).toMatchObject({
       projectId: 'project-1',
       environment: 'testing',
+      purpose: 'Verify the orders release candidate',
       templateVersionId: 'postgres-17',
       cpu: 2,
       memoryGiB: 4,
@@ -62,6 +66,8 @@ describe('deploymentCopyDraft', () => {
     expect(draft.password).toBeUndefined()
     expect(draft.hostId).toBeUndefined()
     expect(draft.hostPort).toBeUndefined()
+    expect(draft).not.toHaveProperty('owner')
+    expect(draft).not.toHaveProperty('expiresAt')
   })
 
   it('drops a deleted project and preserves an offline image choice', () => {

@@ -165,6 +165,9 @@ type Instance struct {
 	TemplateVersionID uuid.UUID       `json:"templateVersionId"`
 	Environment       string          `json:"environment"`
 	Labels            json.RawMessage `json:"labels"`
+	Purpose           string          `json:"purpose"`
+	Owner             string          `json:"owner"`
+	ExpiresAt         *time.Time      `json:"expiresAt,omitempty"`
 	Status            string          `json:"status"`
 	StatusMessage     string          `json:"statusMessage,omitempty"`
 	DesiredState      string          `json:"desiredState"`
@@ -385,10 +388,24 @@ type Upload struct {
 }
 
 type Dashboard struct {
-	Hosts       map[string]int `json:"hosts"`
-	Instances   map[string]int `json:"instances"`
-	ActiveTasks int            `json:"activeTasks"`
-	OpenAlerts  int            `json:"openAlerts"`
-	Users       int            `json:"users"`
-	Projects    int            `json:"projects"`
+	Hosts              map[string]int      `json:"hosts"`
+	Instances          map[string]int      `json:"instances"`
+	ActiveTasks        int                 `json:"activeTasks"`
+	OpenAlerts         int                 `json:"openAlerts"`
+	Users              int                 `json:"users"`
+	Projects           int                 `json:"projects"`
+	LifecycleInstances []DashboardInstance `json:"lifecycleInstances"`
+}
+
+type DashboardInstance struct {
+	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
+	Purpose         string    `json:"purpose"`
+	Owner           string    `json:"owner"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	Status          string    `json:"status"`
+	Environment     string    `json:"environment"`
+	TemplateName    string    `json:"templateName"`
+	TemplateVersion string    `json:"templateVersion"`
+	HostName        string    `json:"hostName"`
 }

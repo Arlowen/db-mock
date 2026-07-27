@@ -9,9 +9,15 @@ export function browserLocale(language = globalThis.navigator?.language): 'zh-CN
 
 export const zh: Record<string, string> = {
   app: 'DB Mock', appTagline: 'Docker Compose 数据库管理平台',
-  projects: '项目', hosts: '主机', catalog: '数据库目录', instances: '数据库实例',
+  workbench: '工作台', projects: '项目', hosts: '主机', catalog: '数据库目录', instances: '数据库实例',
   images: '镜像与仓库', tasks: '任务中心', alerts: '告警与 Webhook', users: '用户', audit: '审计日志', settings: '系统设置',
   navResources: '资源管理', navDatabases: '数据库管理', navOperations: '运维中心', navSystem: '系统管理',
+  workbenchDescription: '每天从这里查看可用资源、运行事项和需要确认清理的测试数据库。', workbenchLoadFailed: '无法加载工作台',
+  availableHosts: '可用主机', runningInstances: '运行中实例', activeTasks: '执行中任务', openAlerts: '待处理告警',
+  workbenchNoHostTitle: '先接入一台可部署主机', workbenchNoHostHint: '完成 SSH 验证和容量探测后，即可从数据库目录创建测试实例。',
+  workbenchNoInstanceTitle: '主机已就绪，可以创建第一个测试数据库', workbenchNoInstanceHint: '选择模板后，平台会自动推荐有容量的主机并跟踪部署任务。',
+  lifecycleQueue: '到期确认队列', lifecycleQueueEmpty: '未来 7 天没有需要确认清理的数据库。平台不会因到期自动停机或删除。',
+  expiredCount: '{{count}} 个已到期', dueSoonCount: '{{count}} 个即将到期',
   login: '登录', logout: '退出登录', username: '用户名', password: '密码', displayName: '昵称', language: '语言',
   languageChinese: '简体中文', languageEnglish: 'English', collapse: '收起菜单', expandMenu: '展开菜单',
   skipToContent: '跳到主要内容', accountMenu: '账号菜单', accountSettings: '个人账号', accountSettingsHint: '所有角色都可以维护自己的显示信息和登录密码。', moreActions: '更多操作', switchToEnglish: '切换为 English', switchToChinese: '切换为简体中文',
@@ -20,6 +26,10 @@ export const zh: Record<string, string> = {
 
   create: '创建', edit: '编辑', delete: '删除', restore: '恢复', save: '保存', saved: '已保存', cancel: '取消', confirm: '确认', close: '关闭', refresh: '刷新', clearFilters: '清除筛选', unsavedChanges: '有未保存的更改',
   actions: '操作', status: '状态', name: '名称', description: '描述', createdAt: '创建时间', createdBy: '创建人', details: '详情', noData: '暂无数据', resource: '资源', lastUpdated: '最近更新', identifier: '标识符', eventIdentifier: '事件标识符',
+  lifecycle: '使用周期', purpose: '用途', owner: '负责人', expectedExpiry: '预计到期', quickSet: '快捷设置',
+  purposeHint: '用于交付和清理确认，不影响数据库运行。', purposePlaceholder: '例如：订单服务 3.8 回归测试', ownerPlaceholder: '负责确认续期或清理的人',
+  expectedExpiryHint: '到期只进入工作台提醒，不会自动停机或删除。清空表示长期保留。', retainIndefinitely: '长期保留', daysCount: '{{count}} 天',
+  purposeMissing: '未填写用途', ownerMissing: '未指定负责人', lifecycle_retained: '长期保留', lifecycle_scheduled: '已安排', lifecycle_dueSoon: '即将到期', lifecycle_expired: '已到期',
   search: '搜索', export: '导出 CSV', clear: '清理', download: '下载', copyFailed: '复制失败，请检查浏览器权限', next: '下一步',
   all: '全部', allProjects: '全部项目', allHosts: '全部主机', allEnvironments: '全部环境', allStatuses: '全部状态', allResources: '全部资源', basicInfo: '基础信息',
   optional: '可选', options: '选项', color: '颜色', time: '时间', user: '用户', action: '操作', result: '结果',
@@ -184,7 +194,7 @@ export const zh: Record<string, string> = {
   templateDescription_oceanbase: 'OceanBase CE Mini 单机模式', templateDescription_starrocks: 'StarRocks 一体化开发容器',
   templateDescription_doris: '在单台主机上运行 Apache Doris FE 与 BE',
 
-  createInstance: '创建数据库', copyDeployment: '复制部署', copyDeploymentTitle: '复制部署 · {{name}}', copyDeploymentPrepared: '已复用「{{name}}」的部署配置', copyDeploymentPreparedHint: '已预填模板版本、项目、环境、标签、资源、数据库初始化参数、镜像来源和运行选项。为避免冲突，实例名、密码、目标主机和端口未复制。', copyDeploymentSourceUnavailable: '复制来源不可用', copyDeploymentSourceUnavailableHint: '来源实例可能已删除或当前账号不可见。已转为普通创建，请重新选择模板。', copyDeploymentTemplateUnavailable: '源模板版本不能用于新部署', copyDeploymentTemplateUnavailableHint: '该版本已停止新建或不再可用。已转为普通创建，请选择可用版本。', copyDeploymentUnavailableHint: '当前模板版本不可用于新部署。', connection: '连接信息', logs: '日志', metrics: '监控', start: '启动', stop: '停止', restart: '重启', upgrade: '升级',
+  createInstance: '创建数据库', copyDeployment: '复制部署', copyDeploymentTitle: '复制部署 · {{name}}', copyDeploymentPrepared: '已复用「{{name}}」的部署配置', copyDeploymentPreparedHint: '已预填模板版本、项目、环境、用途、标签、资源、数据库初始化参数、镜像来源和运行选项。为避免冲突，实例名、密码、目标主机、端口、原负责人和原到期时间未复制；负责人默认为当前账号，到期时间重置为 7 天后。', copyDeploymentSourceUnavailable: '复制来源不可用', copyDeploymentSourceUnavailableHint: '来源实例可能已删除或当前账号不可见。已转为普通创建，请重新选择模板。', copyDeploymentTemplateUnavailable: '源模板版本不能用于新部署', copyDeploymentTemplateUnavailableHint: '该版本已停止新建或不再可用。已转为普通创建，请选择可用版本。', copyDeploymentUnavailableHint: '当前模板版本不可用于新部署。', connection: '连接信息', logs: '日志', metrics: '监控', start: '启动', stop: '停止', restart: '重启', upgrade: '升级',
   project: '项目', environment: '环境', host: '主机', template: '模板', version: '版本', resources: '资源',
   cpu: 'CPU', memory: '内存', disk: '磁盘', port: '端口', autoSelect: '自动推荐', autoRestart: '异常自动重启',
   labels: '标签', labelsPlaceholder: 'team=data, purpose=test', autoHostTooltip: '留空将自动推荐兼容的主机',
@@ -370,9 +380,15 @@ export const zh: Record<string, string> = {
 
 export const en: Record<string, string> = {
   app: 'DB Mock', appTagline: 'Docker Compose database control plane',
-  projects: 'Projects', hosts: 'Hosts', catalog: 'Database catalog', instances: 'Instances',
+  workbench: 'Workbench', projects: 'Projects', hosts: 'Hosts', catalog: 'Database catalog', instances: 'Instances',
   images: 'Images & registries', tasks: 'Tasks', alerts: 'Alerts & webhooks', users: 'Users', audit: 'Audit log', settings: 'Settings',
   navResources: 'RESOURCES', navDatabases: 'DATABASES', navOperations: 'OPERATIONS', navSystem: 'SYSTEM',
+  workbenchDescription: 'Start each day with available capacity, active operations, and test databases that need a cleanup decision.', workbenchLoadFailed: 'Unable to load the workbench',
+  availableHosts: 'Available hosts', runningInstances: 'Running instances', activeTasks: 'Active tasks', openAlerts: 'Open alerts',
+  workbenchNoHostTitle: 'Connect a deployable host first', workbenchNoHostHint: 'After SSH verification and capacity probing, you can create a test database from the catalog.',
+  workbenchNoInstanceTitle: 'The host is ready for the first test database', workbenchNoInstanceHint: 'Choose a template and the platform will recommend a host with capacity and track the deployment task.',
+  lifecycleQueue: 'Expiry decision queue', lifecycleQueueEmpty: 'No database needs a cleanup decision in the next 7 days. Expiry never stops or deletes a database automatically.',
+  expiredCount: '{{count}} expired', dueSoonCount: '{{count}} due soon',
   login: 'Sign in', logout: 'Sign out', username: 'Username', password: 'Password', displayName: 'Nickname', language: 'Language',
   languageChinese: 'Chinese (Simplified)', languageEnglish: 'English', collapse: 'Collapse menu', expandMenu: 'Expand menu',
   skipToContent: 'Skip to main content', accountMenu: 'Account menu', accountSettings: 'My account', accountSettingsHint: 'Every role can maintain its own display information and sign-in password.', moreActions: 'More actions', switchToEnglish: 'Switch to English', switchToChinese: 'Switch to Chinese (Simplified)',
@@ -381,6 +397,10 @@ export const en: Record<string, string> = {
 
   create: 'Create', edit: 'Edit', delete: 'Delete', restore: 'Restore', save: 'Save', saved: 'Saved', cancel: 'Cancel', confirm: 'Confirm', close: 'Close', refresh: 'Refresh', clearFilters: 'Clear filters', unsavedChanges: 'Unsaved changes',
   actions: 'Actions', status: 'Status', name: 'Name', description: 'Description', createdAt: 'Created', createdBy: 'Created by', details: 'Details', noData: 'No data', resource: 'Resource', lastUpdated: 'Last updated', identifier: 'Identifier', eventIdentifier: 'Event ID',
+  lifecycle: 'Lifecycle', purpose: 'Purpose', owner: 'Owner', expectedExpiry: 'Expected expiry', quickSet: 'Quick set',
+  purposeHint: 'Used for handoff and cleanup decisions; it does not affect the database runtime.', purposePlaceholder: 'For example: Orders 3.8 regression testing', ownerPlaceholder: 'Person responsible for renewal or cleanup',
+  expectedExpiryHint: 'Expiry only adds a workbench reminder; it never stops or deletes the database. Clear it to retain indefinitely.', retainIndefinitely: 'Retain indefinitely', daysCount: '{{count}} days',
+  purposeMissing: 'Purpose not recorded', ownerMissing: 'Owner not assigned', lifecycle_retained: 'Retained', lifecycle_scheduled: 'Scheduled', lifecycle_dueSoon: 'Due soon', lifecycle_expired: 'Expired',
   search: 'Search', export: 'Export CSV', clear: 'Clear', download: 'Download', copyFailed: 'Copy failed. Check browser permissions.', next: 'Next',
   all: 'All', allProjects: 'All projects', allHosts: 'All hosts', allEnvironments: 'All environments', allStatuses: 'All statuses', allResources: 'All resources', basicInfo: 'Basics',
   optional: 'optional', options: 'Options', color: 'Color', time: 'Time', user: 'User', action: 'Action', result: 'Result',
@@ -545,7 +565,7 @@ export const en: Record<string, string> = {
   templateDescription_oceanbase: 'OceanBase CE mini single-host mode', templateDescription_starrocks: 'StarRocks all-in-one development container',
   templateDescription_doris: 'Apache Doris FE and BE on one host',
 
-  createInstance: 'Create database', copyDeployment: 'Copy deployment', copyDeploymentTitle: 'Copy deployment · {{name}}', copyDeploymentPrepared: 'Deployment settings copied from “{{name}}”', copyDeploymentPreparedHint: 'Template version, project, environment, labels, resources, database initialization, image source, and runtime options are prefilled. To prevent conflicts, the instance name, password, target host, and port were not copied.', copyDeploymentSourceUnavailable: 'Copy source is unavailable', copyDeploymentSourceUnavailableHint: 'The source instance may have been deleted or is not visible to this account. This is now a standard creation flow; select a template to continue.', copyDeploymentTemplateUnavailable: 'The source template version cannot be deployed', copyDeploymentTemplateUnavailableHint: 'This version no longer accepts new deployments or is unavailable. This is now a standard creation flow; select an available version.', copyDeploymentUnavailableHint: 'The current template version cannot be used for a new deployment.', connection: 'Connection', logs: 'Logs', metrics: 'Metrics', start: 'Start', stop: 'Stop', restart: 'Restart', upgrade: 'Upgrade',
+  createInstance: 'Create database', copyDeployment: 'Copy deployment', copyDeploymentTitle: 'Copy deployment · {{name}}', copyDeploymentPrepared: 'Deployment settings copied from “{{name}}”', copyDeploymentPreparedHint: 'Template version, project, environment, purpose, labels, resources, database initialization, image source, and runtime options are prefilled. To prevent conflicts, the instance name, password, target host, port, previous owner, and previous expiry were not copied; the owner defaults to the current account and expiry resets to seven days.', copyDeploymentSourceUnavailable: 'Copy source is unavailable', copyDeploymentSourceUnavailableHint: 'The source instance may have been deleted or is not visible to this account. This is now a standard creation flow; select a template to continue.', copyDeploymentTemplateUnavailable: 'The source template version cannot be deployed', copyDeploymentTemplateUnavailableHint: 'This version no longer accepts new deployments or is unavailable. This is now a standard creation flow; select an available version.', copyDeploymentUnavailableHint: 'The current template version cannot be used for a new deployment.', connection: 'Connection', logs: 'Logs', metrics: 'Metrics', start: 'Start', stop: 'Stop', restart: 'Restart', upgrade: 'Upgrade',
   project: 'Project', environment: 'Environment', host: 'Host', template: 'Template', version: 'Version', resources: 'Resources',
   cpu: 'CPU', memory: 'Memory', disk: 'Disk', port: 'Port', autoSelect: 'Auto select', autoRestart: 'Auto restart',
   labels: 'Labels', labelsPlaceholder: 'team=data, purpose=test', autoHostTooltip: 'Leave empty to recommend a compatible host automatically',

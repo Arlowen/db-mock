@@ -6,6 +6,7 @@ export interface DeploymentCopyDraft {
   name: string
   projectId?: string
   environment: string
+  purpose?: string
   templateVersionId: string
   hostId?: string
   cpu: number
@@ -49,6 +50,7 @@ export function deploymentCopyDraft(instance: Instance, availableProjectIDs?: It
     name: '',
     projectId,
     environment: instance.environment,
+    purpose: instance.purpose,
     templateVersionId: instance.templateVersionId,
     hostId: undefined,
     cpu: instance.cpu,

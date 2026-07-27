@@ -1,6 +1,6 @@
 import {
   AlertOutlined, AuditOutlined, BellOutlined, CloudServerOutlined, ContainerOutlined,
-  DatabaseOutlined, DownOutlined, GlobalOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
+  DatabaseOutlined, DownOutlined, GlobalOutlined, HomeOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
   SettingOutlined, TeamOutlined, UnorderedListOutlined, UserOutlined,
 } from '@ant-design/icons'
 import { Alert, App, Avatar, Badge, Button, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Tabs, Tag, Typography } from 'antd'
@@ -69,6 +69,7 @@ export function AppLayout() {
     const timer = window.setInterval(loadAlerts, 30000)
     return () => { active = false; window.clearInterval(timer) }
   }, [location.pathname])
+  const dashboardItem = { key: '/dashboard', icon: <HomeOutlined />, label: t('workbench') }
   const projectsItem = { key: '/projects', icon: <ProjectOutlined />, label: t('projects') }
   const hostsItem = { key: '/hosts', icon: <CloudServerOutlined />, label: t('hosts') }
   const catalogItem = { key: '/catalog', icon: <DatabaseOutlined />, label: t('catalog') }
@@ -79,16 +80,17 @@ export function AppLayout() {
   const usersItem = { key: '/users', icon: <TeamOutlined />, label: t('users') }
   const auditItem = { key: '/audit', icon: <AuditOutlined />, label: t('audit') }
   const settingsItem = { key: '/settings', icon: <SettingOutlined />, label: t('settings') }
-  const routeItems = [projectsItem, hostsItem, catalogItem, instancesItem, imagesItem, tasksItem, alertsItem, usersItem, auditItem, settingsItem]
+  const routeItems = [dashboardItem, projectsItem, hostsItem, catalogItem, instancesItem, imagesItem, tasksItem, alertsItem, usersItem, auditItem, settingsItem]
   const operationalItems = [tasksItem, alertsItem, ...(permissions.canViewAudit ? [auditItem] : [])]
   const systemItems = [...(permissions.canManageUsers ? [usersItem] : []), ...(permissions.canManageSettings ? [settingsItem] : [])]
   const items: MenuProps['items'] = [
+    dashboardItem,
     { type: 'group', label: t('navResources'), children: [projectsItem, hostsItem] },
     { type: 'group', label: t('navDatabases'), children: [catalogItem, instancesItem, imagesItem] },
     { type: 'group', label: t('navOperations'), children: operationalItems },
   ]
   if (systemItems.length) items.push({ type: 'group', label: t('navSystem'), children: systemItems })
-  const selectedItem = routeItems.find((item) => location.pathname.startsWith(item.key)) ?? projectsItem
+  const selectedItem = routeItems.find((item) => location.pathname.startsWith(item.key)) ?? dashboardItem
   const selected = selectedItem.key
   useEffect(() => {
     document.title = `${String(selectedItem.label)} · DB Mock`
@@ -170,9 +172,9 @@ export function AppLayout() {
       <div className="sidebar-header">
         <button
           className={`sidebar-brand${collapsed ? ' sidebar-brand-collapsed' : ''}`}
-          aria-label={collapsed ? t('expandMenu') : t('projects')}
+          aria-label={collapsed ? t('expandMenu') : t('workbench')}
           title={collapsed ? t('expandMenu') : undefined}
-          onClick={() => collapsed ? setCollapsed(false) : navigate('/projects')}
+          onClick={() => collapsed ? setCollapsed(false) : navigate('/dashboard')}
         >
           <span className="sidebar-brand-mark"><BrandLogo small />{collapsed && <MenuUnfoldOutlined className="sidebar-expand-icon" />}</span>
           {!collapsed && <span>DB Mock</span>}

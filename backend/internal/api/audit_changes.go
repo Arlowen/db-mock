@@ -89,6 +89,9 @@ func instanceAuditChanges(before, after domain.Instance) map[string]any {
 	addAuditTransition(changes, "name", before.Name, after.Name)
 	addAuditTransition(changes, "projectId", auditUUID(before.ProjectID), auditUUID(after.ProjectID))
 	addAuditTransition(changes, "environment", before.Environment, after.Environment)
+	addAuditTransition(changes, "purpose", before.Purpose, after.Purpose)
+	addAuditTransition(changes, "owner", before.Owner, after.Owner)
+	addAuditTransition(changes, "expiresAt", before.ExpiresAt, after.ExpiresAt)
 	addAuditTransition(changes, "labels", auditJSON(before.Labels), auditJSON(after.Labels))
 	return changes
 }

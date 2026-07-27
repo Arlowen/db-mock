@@ -14,8 +14,9 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByLabel('语言')).toHaveCount(0)
   await page.locator('#password').fill('e2e-password')
   await page.getByRole('button', { name: '初始化 DB Mock' }).click()
-  await expect(page.getByText('项目', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('尚未创建项目。项目可用于按团队、环境或业务线组织主机和数据库。')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
+  await expect(page.getByText('先接入一台可部署主机')).toBeVisible()
+  await expect(page.getByText('未来 7 天没有需要确认清理的数据库。平台不会因到期自动停机或删除。')).toBeVisible()
   await expect(page.getByRole('link', { name: '跳到主要内容' })).toHaveAttribute('href', '#main-content')
   await expect(page.getByRole('button', { name: '账号菜单' })).toBeVisible()
   await expect(page.getByText('系统设置', { exact: true })).toBeVisible()
@@ -107,7 +108,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('离线镜像上传策略已保存')).toBeVisible()
 
   await page.goto('/')
-  await page.locator('.page-header').getByRole('button', { name: '接入主机' }).click()
+  await page.getByRole('button', { name: '接入主机' }).click()
   const hostDialog = page.getByRole('dialog', { name: '接入主机' })
   await expect(hostDialog).toBeVisible()
   await expect(hostDialog.getByLabel('名称')).toBeFocused()
@@ -226,6 +227,9 @@ test('initializes the platform and switches the embedded interface language', as
   await templateSelect.press('Enter')
   await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
   await createInstanceDrawer.getByLabel('名称').fill('E2E Database')
+  await createInstanceDrawer.getByLabel('用途').fill('Release candidate regression')
+  await expect(createInstanceDrawer.getByLabel('负责人')).toHaveValue('e2e-admin')
+  await expect(createInstanceDrawer.getByLabel('预计到期')).not.toHaveValue('')
   await page.keyboard.press('Escape')
   const discardInstanceDraftDialog = page.getByRole('dialog', { name: '放弃未保存的数据库配置？' })
   await expect(discardInstanceDraftDialog).toBeVisible()
@@ -259,7 +263,8 @@ test('initializes the platform and switches the embedded interface language', as
   await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
   await createInstanceDrawer.getByRole('button', { name: /创\s*建/ }).click()
   await expect.poll(() => submittedInstanceBody).toBeTruthy()
-  expect(submittedInstanceBody).toMatchObject({ name: 'E2E Database', environment: 'development', cpu: 2, bindAddress: '0.0.0.0', autoRestart: true })
+  expect(submittedInstanceBody).toMatchObject({ name: 'E2E Database', environment: 'development', purpose: 'Release candidate regression', owner: 'e2e-admin', cpu: 2, bindAddress: '0.0.0.0', autoRestart: true })
+  expect(submittedInstanceBody?.expiresAt).toEqual(expect.any(String))
   expect(submittedInstanceBody?.templateVersionId).toEqual(expect.any(String))
   expect(Number(submittedInstanceBody?.memoryBytes)).toBeGreaterThan(0)
   expect(Number(submittedInstanceBody?.diskBytes)).toBeGreaterThan(0)
@@ -299,7 +304,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: upgradeRegistryID, name: 'Docker Hub mirror', url: 'https://docker.io', hasPassword: true, hasCaCertificate: false, status: 'online', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } }))
   const instanceResponse = () => ({
     id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555',
-    projectId: '77777777-7777-4777-8777-777777777777', environment: 'development', labels: { team: 'checkout' }, status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
+    projectId: '77777777-7777-4777-8777-777777777777', environment: 'development', labels: { team: 'checkout' }, purpose: 'Orders release regression', owner: 'Orders QA', expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(), status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
     cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0',
     databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17',
     configuration: { extraEnvironment: { TZ: 'UTC' } }, hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
@@ -354,14 +359,18 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto(`/instances/${instanceID}`)
   await expect(page.getByRole('heading', { name: /Orders DB/ })).toBeVisible()
   await expect(page.getByText('实例正在运行，暂未发现健康问题。')).toBeVisible()
+  await expect(page.getByText('Orders release regression')).toBeVisible()
+  await expect(page.getByText('Orders QA')).toBeVisible()
   await expect(page.getByText('100%', { exact: true })).toHaveCount(0)
   await expect(page.getByText('team=checkout', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '复制部署' }).click()
   const copyDeploymentDrawer = page.getByRole('dialog', { name: '复制部署 · Orders DB' })
   await expect(copyDeploymentDrawer).toBeVisible()
   await expect(copyDeploymentDrawer.getByText('已复用「Orders DB」的部署配置')).toBeVisible()
-  await expect(copyDeploymentDrawer.getByText('为避免冲突，实例名、密码、目标主机和端口未复制。', { exact: false })).toBeVisible()
+  await expect(copyDeploymentDrawer.getByText('原负责人和原到期时间未复制', { exact: false })).toBeVisible()
   await expect(copyDeploymentDrawer.getByLabel('名称')).toHaveValue('')
+  await expect(copyDeploymentDrawer.getByLabel('用途')).toHaveValue('Orders release regression')
+  await expect(copyDeploymentDrawer.getByLabel('负责人')).toHaveValue('e2e-admin')
   await expect(copyDeploymentDrawer.getByLabel('标签')).toHaveValue('team=checkout')
   await expect(copyDeploymentDrawer.getByText('1 台兼容主机可参与自动推荐')).toBeVisible()
   await copyDeploymentDrawer.getByRole('button', { name: '下一步' }).click()
