@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isRecoverableInstanceStatus, isTaskCancellationPending, selectRecoveryTasks } from './task-state'
+import { isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -51,6 +51,32 @@ describe('instance task recovery', () => {
     for (const status of ['running', 'stopped', 'deleted']) {
       expect(isRecoverableInstanceStatus(status)).toBe(false)
     }
+  })
+})
+
+describe('deployment handoff state', () => {
+  it('keeps the create task visible while deployment is active', () => {
+    const result = selectDeploymentHandoff([
+      { ...task('create', 'running', '2026-07-19T00:02:00Z'), kind: 'instance.create', progress: 68 },
+    ], 'provisioning')
+
+    expect(result).toMatchObject({ state: 'active', task: { id: 'create', progress: 68 } })
+  })
+
+  it('offers connection handoff only after both the task and instance are ready', () => {
+    const succeeded = { ...task('create', 'succeeded', '2026-07-19T00:02:00Z'), kind: 'instance.create', progress: 100 }
+
+    expect(selectDeploymentHandoff([succeeded], 'running')).toMatchObject({ state: 'ready', task: { id: 'create' } })
+    expect(selectDeploymentHandoff([succeeded], 'stopped')).toBeUndefined()
+  })
+
+  it('does not let an older success hide the latest failed deployment attempt', () => {
+    const result = selectDeploymentHandoff([
+      { ...task('latest', 'failed', '2026-07-19T00:03:00Z'), kind: 'instance.create' },
+      { ...task('older', 'succeeded', '2026-07-19T00:02:00Z'), kind: 'instance.create' },
+    ], 'failed')
+
+    expect(result).toMatchObject({ state: 'failed', task: { id: 'latest' } })
   })
 })
 

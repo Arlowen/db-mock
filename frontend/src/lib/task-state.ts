@@ -19,3 +19,12 @@ export function selectRecoveryTasks(tasks: Task[], recoverable: boolean) {
   const failedTask = recoverable && latestTask && failedStatuses.has(latestTask.status) ? latestTask : undefined
   return { activeTask, failedTask, operationTask: activeTask || failedTask }
 }
+
+export function selectDeploymentHandoff(tasks: Task[], instanceStatus: string) {
+  const task = tasks.find((candidate) => candidate.kind === 'instance.create')
+  if (!task) return undefined
+  if (activeStatuses.has(task.status)) return { state: 'active' as const, task }
+  if (failedStatuses.has(task.status) && recoverableInstanceStatuses.has(instanceStatus)) return { state: 'failed' as const, task }
+  if (task.status === 'succeeded' && instanceStatus === 'running') return { state: 'ready' as const, task }
+  return undefined
+}

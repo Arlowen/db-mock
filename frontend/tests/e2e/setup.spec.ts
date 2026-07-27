@@ -552,7 +552,20 @@ test('initializes the platform and switches the embedded interface language', as
   await page.reload()
   await expect(page.getByText('42%', { exact: true })).toBeVisible()
   await expect(page.getByText('正在准备数据库镜像')).toBeVisible()
+  await expect(page.getByText('下一步：部署完成后，本页会提供连接信息交付入口。')).toBeVisible()
   await expect(page.getByRole('button', { name: '查看任务' })).toBeVisible()
+
+  instanceStatus = 'running'
+  relatedTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }]
+  await page.reload()
+  await expect(page.getByText('数据库已部署，可交付连接信息')).toBeVisible()
+  await expect(page.getByText(/查看明文凭据会写入审计日志/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '查看部署记录' })).toBeVisible()
+  await page.getByRole('button', { name: '显示并交付连接信息' }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
+  await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '隐藏连接信息' }).click()
+  await page.getByRole('tab', { name: '详情' }).click()
 
   instanceStatus = 'failed'
   relatedTasks = [{ id: '66666666-6666-4666-8666-666666666666', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 42, stage: 'image', message: 'preparing_database_image', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
@@ -1254,6 +1267,16 @@ test('initializes the platform and switches the embedded interface language', as
   expect(viewerCleanupDecision.status()).toBe(403)
   const viewerUsers = await developerPage.request.get('/api/v1/users')
   expect(viewerUsers.status()).toBe(403)
+  await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [] } }))
+  await developerPage.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
+  await developerPage.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }] } }))
+  await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: 'running' } }))
+  await developerPage.goto(`/instances/${instanceID}`)
+  await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()
+  await expect(developerPage.getByText('部署已完成，但当前账号无权查看数据库凭据。')).toBeVisible()
+  await expect(developerPage.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
+  await expect(developerPage.getByRole('button', { name: '查看部署记录' })).toBeVisible()
+  await developerPage.goto('/')
   await developerPage.getByRole('button', { name: '账号菜单' }).click()
   await developerPage.getByRole('menuitem', { name: '个人账号' }).click()
   const accountDialog = developerPage.getByRole('dialog', { name: '个人账号' })

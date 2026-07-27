@@ -159,9 +159,11 @@ button { font: inherit; }
 .instance-lifecycle-cell .ant-typography { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .instance-operation { margin-bottom: 16px; padding: 15px 18px; border: 1px solid #cfe0ff; border-radius: 12px; background: #f7faff; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(180px, 320px) auto; align-items: center; gap: 20px; }
 .instance-operation.is-failed { border-color: #ffd0d5; background: #fff8f8; grid-template-columns: minmax(260px, 1fr) auto; }
+.instance-operation.is-ready { border-color: #b9e4c8; background: #f5fcf7; grid-template-columns: minmax(280px, 1fr) auto; }
 .instance-operation-copy { min-width: 0; }
 .instance-operation-copy .ant-tag { margin-inline-end: 0; }
 .instance-operation-copy .ant-typography { margin: 5px 0 0; line-height: 1.45; }
+.instance-operation-next { display: block; }
 .instance-operation-progress { margin: 0; }
 .instance-operation-actions { justify-self: end; }
 .upgrade-field, .upgrade-source-panel { display: grid; gap: 10px; }
@@ -644,6 +646,11 @@ button { font: inherit; }
 @media (max-width: 1400px) {
   .alert-toolbar .ant-input-search { flex-basis: 240px; }
   .alert-toolbar .ant-segmented { order: 3; width: 100%; }
+}
+
+@media (max-width: 1100px) {
+  .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
+  .instance-operation.is-failed .instance-operation-actions { justify-self: start; }
 }
 
 @media (max-width: 1000px) {
