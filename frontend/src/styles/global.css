@@ -62,6 +62,8 @@ button { font: inherit; }
 .database-icon-large { width: 56px; height: 56px; border-radius: 16px; font-size: 34px; }
 .database-icon-small { width: 34px; height: 34px; border-radius: 9px; font-size: 21px; }
 .wizard-form { margin-top: 28px; }
+.copy-deployment-banner { margin-top: 18px; }
+.copy-deployment-banner + .wizard-form { margin-top: 18px; }
 .wizard-mobile-progress { display: grid; gap: 8px; }
 .wizard-mobile-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .wizard-mobile-progress .ant-progress { margin: 0; line-height: 1; }

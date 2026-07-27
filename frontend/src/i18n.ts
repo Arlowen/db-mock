@@ -184,7 +184,7 @@ export const zh: Record<string, string> = {
   templateDescription_oceanbase: 'OceanBase CE Mini 单机模式', templateDescription_starrocks: 'StarRocks 一体化开发容器',
   templateDescription_doris: '在单台主机上运行 Apache Doris FE 与 BE',
 
-  createInstance: '创建数据库', connection: '连接信息', logs: '日志', metrics: '监控', start: '启动', stop: '停止', restart: '重启', upgrade: '升级',
+  createInstance: '创建数据库', copyDeployment: '复制部署', copyDeploymentTitle: '复制部署 · {{name}}', copyDeploymentPrepared: '已复用「{{name}}」的部署配置', copyDeploymentPreparedHint: '已预填模板版本、项目、环境、标签、资源、数据库初始化参数、镜像来源和运行选项。为避免冲突，实例名、密码、目标主机和端口未复制。', copyDeploymentSourceUnavailable: '复制来源不可用', copyDeploymentSourceUnavailableHint: '来源实例可能已删除或当前账号不可见。已转为普通创建，请重新选择模板。', copyDeploymentTemplateUnavailable: '源模板版本不能用于新部署', copyDeploymentTemplateUnavailableHint: '该版本已停止新建或不再可用。已转为普通创建，请选择可用版本。', copyDeploymentUnavailableHint: '当前模板版本不可用于新部署。', connection: '连接信息', logs: '日志', metrics: '监控', start: '启动', stop: '停止', restart: '重启', upgrade: '升级',
   project: '项目', environment: '环境', host: '主机', template: '模板', version: '版本', resources: '资源',
   cpu: 'CPU', memory: '内存', disk: '磁盘', port: '端口', autoSelect: '自动推荐', autoRestart: '异常自动重启',
   labels: '标签', labelsPlaceholder: 'team=data, purpose=test', autoHostTooltip: '留空将自动推荐兼容的主机',
@@ -545,7 +545,7 @@ export const en: Record<string, string> = {
   templateDescription_oceanbase: 'OceanBase CE mini single-host mode', templateDescription_starrocks: 'StarRocks all-in-one development container',
   templateDescription_doris: 'Apache Doris FE and BE on one host',
 
-  createInstance: 'Create database', connection: 'Connection', logs: 'Logs', metrics: 'Metrics', start: 'Start', stop: 'Stop', restart: 'Restart', upgrade: 'Upgrade',
+  createInstance: 'Create database', copyDeployment: 'Copy deployment', copyDeploymentTitle: 'Copy deployment · {{name}}', copyDeploymentPrepared: 'Deployment settings copied from “{{name}}”', copyDeploymentPreparedHint: 'Template version, project, environment, labels, resources, database initialization, image source, and runtime options are prefilled. To prevent conflicts, the instance name, password, target host, and port were not copied.', copyDeploymentSourceUnavailable: 'Copy source is unavailable', copyDeploymentSourceUnavailableHint: 'The source instance may have been deleted or is not visible to this account. This is now a standard creation flow; select a template to continue.', copyDeploymentTemplateUnavailable: 'The source template version cannot be deployed', copyDeploymentTemplateUnavailableHint: 'This version no longer accepts new deployments or is unavailable. This is now a standard creation flow; select an available version.', copyDeploymentUnavailableHint: 'The current template version cannot be used for a new deployment.', connection: 'Connection', logs: 'Logs', metrics: 'Metrics', start: 'Start', stop: 'Stop', restart: 'Restart', upgrade: 'Upgrade',
   project: 'Project', environment: 'Environment', host: 'Host', template: 'Template', version: 'Version', resources: 'Resources',
   cpu: 'CPU', memory: 'Memory', disk: 'Disk', port: 'Port', autoSelect: 'Auto select', autoRestart: 'Auto restart',
   labels: 'Labels', labelsPlaceholder: 'team=data, purpose=test', autoHostTooltip: 'Leave empty to recommend a compatible host automatically',

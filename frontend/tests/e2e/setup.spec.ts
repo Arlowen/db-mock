@@ -287,9 +287,10 @@ test('initializes the platform and switches the embedded interface language', as
   let submittedBackupDeleteBody: Record<string, unknown> | undefined
   let instanceBackups: Array<Record<string, unknown>> = []
   let instanceBackupPolicy: Record<string, unknown> | null = null
+  let sourceVersionSelectable = true
   await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
     id: '54545454-5454-4545-8545-545454545454', slug: 'postgresql', name: 'PostgreSQL', nameZh: 'PostgreSQL', description: '', category: 'relational', tier: 'standard', builtin: true, icon: '', riskReport: [], versions: [
-      { id: '55555555-5555-4555-8555-555555555555', templateId: '54545454-5454-4545-8545-545454545454', version: '17', imageReference: 'postgres:17', architectures: ['amd64', 'arm64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
+      { id: '55555555-5555-4555-8555-555555555555', templateId: '54545454-5454-4545-8545-545454545454', version: '17', imageReference: 'postgres:17', architectures: ['amd64', 'arm64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], selectable: sourceVersionSelectable, createdAt: new Date().toISOString() },
       { id: upgradeVersionID, templateId: '54545454-5454-4545-8545-545454545454', version: '17.1', imageReference: 'postgres:17.1', architectures: ['amd64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
     ],
   }] } }))
@@ -355,6 +356,41 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('实例正在运行，暂未发现健康问题。')).toBeVisible()
   await expect(page.getByText('100%', { exact: true })).toHaveCount(0)
   await expect(page.getByText('team=checkout', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '复制部署' }).click()
+  const copyDeploymentDrawer = page.getByRole('dialog', { name: '复制部署 · Orders DB' })
+  await expect(copyDeploymentDrawer).toBeVisible()
+  await expect(copyDeploymentDrawer.getByText('已复用「Orders DB」的部署配置')).toBeVisible()
+  await expect(copyDeploymentDrawer.getByText('为避免冲突，实例名、密码、目标主机和端口未复制。', { exact: false })).toBeVisible()
+  await expect(copyDeploymentDrawer.getByLabel('名称')).toHaveValue('')
+  await expect(copyDeploymentDrawer.getByLabel('标签')).toHaveValue('team=checkout')
+  await expect(copyDeploymentDrawer.getByText('1 台兼容主机可参与自动推荐')).toBeVisible()
+  await copyDeploymentDrawer.getByRole('button', { name: '下一步' }).click()
+  await expect(copyDeploymentDrawer.getByLabel('CPU')).toHaveValue(/^2(?:\.00)?$/)
+  await expect(copyDeploymentDrawer.getByLabel('内存 GiB')).toHaveValue(/^4(?:\.0)?$/)
+  await expect(copyDeploymentDrawer.getByLabel('磁盘 GiB')).toHaveValue('20')
+  await expect(copyDeploymentDrawer.getByLabel('端口 (可选)')).toHaveValue('')
+  await expect(copyDeploymentDrawer.getByLabel('绑定地址')).toHaveValue('0.0.0.0')
+  await copyDeploymentDrawer.getByRole('button', { name: '下一步' }).click()
+  await expect(copyDeploymentDrawer.getByLabel('用户名')).toHaveValue('app')
+  await expect(copyDeploymentDrawer.getByLabel('数据库名称')).toHaveValue('orders')
+  await expect(copyDeploymentDrawer.getByLabel('密码')).toHaveValue('')
+  await expect(copyDeploymentDrawer.getByRole('switch', { name: '异常自动重启' })).toBeChecked()
+  await expect(copyDeploymentDrawer.getByLabel('额外环境变量（JSON）')).toHaveValue('{\n  "TZ": "UTC"\n}')
+  await copyDeploymentDrawer.getByRole('button', { name: /取\s*消/ }).click()
+  await expect(copyDeploymentDrawer).toBeHidden()
+  await page.goto(`/instances?create=1&copy=99999999-9999-4999-8999-999999999999`)
+  const missingCopyDrawer = page.getByRole('dialog', { name: '创建数据库' })
+  await expect(missingCopyDrawer.getByText('复制来源不可用')).toBeVisible()
+  await expect(missingCopyDrawer.getByText('已转为普通创建，请重新选择模板。', { exact: false })).toBeVisible()
+  await missingCopyDrawer.getByRole('button', { name: /取\s*消/ }).click()
+  sourceVersionSelectable = false
+  await page.goto(`/instances?create=1&copy=${instanceID}`)
+  const unavailableTemplateDrawer = page.getByRole('dialog', { name: '创建数据库' })
+  await expect(unavailableTemplateDrawer.getByText('源模板版本不能用于新部署')).toBeVisible()
+  await expect(unavailableTemplateDrawer.getByText('已转为普通创建，请选择可用版本。', { exact: false })).toBeVisible()
+  await unavailableTemplateDrawer.getByRole('button', { name: /取\s*消/ }).click()
+  sourceVersionSelectable = true
+  await page.goto(`/instances/${instanceID}`)
   await page.getByRole('button', { name: '更多操作' }).click()
   await expect(page.getByRole('menuitem', { name: '变更运行配置' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: '升级' })).toBeVisible()
