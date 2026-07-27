@@ -1,7 +1,7 @@
 import { CheckCircleOutlined, ClockCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExportOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
 import { Alert, App, AutoComplete, Button, Card, Col, DatePicker, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type Key, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
@@ -17,7 +17,7 @@ import { connectionHandoffSummary } from '../lib/connection-handoff'
 import { hostCanAccept, hostCanReconfigure, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
-import { instanceQuickAction } from '../lib/instance-actions'
+import { instanceBatchActionPlan, instanceQuickAction, type InstanceQuickAction } from '../lib/instance-actions'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
@@ -35,6 +35,10 @@ interface CreateValues { name: string; projectId?: string; environment: string; 
 interface EditValues { name: string; projectId?: string; environment: string; purpose?: string; owner: string; expiresAt?: Dayjs; labels?: string }
 interface RuntimeValues { cpu: number; memoryGiB: number; diskGiB: number; extraEnvironment: string; autoRestart: boolean }
 interface BackupPolicyValues { enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; hour: number; minute: number; timezone: string; retentionCount: number }
+interface BatchActionAccepted { instanceId: string; instanceName: string; task: Task }
+interface BatchActionRejected { instanceId: string; instanceName?: string; code: string; message: string }
+interface BatchActionResponse { action: InstanceQuickAction; accepted: BatchActionAccepted[]; rejected: BatchActionRejected[] }
+interface BatchActionResult extends BatchActionResponse { skipped: Instance[] }
 
 function parseStringMap(value?: string): Record<string, string> | undefined {
   try {
@@ -48,8 +52,24 @@ function sameStringMap(left: Record<string, string>, right: Record<string, strin
   return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key])
 }
 
+function batchActionErrorMessage(item: BatchActionRejected): string {
+  const status = item.code === 'not_found' ? 404
+    : item.code === 'resource_conflict' ? 409
+      : item.code === 'forbidden' ? 403
+        : item.code === 'unauthorized' ? 401
+          : item.code === 'resource_unavailable' ? 503
+            : item.code === 'invalid_input' ? 400
+              : 500
+  return errorMessage(new ApiError(status, item.code, item.message))
+}
+
 export function InstancesPage() {
   const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createError, setCreateError] = useState(''); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const [actioning, setActioning] = useState(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
+  const [bulkAction, setBulkAction] = useState<InstanceQuickAction>()
+  const [bulkSubmitting, setBulkSubmitting] = useState(false)
+  const [bulkRequestError, setBulkRequestError] = useState('')
+  const [bulkResult, setBulkResult] = useState<BatchActionResult>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const lifecycleDefaults = useMemo(() => ({ owner: user?.displayName?.trim() || user?.username || '', expiresAt: dayjs().add(7, 'day').endOf('day') }), [user?.displayName, user?.username])
@@ -116,6 +136,10 @@ export function InstancesPage() {
   }, [requestedCopyID, requestedImageID, requestedProjectFilter, requestedTemplateID])
   const addRequiredHost = useCallback(() => navigate(`/hosts?create=1&returnTo=${encodeURIComponent(createIntent())}`), [createIntent, navigate])
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const available = new Set(items.map((item) => item.id))
+    setSelectedInstanceIDs((current) => current.filter((id) => available.has(id)))
+  }, [items])
   useEffect(() => { if (!drawer) setProjectFilter(requestedProjectFilter) }, [drawer, requestedProjectFilter])
   useEffect(() => {
     if (loading || loadError || !creationDataReady || !createRequested) return
@@ -235,12 +259,62 @@ export function InstancesPage() {
       if (e instanceof Error) setCreateError(errorMessage(e))
     } finally { setCreating(false) }
   }
-  const quickAction = async (item: Instance, action: string) => { const key = `${item.id}:${action}`; try { setActioning(key); const task = await api<Task>(`/instances/${item.id}/actions/${action}`, { method: 'POST', body: {} }); notifyTask(task); navigate(`/instances/${item.id}`) } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') } }
+  const quickAction = async (item: Instance, action: string) => {
+    const key = `${item.id}:${action}`
+    try {
+      setActioning(key)
+      const task = await api<Task>(`/instances/${item.id}/actions/${action}`, { method: 'POST', body: {} })
+      notifyTask(task)
+      setLoading(true)
+      await load()
+    } catch (e) {
+      message.error(errorMessage(e))
+    } finally {
+      setActioning('')
+    }
+  }
+  const selectedInstances = useMemo(() => {
+    const selected = new Set(selectedInstanceIDs)
+    return items.filter((item) => selected.has(item.id))
+  }, [items, selectedInstanceIDs])
+  const startBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'start'), [selectedInstances])
+  const stopBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'stop'), [selectedInstances])
+  const activeBatchPlan = bulkAction === 'start' ? startBatchPlan : stopBatchPlan
+  const openBatchAction = (action: InstanceQuickAction) => {
+    setBulkRequestError('')
+    setBulkAction(action)
+  }
+  const submitBatchAction = async (action: InstanceQuickAction, instanceIDs: string[], skipped: Instance[], keepConfirmationOpen: boolean) => {
+    try {
+      setBulkSubmitting(true)
+      setBulkRequestError('')
+      const result = await api<BatchActionResponse>(`/instances/batch-actions/${action}`, {
+        method: 'POST',
+        body: { instanceIds: instanceIDs },
+      })
+      setBulkResult({ ...result, skipped })
+      setBulkAction(undefined)
+      setSelectedInstanceIDs([])
+      setLoading(true)
+      await load()
+    } catch (error) {
+      if (keepConfirmationOpen) setBulkRequestError(errorMessage(error))
+      else message.error(errorMessage(error))
+    } finally {
+      setBulkSubmitting(false)
+    }
+  }
+  const retryableRejected = bulkResult?.rejected.filter((item) => ['internal_error', 'resource_unavailable'].includes(item.code)) || []
+  const clearSelection = () => {
+    setSelectedInstanceIDs([])
+    setBulkAction(undefined)
+    setBulkRequestError('')
+  }
   const instanceActions = (item: Instance) => {
     const action = canOperate ? instanceQuickAction(item.status) : undefined
     const key = action ? `${item.id}:${action}` : ''
     return <Space size={2}>
-      {action && <Button type="text" loading={actioning === key} disabled={!!actioning && actioning !== key} aria-label={t(action)} title={t(action)} icon={action === 'stop' ? <PauseCircleOutlined /> : <PlayCircleOutlined />} onClick={() => void quickAction(item, action)} />}
+      {action && <Button type="text" loading={actioning === key} disabled={bulkSubmitting || (!!actioning && actioning !== key)} aria-label={t(action)} title={t(action)} icon={action === 'stop' ? <PauseCircleOutlined /> : <PlayCircleOutlined />} onClick={() => void quickAction(item, action)} />}
       <Button type="text" aria-label={t('details')} title={t('details')} icon={<MoreOutlined />} onClick={() => navigate(`/instances/${item.id}`)} />
     </Space>
   }
@@ -284,6 +358,12 @@ export function InstancesPage() {
   const filteredItems = useMemo(() => items.filter((item) => (!projectFilter || item.projectId === projectFilter) && (!hostFilter || item.hostId === hostFilter) && (!environmentFilter || item.environment === environmentFilter) && (!statusFilter || item.status === statusFilter) && `${item.name} ${item.templateName} ${item.hostName} ${item.purpose || ''} ${item.owner || ''} ${JSON.stringify(item.labels)}`.toLowerCase().includes(search.toLowerCase())), [items, projectFilter, hostFilter, environmentFilter, statusFilter, search])
   const hasFilters = !!(search || projectFilter || hostFilter || environmentFilter || statusFilter)
   const showFilters = items.length > 0 || hasFilters
+  useEffect(() => {
+    setSelectedInstanceIDs([])
+    setBulkAction(undefined)
+    setBulkResult(undefined)
+    setBulkRequestError('')
+  }, [environmentFilter, hostFilter, projectFilter, search, statusFilter])
   const resetPage = () => setPage(1)
   const updateProjectFilter = (value: string) => {
     setProjectFilter(value)
@@ -308,6 +388,49 @@ export function InstancesPage() {
   const emptyActionLabel = hasFilters ? t('clearFilters') : canOperate ? creationDataReady ? hasOnlineHost ? t('createInstance') : t('addHost') : t('retry') : undefined
   const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : creationDataReady ? t('instancesEmptyDescription') : t('instanceCreationDataUnavailable')
   const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && creationDataReady && (items.length > 0 || hasFilters) && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
+  const bulkToolbar = canOperate && selectedInstances.length > 0 && <Card size="small" className="instance-bulk-toolbar">
+    <div className="instance-bulk-toolbar-copy">
+      <Typography.Text strong>{t('batchSelectionCount', { count: selectedInstances.length })}</Typography.Text>
+      <Typography.Text type="secondary">{t('batchSelectionSummary', { start: startBatchPlan.eligible.length, stop: stopBatchPlan.eligible.length })}</Typography.Text>
+    </div>
+    <Space wrap className="instance-bulk-toolbar-actions">
+      <Button type="primary" icon={<PlayCircleOutlined />} disabled={startBatchPlan.eligible.length === 0 || bulkSubmitting || !!actioning} onClick={() => openBatchAction('start')}>{t('batchStartCount', { count: startBatchPlan.eligible.length })}</Button>
+      <Button danger icon={<PauseCircleOutlined />} disabled={stopBatchPlan.eligible.length === 0 || bulkSubmitting || !!actioning} onClick={() => openBatchAction('stop')}>{t('batchStopCount', { count: stopBatchPlan.eligible.length })}</Button>
+      <Button disabled={bulkSubmitting} onClick={clearSelection}>{t('clearSelection')}</Button>
+    </Space>
+  </Card>
+  const bulkResultAlert = bulkResult && <Alert
+    className="instance-bulk-result"
+    type={bulkResult.rejected.length ? bulkResult.accepted.length ? 'warning' : 'error' : 'success'}
+    showIcon
+    message={bulkResult.rejected.length
+      ? bulkResult.accepted.length
+        ? t('batchActionPartialTitle', { accepted: bulkResult.accepted.length, rejected: bulkResult.rejected.length })
+        : t('batchActionFailedTitle', { count: bulkResult.rejected.length })
+      : t('batchActionQueuedTitle', { action: t(bulkResult.action), count: bulkResult.accepted.length })}
+    description={<div className="instance-bulk-result-details">
+      {bulkResult.accepted.length > 0 && <Typography.Text>{t('batchAcceptedSummary', { count: bulkResult.accepted.length })}</Typography.Text>}
+      {bulkResult.skipped.length > 0 && <Typography.Text type="secondary">{t('batchSkippedSummary', { count: bulkResult.skipped.length })}</Typography.Text>}
+      {bulkResult.rejected.length > 0 && <ul>{bulkResult.rejected.slice(0, 5).map((item) => <li key={item.instanceId}><strong>{item.instanceName || item.instanceId.slice(0, 8)}</strong>: {batchActionErrorMessage(item)}</li>)}</ul>}
+      {bulkResult.rejected.length > 5 && <Typography.Text type="secondary">{t('batchMoreFailures', { count: bulkResult.rejected.length - 5 })}</Typography.Text>}
+    </div>}
+    action={<Space wrap>
+      {retryableRejected.length > 0 && <Button size="small" loading={bulkSubmitting} onClick={() => void submitBatchAction(bulkResult.action, retryableRejected.map((item) => item.instanceId), [], false)}>{t('retryUnqueuedCount', { count: retryableRejected.length })}</Button>}
+      {bulkResult.rejected.length > 0 && <Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('refreshStatus')}</Button>}
+      {bulkResult.accepted.length > 0 && <Button size="small" type="primary" onClick={() => navigate('/tasks')}>{t('viewBatchTasks')}</Button>}
+      <Button size="small" type="text" onClick={() => setBulkResult(undefined)}>{t('dismiss')}</Button>
+    </Space>}
+  />
+  const rowSelection = canOperate ? {
+    selectedRowKeys: selectedInstanceIDs,
+    preserveSelectedRowKeys: true,
+    columnWidth: compactLayout ? 44 : 48,
+    getCheckboxProps: () => ({ disabled: bulkSubmitting || !!actioning }),
+    onChange: (keys: Key[]) => {
+      setSelectedInstanceIDs(keys.map(String))
+      setBulkResult(undefined)
+    },
+  } : undefined
   const createSteps = [{ title: t('template') }, { title: t('basicInfo') }, { title: t('resources') }, { title: t('options') }, { title: t('confirm') }]
   const parameterInput = (parameter: TemplateParameter) => {
     if (parameter.type === 'number') return <InputNumber min={parameter.min} max={parameter.max} step={parameter.step} style={{ width: '100%' }} />
@@ -320,7 +443,39 @@ export function InstancesPage() {
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('instanceListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {showFilters && <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('project')} value={projectFilter} onChange={updateProjectFilter} className="instance-filter-project" options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('environment')} value={environmentFilter} onChange={(value) => { setEnvironmentFilter(value); resetPage() }} className="instance-filter-environment" options={[{ value: '', label: t('allEnvironments') }, ...['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed', 'reconfiguring', 'backing_up', 'restoring'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
-    {(items.length > 0 || !loadError) && <Card className="instance-table-card" title={!showFilters ? t('instances') : undefined} extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 1160 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
+    {bulkToolbar}
+    {bulkResultAlert}
+    {(items.length > 0 || !loadError) && <Card className="instance-table-card" title={!showFilters ? t('instances') : undefined} extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} rowSelection={rowSelection} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 1210 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
+    <Modal
+      title={bulkAction ? t(bulkAction === 'stop' ? 'batchStopConfirmTitle' : 'batchStartConfirmTitle', { count: activeBatchPlan.eligible.length }) : ''}
+      open={!!bulkAction}
+      onCancel={() => { if (!bulkSubmitting) { setBulkAction(undefined); setBulkRequestError('') } }}
+      onOk={() => bulkAction && void submitBatchAction(bulkAction, activeBatchPlan.eligible.map((item) => item.id), activeBatchPlan.skipped, true)}
+      okText={bulkAction ? t(bulkAction === 'stop' ? 'confirmBatchStop' : 'confirmBatchStart', { count: activeBatchPlan.eligible.length }) : t('confirm')}
+      cancelText={t('cancel')}
+      confirmLoading={bulkSubmitting}
+      closable={!bulkSubmitting}
+      maskClosable={!bulkSubmitting}
+      okButtonProps={{ danger: bulkAction === 'stop', disabled: !bulkAction || activeBatchPlan.eligible.length === 0 }}
+    >
+      <div className="instance-bulk-confirm">
+        <Alert
+          type={bulkAction === 'stop' ? 'warning' : 'info'}
+          showIcon
+          message={bulkAction === 'stop' ? t('batchStopConfirmMessage') : t('batchStartConfirmMessage')}
+          description={t('batchConfirmImpact', { eligible: activeBatchPlan.eligible.length, skipped: activeBatchPlan.skipped.length })}
+        />
+        <div>
+          <Typography.Text strong>{t('batchWillQueue')}</Typography.Text>
+          <Space size={[6, 6]} wrap className="instance-bulk-name-list">
+            {activeBatchPlan.eligible.slice(0, 8).map((item) => <Tag key={item.id}>{item.name}</Tag>)}
+            {activeBatchPlan.eligible.length > 8 && <Tag>{t('batchMoreInstances', { count: activeBatchPlan.eligible.length - 8 })}</Tag>}
+          </Space>
+        </div>
+        {activeBatchPlan.skipped.length > 0 && <Alert type="info" showIcon message={t('batchSkippedTitle', { count: activeBatchPlan.skipped.length })} description={t('batchSkippedConfirmHint')} />}
+        {bulkRequestError && <Alert type="error" showIcon message={t('batchRequestFailed')} description={bulkRequestError} />}
+      </div>
+    </Modal>
     <Drawer title={copySource ? t('copyDeploymentTitle', { name: copySource.name }) : t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateError(''); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && (!imageSourceReady || (imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0)))} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
       {copySource && <Alert className="copy-deployment-banner" type="success" showIcon message={t('copyDeploymentPrepared', { name: copySource.name })} description={t('copyDeploymentPreparedHint')} />}
       {requestedCopySourceUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentSourceUnavailable')} description={t('copyDeploymentSourceUnavailableHint')} />}

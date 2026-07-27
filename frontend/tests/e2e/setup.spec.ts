@@ -220,6 +220,17 @@ test('initializes the platform and switches the embedded interface language', as
     submittedInstanceBody = route.request().postDataJSON() as Record<string, unknown>
     await route.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'invalid input: e2e submission stopped' } } })
   })
+  const batchStopBodies: Array<{ instanceIds: string[] }> = []
+  let batchStopAttempt = 0
+  await page.route('**/api/v1/instances/batch-actions/stop', async (route) => {
+    batchStopAttempt += 1
+    batchStopBodies.push(route.request().postDataJSON() as { instanceIds: string[] })
+    if (batchStopAttempt === 1) {
+      await route.fulfill({ status: 200, json: { action: 'stop', accepted: [], rejected: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' }] } })
+      return
+    }
+    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, task: { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', kind: 'instance.stop', status: 'queued', resourceType: 'instance', resourceId: listInstances[0].id, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } }], rejected: [] } })
+  })
   await page.goto('/projects')
   const projectWithDefaultsCard = page.locator('.project-card').filter({ hasText: 'E2E Project' })
   await projectWithDefaultsCard.getByRole('button', { name: '创建数据库' }).click()
@@ -240,6 +251,26 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(projectDefaultsDrawer).toBeHidden()
   await page.goto('/instances')
   await expect(page.getByText('共 2 个实例')).toBeVisible()
+  const ordersRow = page.getByRole('row').filter({ hasText: 'Orders DB' })
+  const cacheRow = page.getByRole('row').filter({ hasText: 'Staging Cache' })
+  await ordersRow.getByRole('checkbox').check()
+  await cacheRow.getByRole('checkbox').check()
+  await expect(page.getByText('已选择 2 个实例')).toBeVisible()
+  await expect(page.getByText('1 个可启动，1 个可停止；其他状态会在确认时跳过。')).toBeVisible()
+  await page.getByRole('button', { name: '批量停止（1）' }).click()
+  const batchStopDialog = page.getByRole('dialog', { name: '确认停止 1 个实例' })
+  await expect(batchStopDialog.getByText('停止后现有数据库连接会中断')).toBeVisible()
+  await expect(batchStopDialog.getByText('1 个实例将跳过')).toBeVisible()
+  await expect(batchStopDialog.getByText('Orders DB')).toBeVisible()
+  await batchStopDialog.getByRole('button', { name: '停止 1 个' }).click()
+  await expect(page.getByText('1 个实例未排队')).toBeVisible()
+  await expect(page.getByText(/暂时无法通过 SSH 连接实例主机/)).toBeVisible()
+  expect(batchStopBodies).toEqual([{ instanceIds: [listInstances[0].id] }])
+  await page.getByRole('button', { name: '重试未排队项（1）' }).click()
+  await expect(page.getByText('已为 1 个实例排队停止')).toBeVisible()
+  expect(batchStopBodies).toEqual([{ instanceIds: [listInstances[0].id] }, { instanceIds: [listInstances[0].id] }])
+  await expect(page.getByRole('button', { name: '查看这批任务' })).toBeVisible()
+  await page.getByRole('button', { name: '关闭提示' }).click()
   await page.getByRole('combobox', { name: '主机' }).click()
   await page.getByText('E2E Host', { exact: true }).last().click()
   await expect(page.getByText('筛选出 1 / 2 个实例')).toBeVisible()
@@ -306,6 +337,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(discardInstanceDraftDialog).toBeVisible()
   await discardInstanceDraftDialog.getByRole('button', { name: '放弃更改' }).click()
   await expect(createInstanceDrawer).toBeHidden()
+  await page.unroute('**/api/v1/instances/batch-actions/stop')
   await page.unroute('**/api/v1/instances')
   await page.unroute('**/api/v1/hosts')
 
@@ -1131,6 +1163,8 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(developerPage.getByText('审计日志', { exact: true })).toHaveCount(0)
   const viewerProjectCreate = await developerPage.request.post('/api/v1/projects', { data: { name: 'viewer-must-not-create' } })
   expect(viewerProjectCreate.status()).toBe(403)
+  const viewerBatchStop = await developerPage.request.post('/api/v1/instances/batch-actions/stop', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
+  expect(viewerBatchStop.status()).toBe(403)
   const viewerUsers = await developerPage.request.get('/api/v1/users')
   expect(viewerUsers.status()).toBe(403)
   await developerPage.getByRole('button', { name: '账号菜单' }).click()

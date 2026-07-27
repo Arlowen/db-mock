@@ -70,6 +70,13 @@ type ActionRequest struct {
 	AutoRestart          *bool
 }
 
+type BatchActionOutcome struct {
+	InstanceID   uuid.UUID
+	InstanceName string
+	Task         *domain.Task
+	Err          error
+}
+
 type ActionPayload struct {
 	InstanceID                    uuid.UUID  `json:"instanceId"`
 	OperationID                   *uuid.UUID `json:"operationId,omitempty"`
@@ -351,6 +358,11 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 	if err != nil {
 		return domain.Task{}, err
 	}
+	return s.action(ctx, userID, instance, action, request)
+}
+
+func (s *Service) action(ctx context.Context, userID uuid.UUID, instance domain.Instance, action string, request ActionRequest) (domain.Task, error) {
+	var err error
 	if err = validateInstanceAction(instance.Status, action, request.NewTemplateVersionID); err != nil {
 		return domain.Task{}, err
 	}
@@ -416,6 +428,60 @@ func (s *Service) Action(ctx context.Context, userID, instanceID uuid.UUID, acti
 		s.tasks.Wake()
 	}
 	return task, err
+}
+
+func (s *Service) BatchAction(ctx context.Context, userID uuid.UUID, action string, instanceIDs []uuid.UUID) ([]BatchActionOutcome, error) {
+	if action != "start" && action != "stop" {
+		return nil, fmt.Errorf("%w: batch actions only support start or stop", domain.ErrInvalid)
+	}
+	if len(instanceIDs) == 0 || len(instanceIDs) > 100 {
+		return nil, fmt.Errorf("%w: select between 1 and 100 instances", domain.ErrInvalid)
+	}
+	seen := make(map[uuid.UUID]struct{}, len(instanceIDs))
+	for _, instanceID := range instanceIDs {
+		if instanceID == uuid.Nil {
+			return nil, fmt.Errorf("%w: instance IDs must be valid UUIDs", domain.ErrInvalid)
+		}
+		if _, duplicate := seen[instanceID]; duplicate {
+			return nil, fmt.Errorf("%w: instance IDs must be unique", domain.ErrInvalid)
+		}
+		seen[instanceID] = struct{}{}
+	}
+
+	outcomes := make([]BatchActionOutcome, 0, len(instanceIDs))
+	for _, instanceID := range instanceIDs {
+		outcome := BatchActionOutcome{InstanceID: instanceID}
+		instance, err := s.store.GetInstance(ctx, instanceID)
+		if err != nil {
+			outcome.Err = err
+			outcomes = append(outcomes, outcome)
+			continue
+		}
+		outcome.InstanceName = instance.Name
+		if err = validateBatchInstanceAction(instance.Status, action); err != nil {
+			outcome.Err = err
+			outcomes = append(outcomes, outcome)
+			continue
+		}
+		task, err := s.action(ctx, userID, instance, action, ActionRequest{})
+		if err != nil {
+			outcome.Err = err
+		} else {
+			outcome.Task = &task
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	return outcomes, nil
+}
+
+func validateBatchInstanceAction(status, action string) error {
+	if action == "start" && status == "stopped" {
+		return nil
+	}
+	if action == "stop" && (status == "running" || status == "degraded") {
+		return nil
+	}
+	return fmt.Errorf("%w: instance action is not allowed for the current status", domain.ErrConflict)
 }
 
 func validateInstanceActionRequest(action string, request ActionRequest) error {

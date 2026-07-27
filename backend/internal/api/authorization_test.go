@@ -50,6 +50,7 @@ func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 		{name: "template upload", method: http.MethodPost, path: "/custom", routes: (*Server).templateRoutes},
 		{name: "image upload", method: http.MethodPost, path: "/uploads", routes: (*Server).imageRoutes},
 		{name: "instance create", method: http.MethodPost, path: "/", routes: (*Server).instanceRoutes},
+		{name: "instance batch stop", method: http.MethodPost, path: "/batch-actions/stop", routes: (*Server).instanceRoutes},
 		{name: "credential reveal", method: http.MethodGet, path: "/11111111-1111-4111-8111-111111111111/connection", routes: (*Server).instanceRoutes},
 		{name: "task cancel", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/cancel", routes: (*Server).taskRoutes},
 		{name: "alert acknowledge", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/acknowledged", routes: (*Server).alertRoutes},

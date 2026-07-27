@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/url"
@@ -411,5 +412,45 @@ func TestClaimedReconfigurationRetryCancellationRestoresAttemptStartConfiguratio
 	instance, err := target.GetInstance(ctx, fixture.instanceID)
 	if err != nil || instance.Status != "running" || instance.AutoRestart || !sameJSON(instance.Configuration, currentJSON) {
 		t.Fatalf("retry cancellation restored stale original configuration: instance=%#v err=%v", instance, err)
+	}
+}
+
+func TestBatchActionQueuesEligibleInstancesAndReportsPartialFailures(t *testing.T) {
+	ctx, pool := openCancellationTest(t)
+	fixture := seedCancellationFixture(t, ctx, pool)
+	stoppedID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO instances(id,name,host_id,template_version_id,status,desired_state,
+		cpu,memory_bytes,reserved_disk_bytes,host_port,container_port,database_username,encrypted_password,
+		compose_project,remote_directory,configuration) VALUES($1,'stopped-batch-db',$2,$3,'stopped','stopped',
+		1,1073741824,10737418240,25433,5432,'postgres','sealed',$4,$5,$6)`, stoppedID, fixture.hostID,
+		fixture.versionID, "dbmock_"+strings.ReplaceAll(stoppedID.String(), "-", ""),
+		"/opt/dbmock/instances/"+stoppedID.String(), json.RawMessage(`{"extraEnvironment":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	target := store.New(pool)
+	manager := tasks.New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
+	service := NewService(target, nil, nil, manager)
+	missingID := uuid.New()
+	outcomes, err := service.BatchAction(ctx, fixture.userID, "stop",
+		[]uuid.UUID{fixture.instanceID, stoppedID, missingID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outcomes) != 3 || outcomes[0].Task == nil || outcomes[0].Err != nil ||
+		!errors.Is(outcomes[1].Err, domain.ErrConflict) || !errors.Is(outcomes[2].Err, domain.ErrNotFound) {
+		t.Fatalf("unexpected batch outcomes: %#v", outcomes)
+	}
+	if outcomes[0].InstanceName != "cancel-db" || outcomes[0].Task.Kind != "instance.stop" ||
+		outcomes[0].Task.ResourceID == nil || *outcomes[0].Task.ResourceID != fixture.instanceID {
+		t.Fatalf("accepted batch outcome = %#v", outcomes[0])
+	}
+	running, err := target.GetInstance(ctx, fixture.instanceID)
+	if err != nil || running.Status != "stopping" {
+		t.Fatalf("eligible instance was not reserved for stopping: instance=%#v err=%v", running, err)
+	}
+	stopped, err := target.GetInstance(ctx, stoppedID)
+	if err != nil || stopped.Status != "stopped" || stopped.DesiredState != "stopped" {
+		t.Fatalf("ineligible instance changed: instance=%#v err=%v", stopped, err)
 	}
 }

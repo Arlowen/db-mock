@@ -343,6 +343,16 @@ button { font: inherit; }
 .instance-filter-environment { width: 145px; }
 .instance-filter-status { width: 125px; }
 .instance-filter-count { flex: none; margin-left: auto; white-space: nowrap; font-size: 12px; }
+.instance-bulk-toolbar { margin-bottom: 12px; border-color: #bfd4fb; background: #f7faff; }
+.instance-bulk-toolbar .ant-card-body { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; }
+.instance-bulk-toolbar-copy { min-width: 0; display: grid; gap: 2px; }
+.instance-bulk-toolbar-actions { flex: none; }
+.instance-bulk-result { margin-bottom: 12px; }
+.instance-bulk-result-details { min-width: 0; display: grid; gap: 5px; }
+.instance-bulk-result-details ul { margin: 2px 0 0; padding-inline-start: 20px; }
+.instance-bulk-confirm { display: grid; gap: 16px; }
+.instance-bulk-name-list { display: flex; margin-top: 8px; }
+.instance-bulk-name-list .ant-tag { margin-inline-end: 0; }
 .instance-table-card .ant-card-body { padding: 0; }
 .instance-table-card .ant-table-cell { vertical-align: middle; }
 .instance-table-name.ant-btn { display: block; max-width: 100%; height: auto; padding-inline: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
@@ -771,6 +781,11 @@ button { font: inherit; }
   .instance-filter-count { margin-left: 0; grid-column: 1 / -1; }
   .instance-filter-toolbar > .ant-space { width: 100%; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .instance-filter-toolbar > .ant-space .ant-btn { width: 100%; }
+  .instance-bulk-toolbar .ant-card-body { align-items: stretch; flex-direction: column; }
+  .instance-bulk-toolbar-actions { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .instance-bulk-toolbar-actions .ant-btn { width: 100%; }
+  .instance-bulk-result.ant-alert { align-items: flex-start; }
+  .instance-bulk-result .ant-alert-action { margin-inline-start: 0; padding-top: 10px; }
   .instance-table-card .ant-table-cell { padding: 16px !important; }
   .instance-table-card .ant-pagination { margin-inline: 16px !important; }
   .instance-detail-tabs > .ant-tabs-nav { align-items: stretch; flex-direction: column; gap: 10px; }
