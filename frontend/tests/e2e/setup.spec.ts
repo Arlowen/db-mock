@@ -472,6 +472,8 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('连接信息受保护')).toBeVisible()
   await page.getByRole('button', { name: '显示连接信息' }).click()
   await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '复制交付摘要' }).click()
+  await expect(page.getByText('连接信息交付摘要已复制')).toBeVisible()
   await page.getByRole('button', { name: '复制环境变量' }).click()
   await expect(page.getByText('环境变量已复制')).toBeVisible()
   await page.getByRole('button', { name: '隐藏连接信息' }).click()
