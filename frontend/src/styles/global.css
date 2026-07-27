@@ -276,8 +276,8 @@ button { font: inherit; }
 .settings-tabs > .ant-tabs-nav { margin-bottom: 16px; padding: 0 14px; border: 1px solid #e5e9f0; border-radius: 12px; background: #fff; }
 .settings-tabs > .ant-tabs-nav::before { border-bottom: 0; }
 .settings-tabs .ant-tabs-tab { padding-block: 14px; }
-.settings-tab-label { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.settings-tab-dirty { width: 7px; height: 7px; border-radius: 50%; background: #fa8c16; box-shadow: 0 0 0 2px #fff7e6; }
+.settings-tab-label { position: relative; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.settings-tab-dirty { position: absolute; top: -1px; inset-inline-end: -8px; width: 7px; height: 7px; border-radius: 50%; background: #fa8c16; box-shadow: 0 0 0 2px #fff7e6; pointer-events: none; }
 .settings-tabs .ant-tabs-content-holder, .settings-tabs .ant-tabs-content, .settings-tabs .ant-tabs-tabpane { min-width: 0; }
 .settings-section-card { min-height: 300px; }
 .settings-advanced-section { min-width: 0; }
@@ -287,6 +287,7 @@ button { font: inherit; }
 .settings-json-error { margin-top: 12px; }
 .settings-section-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid #edf0f4; display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
 .settings-section-actions .ant-typography { margin-right: auto; }
+.settings-action-buttons { flex: none; }
 .monitoring-alert-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .monitoring-alert-option { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; min-height: 92px; padding: 16px; border: 1px solid #e6eaf0; border-radius: 10px; background: #fafcff; }
 .monitoring-alert-option .ant-typography { margin-bottom: 0; }
@@ -713,7 +714,9 @@ button { font: inherit; }
   .settings-section-card { min-height: 0; }
   .monitoring-alert-option { min-height: 0; padding: 12px; gap: 12px; }
   .settings-section-actions { align-items: stretch; flex-direction: column; }
-  .settings-section-actions .ant-btn { width: 100%; }
+  .settings-action-buttons { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .settings-action-buttons .ant-space-item { min-width: 0; }
+  .settings-action-buttons .ant-btn { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

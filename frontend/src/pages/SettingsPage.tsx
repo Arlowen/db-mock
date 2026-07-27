@@ -177,6 +177,28 @@ export function SettingsPage() {
     } finally { setTimezoneSaving(false) }
   }
 
+  const discardTimezoneChanges = () => {
+    if (!timezoneBaseline.current) return
+    timezoneForm.resetFields()
+    timezoneForm.setFieldsValue(timezoneBaseline.current)
+    setTimezoneSaveError('')
+    setTimezoneDirty(false)
+  }
+  const discardMonitoringChanges = () => {
+    if (!monitoringBaseline.current) return
+    monitoringForm.resetFields()
+    monitoringForm.setFieldsValue(monitoringBaseline.current)
+    setMonitoringSaveError('')
+    setMonitoringDirty(false)
+  }
+  const discardUploadChanges = () => {
+    if (!uploadBaseline.current) return
+    uploadForm.resetFields()
+    uploadForm.setFieldsValue(uploadBaseline.current)
+    setUploadSaveError('')
+    setUploadDirty(false)
+  }
+
   const advancedItems = Object.entries(items).filter(([key]) => key !== 'monitoring' && key !== 'uploads' && key !== 'timezone')
   const hasSettings = Object.keys(items).length > 0
   const maxAllowedGiB = uploadSettings.maxAllowedBytes / GiB
@@ -208,7 +230,13 @@ export function SettingsPage() {
               </Form.Item>
             </Form>
             {timezoneSaveError && <Alert className="settings-save-error" type="error" showIcon message={t('settingsSaveFailed')} description={timezoneSaveError} />}
-            <div className="settings-section-actions"><Typography.Text type={timezoneDirty && !timezoneReady ? 'danger' : 'secondary'} aria-live="polite">{statusText(timezoneDirty, timezoneReady)}</Typography.Text><Button type="primary" icon={<SaveOutlined />} loading={timezoneSaving} disabled={!timezoneDirty || !timezoneReady} onClick={() => void saveTimezone()}>{t('saveTimezone')}</Button></div>
+            <div className="settings-section-actions">
+              <Typography.Text type={timezoneDirty && !timezoneReady ? 'danger' : 'secondary'} aria-live="polite">{statusText(timezoneDirty, timezoneReady)}</Typography.Text>
+              <Space className="settings-action-buttons">
+                {timezoneDirty && <Button disabled={timezoneSaving} onClick={discardTimezoneChanges}>{t('discardChanges')}</Button>}
+                <Button type="primary" icon={<SaveOutlined />} loading={timezoneSaving} disabled={!timezoneDirty || !timezoneReady} onClick={() => void saveTimezone()}>{t('saveTimezone')}</Button>
+              </Space>
+            </div>
           </Card>,
         },
         {
@@ -231,7 +259,13 @@ export function SettingsPage() {
               </div>
             </Form>
             {monitoringSaveError && <Alert className="settings-save-error" type="error" showIcon message={t('settingsSaveFailed')} description={monitoringSaveError} />}
-            <div className="settings-section-actions"><Typography.Text type={monitoringDirty && !monitoringReady ? 'danger' : 'secondary'} aria-live="polite">{statusText(monitoringDirty, monitoringReady)}</Typography.Text><Button type="primary" icon={<SaveOutlined />} loading={monitoringSaving} disabled={!monitoringDirty || !monitoringReady} onClick={() => void saveMonitoring()}>{t('saveMonitoringSettings')}</Button></div>
+            <div className="settings-section-actions">
+              <Typography.Text type={monitoringDirty && !monitoringReady ? 'danger' : 'secondary'} aria-live="polite">{statusText(monitoringDirty, monitoringReady)}</Typography.Text>
+              <Space className="settings-action-buttons">
+                {monitoringDirty && <Button disabled={monitoringSaving} onClick={discardMonitoringChanges}>{t('discardChanges')}</Button>}
+                <Button type="primary" icon={<SaveOutlined />} loading={monitoringSaving} disabled={!monitoringDirty || !monitoringReady} onClick={() => void saveMonitoring()}>{t('saveMonitoringSettings')}</Button>
+              </Space>
+            </div>
           </Card>,
         },
         {
@@ -246,7 +280,13 @@ export function SettingsPage() {
               </Row>
             </Form>
             {uploadSaveError && <Alert className="settings-save-error" type="error" showIcon message={t('settingsSaveFailed')} description={uploadSaveError} />}
-            <div className="settings-section-actions"><Typography.Text type={uploadDirty && !uploadReady ? 'danger' : 'secondary'} aria-live="polite">{statusText(uploadDirty, uploadReady)}</Typography.Text><Button type="primary" icon={<SaveOutlined />} loading={uploadSaving} disabled={!uploadDirty || !uploadReady} onClick={() => void saveUploadSettings()}>{t('saveUploadSettings')}</Button></div>
+            <div className="settings-section-actions">
+              <Typography.Text type={uploadDirty && !uploadReady ? 'danger' : 'secondary'} aria-live="polite">{statusText(uploadDirty, uploadReady)}</Typography.Text>
+              <Space className="settings-action-buttons">
+                {uploadDirty && <Button disabled={uploadSaving} onClick={discardUploadChanges}>{t('discardChanges')}</Button>}
+                <Button type="primary" icon={<SaveOutlined />} loading={uploadSaving} disabled={!uploadDirty || !uploadReady} onClick={() => void saveUploadSettings()}>{t('saveUploadSettings')}</Button>
+              </Space>
+            </div>
           </Card>,
         },
         {
