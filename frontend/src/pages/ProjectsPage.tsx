@@ -1,5 +1,5 @@
-import { CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Card, Col, ColorPicker, Form, Grid, Input, Modal, Popconfirm, Row, Space, Typography } from 'antd'
+import { CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SearchOutlined } from '@ant-design/icons'
+import { Alert, App, Button, Card, Col, ColorPicker, Form, Grid, Input, Modal, Popconfirm, Row, Select, Space, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -7,14 +7,18 @@ import { EmptyState, PageHeader } from '../components/Common'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
-import { formatDateTime } from '../lib/localization'
+import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
+import { hasProjectDeploymentDefaults, labelText, parseLabelText } from '../lib/project-deployment-defaults'
 import type { Project } from '../lib/types'
 
 interface ProjectForm {
   name: string
   description?: string
   color: string
+  defaultEnvironment?: string
+  defaultExpiryDays?: number
+  defaultLabels?: string
 }
 
 function projectDraftChanged(values: ProjectForm, baseline: ProjectForm | null) {
@@ -22,6 +26,9 @@ function projectDraftChanged(values: ProjectForm, baseline: ProjectForm | null) 
   return values.name !== baseline.name
     || (values.description || '') !== (baseline.description || '')
     || values.color !== baseline.color
+    || (values.defaultEnvironment || '') !== (baseline.defaultEnvironment || '')
+    || values.defaultExpiryDays !== baseline.defaultExpiryDays
+    || (values.defaultLabels || '') !== (baseline.defaultLabels || '')
 }
 
 export function ProjectsPage() {
@@ -69,8 +76,15 @@ export function ProjectsPage() {
 
   const show = (item?: Project) => {
     const values: ProjectForm = item
-      ? { name: item.name, description: item.description, color: item.color }
-      : { name: '', description: '', color: '#2563eb' }
+      ? {
+          name: item.name,
+          description: item.description,
+          color: item.color,
+          defaultEnvironment: item.defaultEnvironment,
+          defaultExpiryDays: item.defaultExpiryDays,
+          defaultLabels: labelText(item.defaultLabels),
+        }
+      : { name: '', description: '', color: '#2563eb', defaultEnvironment: undefined, defaultExpiryDays: undefined, defaultLabels: '' }
     form.resetFields()
     setEditing(item ?? null)
     setSaveError('')
@@ -110,12 +124,16 @@ export function ProjectsPage() {
       setSaveError('')
       setSaving(true)
       const values = await form.validateFields()
+      const defaultLabels = parseLabelText(values.defaultLabels) || {}
       await api(editing ? `/projects/${editing.id}` : '/projects', {
         method: editing ? 'PUT' : 'POST',
         body: {
           name: values.name.trim(),
           description: values.description?.trim() || '',
           color: values.color,
+          defaultEnvironment: values.defaultEnvironment || null,
+          defaultExpiryDays: values.defaultExpiryDays ?? null,
+          defaultLabels,
         },
       })
       message.success(t('saved'))
@@ -143,11 +161,14 @@ export function ProjectsPage() {
 
   const projectCard = (item: Project) => {
     const deleteBlocked = item.hostCount + item.instanceCount > 0
+    const defaultLabelCount = Object.keys(item.defaultLabels || {}).length
+    const hasDeploymentDefaults = hasProjectDeploymentDefaults(item)
     return <Col xs={24} md={12} xl={8} key={item.id}>
       <Card
         className="project-card"
         style={{ borderTopColor: item.color }}
         actions={canOperate ? [
+          <Button key="create-database" type="text" icon={<RocketOutlined />} onClick={() => navigate(`/instances?create=1&project=${item.id}`)}>{t('createInstance')}</Button>,
           <Button key="edit" type="text" icon={<EditOutlined />} onClick={() => show(item)}>{t('edit')}</Button>,
           <span key="delete" title={deleteBlocked ? t('projectDeleteBlockedHint') : t('delete')}>
             <Popconfirm
@@ -171,6 +192,17 @@ export function ProjectsPage() {
         <Typography.Paragraph className="project-card-description" type="secondary" ellipsis={{ rows: 2, tooltip: item.description || undefined }}>
           {item.description || t('noDescription')}
         </Typography.Paragraph>
+        <div className="project-deployment-defaults">
+          <div>
+            <Typography.Text strong>{t('deploymentDefaults')}</Typography.Text>
+            <Typography.Text type="secondary">{t(hasDeploymentDefaults ? 'projectDefaultsActive' : 'projectUsesPlatformDefaults')}</Typography.Text>
+          </div>
+          <Space size={[4, 4]} wrap>
+            <Tag>{translateCode(t, item.defaultEnvironment || 'development')}</Tag>
+            <Tag>{item.defaultExpiryDays === 0 ? t('retainIndefinitely') : t('daysCount', { count: item.defaultExpiryDays ?? 7 })}</Tag>
+            {defaultLabelCount > 0 && <Tag>{t('defaultLabelCount', { count: defaultLabelCount })}</Tag>}
+          </Space>
+        </div>
         <div className="project-resource-stats">
           <button type="button" onClick={() => navigate(`/hosts?project=${item.id}`)}>
             <CloudServerOutlined />
@@ -222,6 +254,7 @@ export function ProjectsPage() {
     </Card>}
 
     <Modal
+      className="project-editor-modal"
       title={editing ? t('editProject') : t('createProject')}
       open={open}
       onCancel={closeEditor}
@@ -232,7 +265,7 @@ export function ProjectsPage() {
       cancelButtonProps={{ disabled: saving }}
       okButtonProps={{ disabled: !projectName?.trim() || (!!editing && !draftDirty) }}
       okText={t('save')}
-      width={560}
+      width={640}
       style={{ top: screens.md === false ? 12 : 32 }}
       destroyOnHidden
     >
@@ -265,6 +298,25 @@ export function ProjectsPage() {
         <Form.Item name="color" label={t('color')} extra={t('projectColorHint')} getValueFromEvent={(_, hex: string) => hex}>
           <ColorPicker format="hex" showText={(color) => color.toHexString()} />
         </Form.Item>
+        <Card size="small" className="project-defaults-editor" title={t('deploymentDefaults')}>
+          <Typography.Paragraph type="secondary">{t('projectDeploymentDefaultsHint')}</Typography.Paragraph>
+          <div className="form-grid">
+            <Form.Item name="defaultEnvironment" label={t('defaultEnvironment')} extra={t('defaultEnvironmentHint')}>
+              <Select allowClear placeholder={t('usePlatformDefault')} options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} />
+            </Form.Item>
+            <Form.Item name="defaultExpiryDays" label={t('defaultUsePeriod')} extra={t('defaultUsePeriodHint')}>
+              <Select allowClear placeholder={t('usePlatformDefault')} options={[1, 3, 7, 14, 30].map((days) => ({ value: days, label: t('daysCount', { count: days }) })).concat([{ value: 0, label: t('retainIndefinitely') }])} />
+            </Form.Item>
+          </div>
+          <Form.Item
+            name="defaultLabels"
+            label={t('defaultLabels')}
+            extra={t('defaultLabelsHint')}
+            rules={[{ validator: (_, value?: string) => parseLabelText(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidLabels'))) }]}
+          >
+            <Input placeholder={t('labelsPlaceholder')} />
+          </Form.Item>
+        </Card>
       </Form>
     </Modal>
   </>

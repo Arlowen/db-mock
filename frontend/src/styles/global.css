@@ -534,6 +534,10 @@ button { font: inherit; }
 .project-card-heading .ant-typography { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-card-description.ant-typography { min-height: 44px; margin: 14px 0; line-height: 22px; }
 .project-dot { display: block; flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 4px rgb(37 99 235 / 9%); }
+.project-deployment-defaults { margin-bottom: 14px; padding: 10px 12px; border: 1px solid #e4eaf3; border-radius: 10px; background: #f8faff; display: grid; gap: 8px; }
+.project-deployment-defaults > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.project-deployment-defaults > div .ant-typography-secondary { text-align: right; font-size: 11px; }
+.project-deployment-defaults .ant-tag { margin-inline-end: 0; }
 .project-resource-stats { margin-top: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .project-resource-stats button { min-width: 0; min-height: 56px; padding: 9px 12px; border: 1px solid #e4e9f0; border-radius: 10px; color: #475467; background: #fafcff; display: flex; align-items: center; gap: 9px; cursor: pointer; text-align: left; transition: border-color 150ms ease, background 150ms ease; }
 .project-resource-stats button:hover { border-color: #9bbcf0; background: #f4f8ff; }
@@ -542,6 +546,11 @@ button { font: inherit; }
 .project-resource-stats button strong { color: #172033; font-size: 17px; line-height: 20px; }
 .project-updated-at { margin-top: 13px; font-size: 11px; }
 .project-card .ant-card-actions .ant-btn { width: 100%; }
+.project-editor-modal .ant-modal-body { max-height: calc(100vh - 190px); padding-inline-end: 4px; overflow-y: auto; }
+.project-defaults-editor { margin-top: 8px; }
+.project-defaults-editor .ant-card-body { padding-bottom: 4px; }
+.project-defaults-editor .ant-typography { margin-bottom: 14px; }
+.project-defaults-banner { margin-bottom: 16px; }
 .user-permission-note { margin-bottom: 18px; }
 .user-table-card .ant-card-body { padding: 0; }
 .user-table-card .ant-table-cell { vertical-align: middle; }

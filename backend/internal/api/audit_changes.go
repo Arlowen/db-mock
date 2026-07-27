@@ -53,6 +53,9 @@ func projectAuditChanges(before, after domain.Project) map[string]any {
 	addAuditTransition(changes, "name", before.Name, after.Name)
 	addAuditTransition(changes, "description", before.Description, after.Description)
 	addAuditTransition(changes, "color", before.Color, after.Color)
+	addAuditTransition(changes, "defaultEnvironment", before.DefaultEnvironment, after.DefaultEnvironment)
+	addAuditTransition(changes, "defaultExpiryDays", before.DefaultExpiryDays, after.DefaultExpiryDays)
+	addAuditTransition(changes, "defaultLabels", auditJSON(before.DefaultLabels), auditJSON(after.DefaultLabels))
 	return changes
 }
 

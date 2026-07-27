@@ -20,6 +20,7 @@ import { deploymentCopyDraft } from '../lib/instance-copy'
 import { instanceQuickAction } from '../lib/instance-actions'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
+import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { isRecoverableInstanceStatus, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
@@ -52,6 +53,7 @@ export function InstancesPage() {
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const lifecycleDefaults = useMemo(() => ({ owner: user?.displayName?.trim() || user?.username || '', expiresAt: dayjs().add(7, 'day').endOf('day') }), [user?.displayName, user?.username])
+  const [appliedProjectDefaultsID, setAppliedProjectDefaultsID] = useState('')
   const screens = Grid.useBreakpoint()
   const compactLayout = screens.md === false
   const load = useCallback(async () => {
@@ -127,12 +129,15 @@ export function InstancesPage() {
     setCreateError('')
     setCreateDraftDirty(false)
     form.resetFields()
+    const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
     form.setFieldsValue(source
       ? { ...deploymentCopyDraft(source, projects.map((project) => project.id)), ...lifecycleDefaults }
-      : { environment: 'development', bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined, projectId: requestedProjectFilter || undefined, ...lifecycleDefaults })
+      : { bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined, projectId: requestedProjectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(requestedProject) })
+    setAppliedProjectDefaultsID(source ? '' : requestedProject?.id || '')
     setDrawer(true)
   }, [addRequiredHost, canOperate, createRequested, creationDataReady, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProjectFilter, requestedTemplateAvailable, requestedTemplateID, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
+  const selectedProjectID = Form.useWatch('projectId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
   const selectedRegistryID = Form.useWatch('registryId', { form, preserve: true })
   const selectedImageArtifactID = Form.useWatch('imageArtifactId', { form, preserve: true })
@@ -143,6 +148,7 @@ export function InstancesPage() {
   const requestedHostPort = Form.useWatch('hostPort', { form, preserve: true })
   const submittedTemplateParameters = Form.useWatch('templateParameters', { form, preserve: true })
   const selected = useMemo(() => { for (const item of templates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable !== false) return { template: item, version }; return undefined }, [templates, selectedVersionID])
+  const selectedProject = projects.find((project) => project.id === selectedProjectID)
   const selectedTemplateParameters = useMemo(() => templateParameters(selected?.version), [selected])
   const selectedResourceProfiles = useMemo(() => templateResourceProfiles(selected?.version), [selected])
   const templateCompatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && !host.maintenance && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
@@ -180,8 +186,13 @@ export function InstancesPage() {
     if (registryID && !compatibleRegistries.some((registry) => registry.id === registryID)) form.setFieldValue('registryId', undefined)
   }, [compatibleImages, compatibleRegistries, form, selected, selectedHostID, templateCompatibleHosts])
   const activeResourceProfile = selectedResourceProfiles.find((profile) => profile.cpu === requestedCPU && profile.memoryBytes === Math.round((requestedMemoryGiB || 0) * 1024 ** 3) && profile.diskBytes === Math.round((requestedDiskGiB || 0) * 1024 ** 3))
-  const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } copyPrefillApplied.current = false; setCopySource(undefined); setDrawer(true); setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields(); form.setFieldsValue({ environment: 'development', bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', projectId: projectFilter || undefined, ...lifecycleDefaults }) }
-  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); copyPrefillApplied.current = false; setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields() }
+  const applyProjectDefaults = (projectID?: string) => {
+    const project = projects.find((candidate) => candidate.id === projectID)
+    form.setFieldsValue(projectDeploymentValues(project))
+    setAppliedProjectDefaultsID(project?.id || '')
+  }
+  const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } const project = projects.find((candidate) => candidate.id === projectFilter); copyPrefillApplied.current = false; setCopySource(undefined); setDrawer(true); setStep(0); setCreateError(''); setCreateDraftDirty(false); setAppliedProjectDefaultsID(project?.id || ''); form.resetFields(); form.setFieldsValue({ bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', projectId: projectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(project) }) }
+  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
     if (!createDraftDirty) { finishCloseCreate(); return }
@@ -195,7 +206,7 @@ export function InstancesPage() {
     })
   }
   const next = async () => {
-    const fields: Array<keyof CreateValues> = step === 0 ? ['templateVersionId'] : step === 1 ? ['name', 'environment', 'owner'] : step === 2 ? ['cpu', 'memoryGiB', 'diskGiB', 'bindAddress'] : step === 3 ? ['templateParameters', 'extraEnvironment', ...(imageSource === 'registry' ? ['registryId' as const] : imageSource === 'offline' ? ['imageArtifactId' as const] : [])] : []
+    const fields: Array<keyof CreateValues> = step === 0 ? ['templateVersionId'] : step === 1 ? ['name', 'environment', 'owner', 'labels'] : step === 2 ? ['cpu', 'memoryGiB', 'diskGiB', 'bindAddress'] : step === 3 ? ['templateParameters', 'extraEnvironment', ...(imageSource === 'registry' ? ['registryId' as const] : imageSource === 'offline' ? ['imageArtifactId' as const] : [])] : []
     try {
       await form.validateFields(fields)
       if (step === 0 && compatibleHosts.length === 0) return
@@ -212,8 +223,7 @@ export function InstancesPage() {
       setCreateError('')
       await form.validateFields()
       const values = form.getFieldsValue(true) as CreateValues
-      const labels: Record<string, string> = {}
-      values.labels?.split(',').forEach((part) => { const separator = part.indexOf('='); const key = separator >= 0 ? part.slice(0, separator) : part; const value = separator >= 0 ? part.slice(separator + 1) : ''; if (key.trim()) labels[key.trim()] = value.trim() || 'true' })
+      const labels = parseLabelText(values.labels) || {}
       let extraEnvironment: Record<string, string> = {}
       if (values.extraEnvironment?.trim()) extraEnvironment = JSON.parse(values.extraEnvironment)
       const payload = { name: values.name, projectId: values.projectId || null, environment: values.environment, purpose: values.purpose?.trim() || '', owner: values.owner.trim(), expiresAt: values.expiresAt?.toISOString() || null, templateVersionId: values.templateVersionId, hostId: values.hostId || null, cpu: values.cpu, memoryBytes: Math.round(values.memoryGiB * 1024 ** 3), diskBytes: Math.round(values.diskGiB * 1024 ** 3), hostPort: values.hostPort || 0, bindAddress: values.bindAddress, username: values.username || '', password: values.password || '', databaseName: values.databaseName || '', autoRestart: values.autoRestart, imageArtifactId: values.imageSource === 'offline' ? values.imageArtifactId || null : null, registryId: values.imageSource === 'registry' ? values.registryId || null : null, labels, extraEnvironment, templateParameters: values.templateParameters || {} }
@@ -297,7 +307,7 @@ export function InstancesPage() {
   const emptyAction = hasFilters ? clearFilters : canOperate ? creationDataReady ? openCreate : () => { setLoading(true); void load() } : undefined
   const emptyActionLabel = hasFilters ? t('clearFilters') : canOperate ? creationDataReady ? hasOnlineHost ? t('createInstance') : t('addHost') : t('retry') : undefined
   const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : creationDataReady ? t('instancesEmptyDescription') : t('instanceCreationDataUnavailable')
-  const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && creationDataReady && items.length > 0 && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
+  const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && creationDataReady && (items.length > 0 || hasFilters) && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
   const createSteps = [{ title: t('template') }, { title: t('basicInfo') }, { title: t('resources') }, { title: t('options') }, { title: t('confirm') }]
   const parameterInput = (parameter: TemplateParameter) => {
     if (parameter.type === 'number') return <InputNumber min={parameter.min} max={parameter.max} step={parameter.step} style={{ width: '100%' }} />
@@ -316,11 +326,14 @@ export function InstancesPage() {
       {requestedCopySourceUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentSourceUnavailable')} description={t('copyDeploymentSourceUnavailableHint')} />}
       {requestedCopyTemplateUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentTemplateUnavailable')} description={t('copyDeploymentTemplateUnavailableHint')} />}
       <Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
-      {step === 0 && <><Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" onChange={(value) => { if (copySource && value !== copySource.templateVersionId) setCopySource(undefined) }} optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>{selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{templateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}{selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}</>}
+      {step === 0 && <><Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" onChange={(value) => { if (copySource && value !== copySource.templateVersionId) { setCopySource(undefined); applyProjectDefaults(selectedProjectID) } }} optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>{selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{templateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}{selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}</>}
       {step === 1 && <>
+        {hasProjectDeploymentDefaults(selectedProject) && (copySource && appliedProjectDefaultsID !== selectedProject?.id
+          ? <Alert className="project-defaults-banner" type="info" showIcon message={t('projectDefaultsAvailableForCopy', { name: selectedProject?.name })} description={t('projectDefaultsAvailableForCopyHint')} action={<Button size="small" onClick={() => applyProjectDefaults(selectedProject?.id)}>{t('applyProjectDefaults')}</Button>} />
+          : <Alert className="project-defaults-banner" type="success" showIcon message={t('projectDefaultsApplied', { name: selectedProject?.name })} description={t('projectDefaultsAppliedHint')} />)}
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input size="large" autoFocus maxLength={120} /></Form.Item>
         <Form.Item name="purpose" label={t('purpose')} extra={t('purposeHint')} rules={[{ max: 500 }]}><Input.TextArea rows={2} maxLength={500} showCount placeholder={t('purposePlaceholder')} /></Form.Item>
-        <div className="form-grid"><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((v) => ({ value: v, label: translateCode(t, v) }))} /></Form.Item></div>
+        <div className="form-grid"><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(value) => { setAppliedProjectDefaultsID(''); if (!copySource) applyProjectDefaults(value) }} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((v) => ({ value: v, label: translateCode(t, v) }))} /></Form.Item></div>
         <Card size="small" className="instance-lifecycle-form" title={t('lifecycle')}>
           <div className="form-grid">
             <Form.Item name="owner" label={t('owner')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} placeholder={t('ownerPlaceholder')} /></Form.Item>
@@ -332,7 +345,7 @@ export function InstancesPage() {
             <Button size="small" onClick={() => form.setFieldValue('expiresAt', undefined)}>{t('retainIndefinitely')}</Button>
           </Space>
         </Card>
-        <Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item>
+        <Form.Item name="labels" label={t('labels')} rules={[{ validator: (_, value?: string) => parseLabelText(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidLabels'))) }]}><Input placeholder={t('labelsPlaceholder')} /></Form.Item>
         <Form.Item name="hostId" label={t('host')} tooltip={t('autoHostTooltip')}><Select allowClear placeholder={t('autoSelect')} options={compatibleHosts.map((host) => ({ value: host.id, label: `${host.name} · ${host.architecture} · ${host.cpuCount} CPU / ${bytes(host.memoryBytes)} · ${bytes(host.diskFreeBytes)} ${t('available')}` }))} /></Form.Item>
         <Alert type="info" showIcon message={selectedHost ? t('selectedHostReady', { name: selectedHost.name }) : t('automaticHostSelection', { count: compatibleHosts.length })} description={selectedHost ? `${selectedHost.connectionAddress || selectedHost.sshAddress} · ${selectedHost.portStart}–${selectedHost.portEnd}` : t('automaticHostSelectionHint')} />
       </>}
@@ -609,7 +622,7 @@ export function InstanceDetailPage() {
       if (error instanceof Error) message.error(errorMessage(error))
     } finally { setBackupPolicySaving(false) }
   }
-  const saveEdit = async () => { try { setEditSaving(true); const values = await editForm.validateFields(); const labels: Record<string, string> = {}; String(values.labels || '').split(',').forEach((part) => { const separator = part.indexOf('='); const key = separator >= 0 ? part.slice(0, separator) : part; const value = separator >= 0 ? part.slice(separator + 1) : ''; if (key.trim()) labels[key.trim()] = value.trim() || 'true' }); await api(`/instances/${id}`, { method: 'PATCH', body: { name: values.name, projectId: values.projectId || null, environment: values.environment, purpose: values.purpose?.trim() || '', owner: values.owner.trim(), expiresAt: values.expiresAt?.toISOString() || null, labels } }); message.success(t('saved')); setEditOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } finally { setEditSaving(false) } }
+  const saveEdit = async () => { try { setEditSaving(true); const values = await editForm.validateFields(); const labels = parseLabelText(values.labels) || {}; await api(`/instances/${id}`, { method: 'PATCH', body: { name: values.name, projectId: values.projectId || null, environment: values.environment, purpose: values.purpose?.trim() || '', owner: values.owner.trim(), expiresAt: values.expiresAt?.toISOString() || null, labels } }); message.success(t('saved')); setEditOpen(false); await load() } catch (error) { if (error instanceof Error) message.error(errorMessage(error)) } finally { setEditSaving(false) } }
   if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
   const instanceHost = hosts.find((host) => host.id === item.hostId)
   const currentTemplate = templates.find((tpl) => tpl.slug === item.templateSlug)
@@ -753,7 +766,7 @@ export function InstanceDetailPage() {
         <Form.Item name="purpose" label={t('purpose')} extra={t('purposeHint')} rules={[{ max: 500 }]}><Input.TextArea rows={2} maxLength={500} showCount /></Form.Item>
         <div className="form-grid"><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((project) => ({ value: project.id, label: project.name }))} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))} /></Form.Item></div>
         <div className="form-grid"><Form.Item name="owner" label={t('owner')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} /></Form.Item><Form.Item name="expiresAt" label={t('expectedExpiry')} extra={t('expectedExpiryHint')}><DatePicker showTime minuteStep={15} allowClear style={{ width: '100%' }} /></Form.Item></div>
-        <Form.Item name="labels" label={t('labels')}><Input placeholder={t('labelsPlaceholder')} /></Form.Item>
+        <Form.Item name="labels" label={t('labels')} rules={[{ validator: (_, value?: string) => parseLabelText(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidLabels'))) }]}><Input placeholder={t('labelsPlaceholder')} /></Form.Item>
       </Form>
     </Modal>
     <Modal title={t('runtimeConfiguration')} open={runtimeOpen} onCancel={() => { if (!actioning) setRuntimeOpen(false) }} onOk={() => void submitRuntimeConfiguration()} confirmLoading={actioning === 'reconfigure'} okText={t('applyConfiguration')} okButtonProps={{ disabled: !runtimeReady }} width={680} destroyOnHidden>

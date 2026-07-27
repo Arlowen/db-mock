@@ -53,14 +53,17 @@ type Session struct {
 }
 
 type Project struct {
-	ID            uuid.UUID `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	Color         string    `json:"color"`
-	HostCount     int       `json:"hostCount"`
-	InstanceCount int       `json:"instanceCount"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID                 uuid.UUID       `json:"id"`
+	Name               string          `json:"name"`
+	Description        string          `json:"description"`
+	Color              string          `json:"color"`
+	DefaultEnvironment *string         `json:"defaultEnvironment,omitempty"`
+	DefaultExpiryDays  *int            `json:"defaultExpiryDays,omitempty"`
+	DefaultLabels      json.RawMessage `json:"defaultLabels"`
+	HostCount          int             `json:"hostCount"`
+	InstanceCount      int             `json:"instanceCount"`
+	CreatedAt          time.Time       `json:"createdAt"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
 }
 
 type Host struct {

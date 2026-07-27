@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -219,9 +220,21 @@ func (s *Server) projectRoutes(r chi.Router) {
 }
 
 type projectRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Color       string `json:"color"`
+	Name               string            `json:"name"`
+	Description        string            `json:"description"`
+	Color              string            `json:"color"`
+	DefaultEnvironment *string           `json:"defaultEnvironment"`
+	DefaultExpiryDays  *int              `json:"defaultExpiryDays"`
+	DefaultLabels      map[string]string `json:"defaultLabels"`
+}
+
+func projectStoreInput(input projectRequest) store.ProjectInput {
+	labels, _ := json.Marshal(input.DefaultLabels)
+	return store.ProjectInput{
+		Name: input.Name, Description: input.Description, Color: input.Color,
+		DefaultEnvironment: input.DefaultEnvironment, DefaultExpiryDays: input.DefaultExpiryDays,
+		DefaultLabels: labels,
+	}
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +251,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	item, err := s.store.CreateProject(r.Context(), input.Name, input.Description, input.Color)
+	item, err := s.store.CreateProject(r.Context(), projectStoreInput(input))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -263,7 +276,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	item, err := s.store.UpdateProject(r.Context(), id, input.Name, input.Description, input.Color)
+	item, err := s.store.UpdateProject(r.Context(), id, projectStoreInput(input))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
