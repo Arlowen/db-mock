@@ -214,25 +214,35 @@ func (s *Store) SetHostStatus(ctx context.Context, id uuid.UUID, status, message
 }
 
 func (s *Store) DeleteHost(ctx context.Context, id uuid.UUID) error {
-	active, err := s.HasActiveResourceTask(ctx, "host", id)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var lockedID uuid.UUID
+	if err = tx.QueryRow(ctx, "SELECT id FROM hosts WHERE id=$1 FOR UPDATE", id).Scan(&lockedID); err != nil {
+		return translate(err)
+	}
+	var active bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks
+        WHERE resource_type='host' AND resource_id=$1 AND status IN ('queued','running'))`, id).Scan(&active); err != nil {
 		return err
 	}
 	if active {
 		return domain.ErrConflict
 	}
 	var count int
-	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM instances WHERE host_id=$1 AND status<>'deleted'", id).Scan(&count); err != nil {
+	if err = tx.QueryRow(ctx, "SELECT count(*) FROM instances WHERE host_id=$1 AND status<>'deleted'", id).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
 		return domain.ErrConflict
 	}
-	result, err := s.pool.Exec(ctx, "DELETE FROM hosts WHERE id=$1", id)
-	if err == nil && result.RowsAffected() == 0 {
-		return domain.ErrNotFound
+	if _, err = tx.Exec(ctx, "DELETE FROM hosts WHERE id=$1", id); err != nil {
+		return err
 	}
-	return err
+	return tx.Commit(ctx)
 }
 
 type HostReservation struct {
