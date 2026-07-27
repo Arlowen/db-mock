@@ -388,13 +388,29 @@ type Upload struct {
 }
 
 type Dashboard struct {
-	Hosts              map[string]int      `json:"hosts"`
-	Instances          map[string]int      `json:"instances"`
-	ActiveTasks        int                 `json:"activeTasks"`
-	OpenAlerts         int                 `json:"openAlerts"`
-	Users              int                 `json:"users"`
-	Projects           int                 `json:"projects"`
-	LifecycleInstances []DashboardInstance `json:"lifecycleInstances"`
+	Hosts              map[string]int           `json:"hosts"`
+	Instances          map[string]int           `json:"instances"`
+	ActiveTasks        int                      `json:"activeTasks"`
+	OpenAlerts         int                      `json:"openAlerts"`
+	Users              int                      `json:"users"`
+	Projects           int                      `json:"projects"`
+	AttentionItems     []DashboardAttentionItem `json:"attentionItems"`
+	LifecycleInstances []DashboardInstance      `json:"lifecycleInstances"`
+}
+
+type DashboardAttentionItem struct {
+	ResourceType   string     `json:"resourceType"`
+	ResourceID     uuid.UUID  `json:"resourceId"`
+	ResourceName   string     `json:"resourceName"`
+	ResourceStatus string     `json:"resourceStatus"`
+	HostID         *uuid.UUID `json:"hostId,omitempty"`
+	HostName       string     `json:"hostName,omitempty"`
+	TaskID         *uuid.UUID `json:"taskId,omitempty"`
+	TaskKind       string     `json:"taskKind,omitempty"`
+	TaskStatus     string     `json:"taskStatus,omitempty"`
+	TaskStage      string     `json:"taskStage,omitempty"`
+	ErrorCode      string     `json:"errorCode,omitempty"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 type DashboardInstance struct {

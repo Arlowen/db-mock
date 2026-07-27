@@ -60,6 +60,17 @@ button { font: inherit; }
 .workbench-stat-card .ant-statistic { min-width: 0; }
 .workbench-stat-card .ant-statistic-title { color: #667085; font-size: 12px; }
 .workbench-stat-card .ant-statistic-content { color: #172033; font-size: 26px; }
+.workbench-attention-card { margin-bottom: 16px; border-color: #f3d7d5; }
+.workbench-attention-card .ant-card-head { background: #fffafa; }
+.workbench-attention-card .ant-card-head-wrapper { gap: 16px; }
+.workbench-attention-alert { margin-bottom: 12px; }
+.workbench-attention-item { padding-block: 16px !important; }
+.workbench-attention-content { min-width: 0; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 24px; align-items: start; }
+.workbench-attention-summary { min-width: 0; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.workbench-attention-summary > .ant-typography { flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
+.workbench-attention-cause, .workbench-attention-recovery, .workbench-attention-host { min-width: 0; grid-column: 1; overflow-wrap: anywhere; }
+.workbench-attention-recovery, .workbench-attention-host { font-size: 12px; line-height: 1.55; }
+.workbench-attention-actions { grid-column: 2; grid-row: 1 / span 4; justify-content: flex-end; align-self: center; }
 .workbench-lifecycle-card .ant-card-head-wrapper { gap: 16px; }
 .workbench-lifecycle-item { align-items: center !important; }
 .workbench-lifecycle-item .ant-list-item-meta { min-width: 0; }
@@ -649,6 +660,15 @@ button { font: inherit; }
   .app-content { padding: 16px; }
   .workbench-stats > .ant-col { flex: 0 0 100%; max-width: 100%; }
   .workbench-stat-card .ant-card-body { min-height: 96px; }
+  .workbench-attention-card .ant-card-head-wrapper, .workbench-lifecycle-card .ant-card-head-wrapper { align-items: flex-start; flex-direction: column; }
+  .workbench-attention-card .ant-card-extra, .workbench-lifecycle-card .ant-card-extra { width: 100%; margin: 0 0 14px; }
+  .workbench-attention-card .ant-card-extra .ant-space { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workbench-attention-card .ant-card-extra .ant-btn, .workbench-lifecycle-card .ant-card-extra .ant-btn { width: 100%; }
+  .workbench-attention-content { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .workbench-attention-summary { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .workbench-attention-cause, .workbench-attention-recovery, .workbench-attention-host, .workbench-attention-actions { grid-column: 1; }
+  .workbench-attention-actions { grid-row: auto; justify-content: flex-start; margin-top: 6px; }
+  .workbench-attention-actions .ant-btn { flex: 1 1 auto; }
   .workbench-lifecycle-card .ant-card-head-wrapper { align-items: flex-start; flex-direction: column; }
   .workbench-lifecycle-card .ant-card-extra { width: 100%; margin: 0 0 14px; }
   .workbench-lifecycle-card .ant-card-extra .ant-space { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

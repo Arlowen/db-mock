@@ -14,6 +14,7 @@ const knownFailureCodes = new Set([
   'operation_timeout',
   'image_pull_failed',
   'host_disk_full',
+  'host_path_not_shared',
   'port_conflict',
   'health_check_failed',
 ])
@@ -24,6 +25,7 @@ const hostFailureCodes = new Set([
   'ssh_host_key_changed',
   'image_pull_failed',
   'host_disk_full',
+  'host_path_not_shared',
   'port_conflict',
 ])
 

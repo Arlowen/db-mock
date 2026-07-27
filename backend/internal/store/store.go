@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,7 +42,10 @@ func (s *Store) IsInitialized(ctx context.Context) (bool, error) {
 }
 
 func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
-	result := domain.Dashboard{Hosts: map[string]int{}, Instances: map[string]int{}, LifecycleInstances: []domain.DashboardInstance{}}
+	result := domain.Dashboard{
+		Hosts: map[string]int{}, Instances: map[string]int{},
+		AttentionItems: []domain.DashboardAttentionItem{}, LifecycleInstances: []domain.DashboardInstance{},
+	}
 	rows, err := s.pool.Query(ctx, "SELECT status, count(*) FROM hosts GROUP BY status")
 	if err != nil {
 		return result, err
@@ -78,6 +82,10 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 	if err != nil {
 		return result, err
 	}
+	result.AttentionItems, err = s.dashboardAttention(ctx)
+	if err != nil {
+		return result, err
+	}
 	rows, err = s.pool.Query(ctx, `SELECT i.id,i.name,i.purpose,i.owner_name,i.expires_at,i.status,
         i.environment,t.name,v.version,h.name
         FROM instances i
@@ -101,6 +109,103 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 		result.LifecycleInstances = append(result.LifecycleInstances, item)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) dashboardAttention(ctx context.Context) ([]domain.DashboardAttentionItem, error) {
+	rows, err := s.pool.Query(ctx, `WITH latest_tasks AS (
+        SELECT DISTINCT ON (resource_type,resource_id)
+          id,kind,status,resource_type,resource_id,host_id,stage,error_code,updated_at
+        FROM tasks
+        WHERE resource_id IS NOT NULL AND resource_type IN ('instance','host','backup')
+        ORDER BY resource_type,resource_id,created_at DESC,id DESC
+      )
+      SELECT lt.resource_type,lt.resource_id,
+        COALESCE(i.name,rh.name,b.name,''),
+        COALESCE(i.status,rh.status,b.status,''),
+        COALESCE(lt.host_id,i.host_id,b.host_id,rh.id),
+        COALESCE(eh.name,ih.name,bh.name,rh.name,''),
+        lt.id,lt.kind,lt.status,lt.stage,lt.error_code,lt.updated_at
+      FROM latest_tasks lt
+      LEFT JOIN instances i ON lt.resource_type='instance' AND i.id=lt.resource_id AND i.status<>'deleted'
+      LEFT JOIN hosts rh ON lt.resource_type='host' AND rh.id=lt.resource_id
+      LEFT JOIN instance_backups b ON lt.resource_type='backup' AND b.id=lt.resource_id
+      LEFT JOIN hosts eh ON eh.id=lt.host_id
+      LEFT JOIN hosts ih ON ih.id=i.host_id
+      LEFT JOIN hosts bh ON bh.id=b.host_id
+      WHERE lt.status IN ('failed','interrupted')
+        AND (i.id IS NOT NULL OR rh.id IS NOT NULL OR b.id IS NOT NULL)
+      ORDER BY CASE lt.status WHEN 'failed' THEN 0 ELSE 1 END,lt.updated_at DESC
+      LIMIT 20`)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.DashboardAttentionItem, 0)
+	representedInstances := make(map[uuid.UUID]struct{})
+	for rows.Next() {
+		var item domain.DashboardAttentionItem
+		if err = rows.Scan(&item.ResourceType, &item.ResourceID, &item.ResourceName, &item.ResourceStatus,
+			&item.HostID, &item.HostName, &item.TaskID, &item.TaskKind, &item.TaskStatus, &item.TaskStage,
+			&item.ErrorCode, &item.UpdatedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, item)
+		if item.ResourceType == "instance" {
+			representedInstances[item.ResourceID] = struct{}{}
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	rows, err = s.pool.Query(ctx, `SELECT i.id,i.name,i.status,i.host_id,h.name,i.updated_at
+        FROM instances i
+        JOIN hosts h ON h.id=i.host_id
+        WHERE i.status IN ('failed','degraded')
+        ORDER BY CASE i.status WHEN 'failed' THEN 0 ELSE 1 END,i.updated_at DESC
+        LIMIT 20`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item domain.DashboardAttentionItem
+		item.ResourceType = "instance"
+		if err = rows.Scan(&item.ResourceID, &item.ResourceName, &item.ResourceStatus,
+			&item.HostID, &item.HostName, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if _, exists := representedInstances[item.ResourceID]; !exists {
+			items = append(items, item)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(items, func(left, right int) bool {
+		rank := func(item domain.DashboardAttentionItem) int {
+			switch {
+			case item.TaskStatus == "failed":
+				return 0
+			case item.TaskStatus == "interrupted":
+				return 1
+			case item.ResourceStatus == "failed":
+				return 2
+			default:
+				return 3
+			}
+		}
+		if rank(items[left]) != rank(items[right]) {
+			return rank(items[left]) < rank(items[right])
+		}
+		return items[left].UpdatedAt.After(items[right].UpdatedAt)
+	})
+	if len(items) > 20 {
+		items = items[:20]
+	}
+	return items, nil
 }
 
 type AuditInput struct {

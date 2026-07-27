@@ -17,6 +17,7 @@ func TestClassifyTaskFailure(t *testing.T) {
 		{name: "ssh host key", err: errors.New("connect host: SSH host key changed: expected old, received new"), wantCode: "ssh_host_key_changed"},
 		{name: "timeout", err: context.DeadlineExceeded, wantCode: "operation_timeout"},
 		{name: "disk full", err: errors.New("remote command failed (exit 1): write /data: no space left on device"), wantCode: "host_disk_full"},
+		{name: "docker desktop path sharing", err: errors.New("remote command failed (exit 1): Mounts denied: The path /opt/dbmock is not shared from the host and is not known to Docker"), wantCode: "host_path_not_shared"},
 		{name: "port conflict", err: errors.New("driver failed programming external connectivity: bind: address already in use"), wantCode: "port_conflict"},
 		{name: "health check", err: errors.New("instance health check failed: state=degraded health=unhealthy"), wantCode: "health_check_failed"},
 		{name: "image pull", err: errors.New("remote command failed (exit 1): failed to resolve reference postgres:17: unexpected EOF"), wantCode: "image_pull_failed"},

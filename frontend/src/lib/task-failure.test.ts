@@ -33,4 +33,12 @@ describe('taskFailureGuidance', () => {
     expect(taskFailureGuidance({ kind: 'instance_backup', errorCode: 'operation_timeout' }).impactKey)
       .toBe('taskFailureImpact_instance_backup')
   })
+
+  it('explains an unshared Docker Desktop bind path as a host failure', () => {
+    expect(taskFailureGuidance({ kind: 'instance.create', errorCode: 'host_path_not_shared' })).toMatchObject({
+      causeKey: 'taskFailureCause_host_path_not_shared',
+      recoveryKey: 'taskFailureRecovery_host_path_not_shared',
+      inspectHost: true,
+    })
+  })
 })

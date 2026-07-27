@@ -163,6 +163,9 @@ func classifyTaskFailure(err error) string {
 		return "ssh_unreachable"
 	case strings.Contains(message, "no space left on device"):
 		return "host_disk_full"
+	case strings.Contains(message, "mounts denied") ||
+		strings.Contains(message, "is not shared from the host and is not known to docker"):
+		return "host_path_not_shared"
 	case strings.Contains(message, "port is already allocated") ||
 		strings.Contains(message, "address already in use") ||
 		strings.Contains(message, "bind: address in use"):
