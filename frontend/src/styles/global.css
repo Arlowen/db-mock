@@ -78,6 +78,12 @@ button { font: inherit; }
 .workbench-lifecycle-details { min-width: 0; display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(110px, .7fr) minmax(220px, 1.5fr) auto; align-items: center; gap: 8px 18px; color: #667085; font-size: 12px; }
 .workbench-lifecycle-details span, .workbench-lifecycle-details strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-lifecycle-details strong { color: #344054; font-weight: 600; }
+.cleanup-review, .cleanup-delete-confirm { display: grid; gap: 16px; }
+.cleanup-review-loading { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.cleanup-blockers ul { margin: 0 0 12px; padding-inline-start: 20px; }
+.cleanup-blockers li + li { margin-top: 6px; }
+.cleanup-review-footer { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.cleanup-review-decision-actions { justify-content: flex-end; }
 .ant-card-actions .ant-btn { min-width: 44px; }
 .clickable-list { cursor: pointer; border-radius: 8px; padding-inline: 6px !important; }
 .clickable-list:hover { background: #f7f9fc; }
@@ -696,6 +702,9 @@ button { font: inherit; }
   .workbench-lifecycle-item .ant-list-item-action { margin-inline-start: 0; }
   .workbench-lifecycle-details { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .workbench-lifecycle-details span, .workbench-lifecycle-details strong { white-space: normal; overflow-wrap: anywhere; }
+  .cleanup-review-footer { flex-direction: column-reverse; align-items: stretch; }
+  .cleanup-review-decision-actions { width: 100%; display: grid; }
+  .cleanup-review-footer > .ant-btn, .cleanup-review-decision-actions .ant-btn { width: 100%; }
   .page-header p.ant-typography { max-width: 40ch; }
   .registry-editor-modal .form-grid { grid-template-columns: minmax(0, 1fr); }
   .task-filter-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

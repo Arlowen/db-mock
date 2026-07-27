@@ -77,6 +77,26 @@ type BatchActionOutcome struct {
 	Err          error
 }
 
+type CleanupReviewTask struct {
+	ID     uuid.UUID `json:"id"`
+	Kind   string    `json:"kind"`
+	Status string    `json:"status"`
+	Stage  string    `json:"stage"`
+}
+
+type CleanupReview struct {
+	InstanceID   uuid.UUID          `json:"instanceId"`
+	InstanceName string             `json:"instanceName"`
+	Status       string             `json:"status"`
+	Purpose      string             `json:"purpose"`
+	Owner        string             `json:"owner"`
+	ExpiresAt    *time.Time         `json:"expiresAt,omitempty"`
+	BackupCount  int                `json:"backupCount"`
+	ActiveTask   *CleanupReviewTask `json:"activeTask,omitempty"`
+	DeleteReady  bool               `json:"deleteReady"`
+	Blockers     []string           `json:"blockers"`
+}
+
 type ActionPayload struct {
 	InstanceID                    uuid.UUID  `json:"instanceId"`
 	OperationID                   *uuid.UUID `json:"operationId,omitempty"`
@@ -472,6 +492,86 @@ func (s *Service) BatchAction(ctx context.Context, userID uuid.UUID, action stri
 		outcomes = append(outcomes, outcome)
 	}
 	return outcomes, nil
+}
+
+func (s *Service) GetCleanupReview(ctx context.Context, instanceID uuid.UUID) (CleanupReview, error) {
+	instance, err := s.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return CleanupReview{}, err
+	}
+	backups, err := s.store.ListInstanceBackups(ctx, instanceID)
+	if err != nil {
+		return CleanupReview{}, err
+	}
+	activeTask, err := s.store.GetActiveResourceTask(ctx, "instance", instanceID)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return CleanupReview{}, err
+	}
+	var tasks []domain.Task
+	if err == nil {
+		tasks = []domain.Task{activeTask}
+	}
+	return buildCleanupReview(instance, backups, tasks), nil
+}
+
+func buildCleanupReview(instance domain.Instance, backups []domain.InstanceBackup, tasks []domain.Task) CleanupReview {
+	review := CleanupReview{
+		InstanceID: instance.ID, InstanceName: instance.Name, Status: instance.Status,
+		Purpose: instance.Purpose, Owner: instance.Owner, ExpiresAt: instance.ExpiresAt,
+		BackupCount: len(backups), Blockers: []string{},
+	}
+	for _, task := range tasks {
+		if task.Status == "queued" || task.Status == "running" {
+			review.ActiveTask = &CleanupReviewTask{ID: task.ID, Kind: task.Kind, Status: task.Status, Stage: task.Stage}
+			review.Blockers = append(review.Blockers, "active_operation")
+			break
+		}
+	}
+	if len(backups) > 0 {
+		review.Blockers = append(review.Blockers, "backups_present")
+	}
+	if err := validateInstanceAction(instance.Status, "delete", nil); err != nil {
+		review.Blockers = append(review.Blockers, "status_not_deletable")
+	}
+	review.DeleteReady = len(review.Blockers) == 0
+	return review
+}
+
+func (s *Service) ApplyCleanupDecision(ctx context.Context, instanceID uuid.UUID, decision string, days int, now time.Time) (domain.Instance, error) {
+	instance, err := s.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	if instance.Status == "deleting" {
+		return domain.Instance{}, fmt.Errorf("%w: cleanup decisions cannot change after deletion starts", domain.ErrConflict)
+	}
+	expiresAt, err := cleanupDecisionExpiry(instance.ExpiresAt, decision, days, now)
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	return s.store.UpdateInstanceExpiry(ctx, instanceID, expiresAt)
+}
+
+func cleanupDecisionExpiry(current *time.Time, decision string, days int, now time.Time) (*time.Time, error) {
+	switch decision {
+	case "extend":
+		if days < 1 || days > 365 {
+			return nil, fmt.Errorf("%w: cleanup extension must be between 1 and 365 days", domain.ErrInvalid)
+		}
+		base := now.UTC()
+		if current != nil && current.After(base) {
+			base = current.UTC()
+		}
+		expiresAt := base.AddDate(0, 0, days)
+		return &expiresAt, nil
+	case "retain":
+		if days != 0 {
+			return nil, fmt.Errorf("%w: retained instances do not accept extension days", domain.ErrInvalid)
+		}
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("%w: cleanup decision must be extend or retain", domain.ErrInvalid)
+	}
 }
 
 func validateBatchInstanceAction(status, action string) error {

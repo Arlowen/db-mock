@@ -1,4 +1,4 @@
-import { CheckCircleOutlined, ClockCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExportOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, ClockCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExportOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SafetyCertificateOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
 import { Alert, App, AutoComplete, Button, Card, Col, DatePicker, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import { type Key, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -7,6 +7,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { DatabaseIcon } from '../components/DatabaseIcon'
+import { InstanceCleanupReviewModal } from '../components/InstanceCleanupReview'
 import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
 import { useAuth } from '../contexts/AuthContext'
@@ -635,8 +636,7 @@ export function InstanceDetailPage() {
   const [backups, setBackups] = useState<InstanceBackup[]>([])
   const [backupPolicy, setBackupPolicy] = useState<InstanceBackupPolicy | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [confirm, setConfirm] = useState('')
+  const [cleanupOpen, setCleanupOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [upgradeVersion, setUpgradeVersion] = useState<string>()
   const [upgradeImageSource, setUpgradeImageSource] = useState<ImageSource>('public')
@@ -696,7 +696,7 @@ export function InstanceDetailPage() {
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
   useEffect(() => { if (requestedTab && ['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab)) setActiveTab(requestedTab) }, [requestedTab])
   const changeTab = (tab: string) => { const next = new URLSearchParams(detailParams); if (tab === 'overview') next.delete('tab'); else next.set('tab', tab); setActiveTab(tab); setDetailParams(next, { replace: true }) }
-  const run = async (action: string, body: Record<string, unknown> = {}) => { try { setActioning(action); const task = await api<Task>(`/instances/${id}/actions/${action}`, { method: 'POST', body }); setTasks((current) => [task, ...current]); notifyTask(task); setDeleteOpen(false); setUpgradeOpen(false); setRuntimeOpen(false); if (action === 'delete') navigate('/instances'); else await load() } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') } }
+  const run = async (action: string, body: Record<string, unknown> = {}) => { try { setActioning(action); const task = await api<Task>(`/instances/${id}/actions/${action}`, { method: 'POST', body }); setTasks((current) => [task, ...current]); notifyTask(task); setUpgradeOpen(false); setRuntimeOpen(false); await load() } catch (e) { message.error(errorMessage(e)) } finally { setActioning('') } }
   const createBackup = async () => {
     try {
       setActioning('backup-create')
@@ -731,7 +731,6 @@ export function InstanceDetailPage() {
   useEffect(() => { if (activeTab !== 'logs' && activeTab !== 'metrics') return; const refresh = () => activeTab === 'logs' ? loadLogs() : loadMetrics(); void refresh(); if (activeTab === 'logs' && !logsAutoRefresh) return; const timer = window.setInterval(() => void refresh(), activeTab === 'logs' ? 5000 : 30000); return () => clearInterval(timer) }, [activeTab, loadLogs, loadMetrics, logsAutoRefresh])
   useEffect(() => { if (activeTab !== 'connection') setConnection(null) }, [activeTab])
   const showEdit = () => { if (!item) return; editForm.resetFields(); editForm.setFieldsValue({ name: item.name, projectId: item.projectId, environment: item.environment, purpose: item.purpose, owner: item.owner || user?.displayName || user?.username || '', expiresAt: item.expiresAt ? dayjs(item.expiresAt) : undefined, labels: Object.entries(item.labels || {}).map(([key, value]) => `${key}=${value}`).join(', ') }); setEditOpen(true) }
-  const showDelete = () => { setConfirm(''); setDeleteOpen(true) }
   const showUpgrade = () => {
     setUpgradeVersion(undefined)
     setUpgradeImageSource('public')
@@ -879,7 +878,7 @@ export function InstanceDetailPage() {
       : t('backupScheduleDailySummary', { time: backupScheduleTime, timezone: backupPolicy.timezone })
     : t('backupScheduleDisabled')
   const backupScheduleWaiting = !!backupPolicy?.enabled && !!backupPolicy.nextRunAt && new Date(backupPolicy.nextRunAt).getTime() <= Date.now()
-  const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'delete', icon: <DeleteOutlined />, label: t('delete'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
+  const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'cleanup', icon: <SafetyCertificateOutlined />, label: t('reviewCleanup'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
   const backupColumns = [
     { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => <><Typography.Text strong>{value}</Typography.Text>{backup.errorMessage && <><br /><Typography.Text type="danger">{translateCode(t, backup.errorMessage, 'statusMessage')}</Typography.Text></>}</> },
     { title: t('status'), dataIndex: 'status', width: 110, render: (value: string) => <StatusTag value={value} /> },
@@ -913,7 +912,7 @@ export function InstanceDetailPage() {
     <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1240 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
-  const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : showDelete() }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
+  const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
   return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{operationPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backups.length})`, children: backupsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')} width={620}>
       <Form form={editForm} layout="vertical">
@@ -943,7 +942,14 @@ export function InstanceDetailPage() {
         {!runtimeChanged ? <Alert type="info" showIcon message={t('runtimeNoChanges')} /> : !runtimeMinimumReady ? <Alert type="warning" showIcon message={t('runtimeBelowMinimum')} /> : !runtimeCapacityReady ? <Alert type="warning" showIcon message={t('runtimeCapacityUnavailable')} description={t('runtimeCapacityUnavailableHint')} /> : runtimeRemaining && <Alert type="success" showIcon message={t('runtimeCapacityReady')} description={t('runtimeCapacityPreview', { name: instanceHost?.name || item.hostName, cpu: runtimeRemaining.cpu.toFixed(runtimeRemaining.cpu % 1 ? 1 : 0), memory: bytes(runtimeRemaining.memory), disk: bytes(runtimeRemaining.disk) })} />}
       </Form>
     </Modal>
-    <Modal title={`${t('delete')} ${item.name}`} open={deleteOpen} onCancel={() => { if (!actioning) { setDeleteOpen(false); setConfirm('') } }} onOk={() => void run('delete', { confirmName: confirm })} confirmLoading={actioning === 'delete'} okButtonProps={{ danger: true, disabled: confirm !== item.name }}><Alert className="delete-instance-alert" type="error" showIcon message={t('deleteInstanceWarningTitle')} description={t('deleteInstanceWarningDescription')} /><Typography.Paragraph>{t('deleteInstanceConfirmHint', { name: item.name })}</Typography.Paragraph><Input autoFocus aria-label={t('deleteInstanceConfirmLabel', { name: item.name })} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={item.name} /></Modal>
+    <InstanceCleanupReviewModal
+      instanceId={item.id}
+      instanceName={item.name}
+      open={cleanupOpen}
+      onClose={() => setCleanupOpen(false)}
+      onChanged={load}
+      onDeleteQueued={() => navigate('/instances')}
+    />
     <Modal title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={submitUpgrade} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeReady }} destroyOnHidden>
       <Typography.Paragraph type="secondary">{t('upgradeHint')}</Typography.Paragraph>
       <div className="upgrade-field">

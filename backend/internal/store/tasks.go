@@ -116,6 +116,14 @@ func (s *Store) CreateInstanceActionTask(ctx context.Context, input TaskInput, i
 		return domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the operation", domain.ErrConflict)
 	}
 	if operationStatus == "deleting" {
+		var hasBackups bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM instance_backups WHERE instance_id=$1)`,
+			instanceID).Scan(&hasBackups); err != nil {
+			return domain.Task{}, err
+		}
+		if hasBackups {
+			return domain.Task{}, fmt.Errorf("%w: delete instance backups before deleting the instance", domain.ErrConflict)
+		}
 		payload, err = captureDeleteBackupPolicy(ctx, tx, instanceID, payload)
 		if err != nil {
 			return domain.Task{}, err
@@ -215,6 +223,15 @@ func (s *Store) HasActiveResourceTask(ctx context.Context, resourceType string, 
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks
         WHERE resource_type=$1 AND resource_id=$2 AND status IN ('queued','running'))`, resourceType, resourceID).Scan(&active)
 	return active, err
+}
+
+func (s *Store) GetActiveResourceTask(ctx context.Context, resourceType string, resourceID uuid.UUID) (domain.Task, error) {
+	var item domain.Task
+	err := s.pool.QueryRow(ctx, `SELECT `+taskColumns+` FROM tasks
+        WHERE resource_type=$1 AND resource_id=$2 AND status IN ('queued','running')
+        ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`,
+		resourceType, resourceID).Scan(taskScan(&item)...)
+	return item, translate(err)
 }
 
 func (s *Store) ClaimTask(ctx context.Context) (domain.Task, error) {

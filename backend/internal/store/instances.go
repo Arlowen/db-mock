@@ -307,6 +307,22 @@ func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name s
 	return s.GetInstance(ctx, id)
 }
 
+func (s *Store) UpdateInstanceExpiry(ctx context.Context, id uuid.UUID, expiresAt *time.Time) (domain.Instance, error) {
+	result, err := s.pool.Exec(ctx, `UPDATE instances SET expires_at=$2,updated_at=now()
+		WHERE id=$1 AND status NOT IN ('deleting','deleted')`, id, expiresAt)
+	if err != nil {
+		return domain.Instance{}, err
+	}
+	if result.RowsAffected() == 0 {
+		item, getErr := s.GetInstance(ctx, id)
+		if getErr != nil || item.Status == "deleted" {
+			return domain.Instance{}, domain.ErrNotFound
+		}
+		return domain.Instance{}, fmt.Errorf("%w: cleanup decisions cannot change after deletion starts", domain.ErrConflict)
+	}
+	return s.GetInstance(ctx, id)
+}
+
 func (s *Store) MarkInstanceDeleted(ctx context.Context, id uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `UPDATE instances SET status='deleted',desired_state='deleted',status_message='',
         updated_at=now() WHERE id=$1`, id)

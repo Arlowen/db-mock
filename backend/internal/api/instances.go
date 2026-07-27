@@ -23,6 +23,8 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.With(requireOperator).Post("/batch-actions/{action}", s.batchInstanceAction)
 	r.Get("/{id}", s.getInstance)
 	r.With(requireOperator).Patch("/{id}", s.updateInstance)
+	r.Get("/{id}/cleanup-review", s.getInstanceCleanupReview)
+	r.With(requireOperator).Post("/{id}/cleanup-decision", s.updateInstanceCleanupDecision)
 	r.Get("/{id}/backups", s.listInstanceBackups)
 	r.With(requireOperator).Post("/{id}/backups", s.createInstanceBackup)
 	r.Get("/{id}/backup-policy", s.getInstanceBackupPolicy)
@@ -259,6 +261,56 @@ func (s *Server) getInstance(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
+	httpx.JSON(w, http.StatusOK, item)
+}
+
+func (s *Server) getInstanceCleanupReview(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	review, err := s.instances.GetCleanupReview(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, review)
+}
+
+func (s *Server) updateInstanceCleanupDecision(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var input struct {
+		Decision string `json:"decision"`
+		Days     int    `json:"days"`
+	}
+	if err = httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	before, err := s.store.GetInstance(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	item, err := s.instances.ApplyCleanupDecision(r.Context(), id, strings.TrimSpace(input.Decision),
+		input.Days, time.Now())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	changes := instanceAuditChanges(before, item)
+	changes["cleanupDecision"] = input.Decision
+	if input.Decision == "extend" {
+		changes["extensionDays"] = input.Days
+	}
+	actor, _ := auth.ActorFrom(r.Context())
+	_ = s.auditWithChanges(r, actor, "instance.cleanup_decision", "instance", &id, item.Name, nil,
+		"success", "", changes)
 	httpx.JSON(w, http.StatusOK, item)
 }
 

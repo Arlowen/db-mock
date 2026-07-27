@@ -240,6 +240,33 @@ func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
 		storedLabels["team"] != "platform" {
 		t.Fatalf("normalized metadata = %#v", updated)
 	}
+	cleanupExpiry := expiresAt.Add(7 * 24 * time.Hour)
+	updatedExpiry, err := target.UpdateInstanceExpiry(ctx, instanceID, &cleanupExpiry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedExpiry.ExpiresAt == nil || !updatedExpiry.ExpiresAt.Equal(cleanupExpiry) ||
+		updatedExpiry.Name != updated.Name || updatedExpiry.Owner != updated.Owner || updatedExpiry.Purpose != updated.Purpose {
+		t.Fatalf("targeted expiry update changed unrelated metadata: %#v", updatedExpiry)
+	}
+	if _, err = target.UpdateInstanceExpiry(ctx, instanceID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if clearedExpiry, getErr := target.GetInstance(ctx, instanceID); getErr != nil || clearedExpiry.ExpiresAt != nil {
+		t.Fatalf("expiry was not cleared: instance=%#v err=%v", clearedExpiry, getErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE instances SET status='deleting' WHERE id=$1`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = target.UpdateInstanceExpiry(ctx, instanceID, &cleanupExpiry); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("deleting instance expiry update error = %v, want conflict", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE instances SET status='running' WHERE id=$1`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = target.UpdateInstanceExpiry(ctx, deletedID, &cleanupExpiry); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("deleted instance expiry update error = %v, want not found", err)
+	}
 
 	zeroProject, missingProject := uuid.Nil, uuid.New()
 	invalidCases := []struct {

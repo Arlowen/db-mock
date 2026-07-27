@@ -1,9 +1,10 @@
 import { Alert, Button, Card, Col, List, Row, Space, Statistic, Typography } from 'antd'
-import { AlertOutlined, AuditOutlined, CloudServerOutlined, ContainerOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons'
+import { AlertOutlined, AuditOutlined, CloudServerOutlined, ContainerOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { InstanceCleanupReviewModal } from '../components/InstanceCleanupReview'
 import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
@@ -13,7 +14,7 @@ import { lifecycleCounts } from '../lib/instance-lifecycle'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { useTaskNotification } from '../lib/task-notification'
-import type { Dashboard, DashboardAttentionItem, Task } from '../lib/types'
+import type { Dashboard, DashboardAttentionItem, DashboardInstance, Task } from '../lib/types'
 
 function total(values: Record<string, number>) {
   return Object.values(values).reduce((sum, value) => sum + value, 0)
@@ -31,6 +32,7 @@ export function DashboardPage() {
   const [loadError, setLoadError] = useState('')
   const [attentionActionError, setAttentionActionError] = useState('')
   const [retryingTaskID, setRetryingTaskID] = useState('')
+  const [cleanupInstance, setCleanupInstance] = useState<DashboardInstance>()
 
   const load = useCallback(async () => {
     try {
@@ -130,7 +132,10 @@ export function DashboardPage() {
     >
       {dashboard?.lifecycleInstances.length ? <List
         dataSource={dashboard.lifecycleInstances}
-        renderItem={(item) => <List.Item className="workbench-lifecycle-item" actions={[<Button key="details" type="link" onClick={() => navigate(`/instances/${item.id}`)}>{t('details')}</Button>]}>
+        renderItem={(item) => <List.Item className="workbench-lifecycle-item" actions={[
+          ...(canOperate ? [<Button key="cleanup" icon={<SafetyCertificateOutlined />} onClick={() => setCleanupInstance(item)}>{t('reviewCleanup')}</Button>] : []),
+          <Button key="details" type="link" onClick={() => navigate(`/instances/${item.id}`)}>{t('details')}</Button>,
+        ]}>
           <List.Item.Meta
             title={<Space wrap><Button type="link" className="workbench-instance-link" onClick={() => navigate(`/instances/${item.id}`)}>{item.name}</Button><StatusTag value={item.status} /><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space>}
             description={<div className="workbench-lifecycle-details"><span>{item.purpose || t('purposeMissing')}</span><span>{item.owner || t('ownerMissing')}</span><span>{item.templateName} {item.templateVersion} · {item.hostName} · {translateCode(t, item.environment)}</span><strong>{formatDateTime(item.expiresAt, i18n.language, timezone)}</strong></div>}
@@ -138,5 +143,12 @@ export function DashboardPage() {
         </List.Item>}
       /> : !loadError && <EmptyState compact description={t('lifecycleQueueEmpty')} />}
     </Card>
+    {cleanupInstance && <InstanceCleanupReviewModal
+      instanceId={cleanupInstance.id}
+      instanceName={cleanupInstance.name}
+      open
+      onClose={() => setCleanupInstance(undefined)}
+      onChanged={load}
+    />}
   </>
 }

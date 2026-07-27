@@ -470,7 +470,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: '更多操作' }).click()
   await expect(page.getByRole('menuitem', { name: '变更运行配置' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: '升级' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '删除' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '审查清理' })).toBeVisible()
   await page.getByRole('menuitem', { name: '变更运行配置' }).click()
   const runtimeDialog = page.getByRole('dialog', { name: '变更运行配置' })
   await expect(runtimeDialog.getByText('运行中的实例会短暂重建容器')).toBeVisible()
@@ -934,7 +934,8 @@ test('initializes the platform and switches the embedded interface language', as
   const retriedTask = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
   let attentionItems: Record<string, unknown>[] = [{ resourceType: 'instance', resourceId: instanceID, resourceName: 'Orders DB', resourceStatus: 'failed', hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', taskId: failedTaskID, taskKind: 'instance_create', taskStatus: 'failed', taskStage: 'compose', errorCode: 'ssh_unreachable', updatedAt: failedTask.finishedAt }]
-  await page.route('**/api/v1/dashboard', async (route) => route.fulfill({ json: { hosts: { online: 1 }, instances: { failed: 1 }, activeTasks: attentionItems[0]?.taskStatus === 'queued' ? 1 : 0, openAlerts: 0, users: 1, projects: 0, attentionItems, lifecycleInstances: [] } }))
+  let lifecycleItems: Record<string, unknown>[] = []
+  await page.route('**/api/v1/dashboard', async (route) => route.fulfill({ json: { hosts: { online: 1 }, instances: { failed: 1 }, activeTasks: attentionItems[0]?.taskStatus === 'queued' ? 1 : 0, openAlerts: 0, users: 1, projects: 0, attentionItems, lifecycleInstances: lifecycleItems } }))
   await page.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, completedHostTask] } }))
   await page.route(`**/api/v1/tasks/${failedTaskID}`, async (route) => route.fulfill({ json: failedTask }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
@@ -983,6 +984,90 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page).toHaveURL(new RegExp(`task=${retriedTaskID}`))
   await expect(page.getByRole('dialog', { name: /创建数据库实例.*33333333/ }).getByText('排队中')).toBeVisible()
   await page.getByRole('dialog', { name: /创建数据库实例.*33333333/ }).getByRole('button', { name: '关闭', exact: true }).click()
+
+  const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
+  const cleanupReadyID = '44444444-4444-4444-8444-444444444442'
+  const cleanupDeleteTaskID = '44444444-4444-4444-8444-444444444443'
+  const cleanupBlocked = { id: cleanupBlockedID, name: '订单回归 PostgreSQL', purpose: '订单 4.2 发布回归', owner: '支付 QA', expiresAt: new Date(Date.now() - 172800000).toISOString(), status: 'running', environment: 'testing', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host' }
+  const cleanupReady = { ...cleanupBlocked, id: cleanupReadyID, name: '缓存兼容 Redis', purpose: '缓存客户端兼容验证', owner: '基础架构 QA', expiresAt: new Date(Date.now() + 259200000).toISOString(), status: 'stopped', templateName: 'Redis', templateVersion: '7.4' }
+  attentionItems = []
+  lifecycleItems = [cleanupBlocked]
+  let cleanupReviewAttempts = 0
+  let cleanupDecisionAttempts = 0
+  let cleanupDeleteAttempts = 0
+  let cleanupDecisionBody: Record<string, unknown> = {}
+  await page.route(`**/api/v1/instances/${cleanupBlockedID}/cleanup-review`, async (route) => {
+    cleanupReviewAttempts += 1
+    if (cleanupReviewAttempts === 1) {
+      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary review outage' } } })
+      return
+    }
+    await route.fulfill({ json: { instanceId: cleanupBlockedID, instanceName: cleanupBlocked.name, status: cleanupBlocked.status, purpose: cleanupBlocked.purpose, owner: cleanupBlocked.owner, expiresAt: cleanupBlocked.expiresAt, backupCount: 2, deleteReady: false, blockers: ['backups_present'] } })
+  })
+  await page.route(`**/api/v1/instances/${cleanupBlockedID}/cleanup-decision`, async (route) => {
+    cleanupDecisionAttempts += 1
+    cleanupDecisionBody = route.request().postDataJSON()
+    if (cleanupDecisionAttempts === 1) {
+      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'expiry changed during review' } } })
+      return
+    }
+    lifecycleItems = [cleanupReady]
+    await route.fulfill({ json: { ...cleanupBlocked, expiresAt: new Date(Date.now() + 604800000).toISOString() } })
+  })
+  await page.route(`**/api/v1/instances/${cleanupReadyID}/cleanup-review`, async (route) => route.fulfill({ json: { instanceId: cleanupReadyID, instanceName: cleanupReady.name, status: cleanupReady.status, purpose: cleanupReady.purpose, owner: cleanupReady.owner, expiresAt: cleanupReady.expiresAt, backupCount: 0, deleteReady: true, blockers: [] } }))
+  await page.route(`**/api/v1/instances/${cleanupReadyID}/actions/delete`, async (route) => {
+    cleanupDeleteAttempts += 1
+    expect(route.request().postDataJSON()).toEqual({ confirmName: cleanupReady.name })
+    if (cleanupDeleteAttempts === 1) {
+      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'a backup was added during review' } } })
+      return
+    }
+    lifecycleItems = []
+    await route.fulfill({ status: 202, json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'queued', resourceType: 'instance', resourceId: cleanupReadyID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
+  })
+  await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}`, async (route) => route.fulfill({ json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'succeeded', resourceType: 'instance', resourceId: cleanupReadyID, progress: 100, stage: 'completed', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() } }))
+  await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
+
+  await page.goto('/')
+  await page.getByRole('button', { name: '审查清理' }).click()
+  let cleanupDialog = page.getByRole('dialog', { name: /审查清理.*订单回归 PostgreSQL/ })
+  await expect(cleanupDialog.getByText('无法检查清理条件')).toBeVisible()
+  await cleanupDialog.getByRole('button', { name: '重试' }).click()
+  await expect(cleanupDialog.getByText('仍有 2 个托管备份；请先逐个确认并删除。')).toBeVisible()
+  await expect(cleanupDialog.getByRole('button', { name: '继续永久删除' })).toBeDisabled()
+  await cleanupDialog.getByRole('button', { name: /取\s*消/ }).click()
+  await expect(cleanupDialog).toBeHidden()
+
+  await page.getByRole('button', { name: '审查清理' }).click()
+  cleanupDialog = page.getByRole('dialog', { name: /审查清理.*订单回归 PostgreSQL/ })
+  await cleanupDialog.getByRole('button', { name: '延期 7 天' }).click()
+  await expect(cleanupDialog.getByText('清理决定未完成')).toBeVisible()
+  await cleanupDialog.getByRole('button', { name: '延期 7 天' }).click()
+  await expect(page.getByText('已从当前到期日或今天（取较晚者）延期 7 天')).toBeVisible()
+  expect(cleanupDecisionBody).toEqual({ decision: 'extend', days: 7 })
+  await expect(page.getByText(cleanupReady.name, { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: '审查清理' }).click()
+  cleanupDialog = page.getByRole('dialog', { name: /审查清理.*缓存兼容 Redis/ })
+  await expect(cleanupDialog.getByText('已具备永久删除条件')).toBeVisible()
+  await cleanupDialog.getByRole('button', { name: '继续永久删除' }).click()
+  const deleteCleanupDialog = page.getByRole('dialog', { name: /永久删除确认.*缓存兼容 Redis/ })
+  const queueDeleteButton = deleteCleanupDialog.getByRole('button', { name: '创建永久删除任务' })
+  await expect(queueDeleteButton).toBeDisabled()
+  await deleteCleanupDialog.getByLabel(`输入实例名称 ${cleanupReady.name} 确认删除`).fill(cleanupReady.name)
+  await queueDeleteButton.click()
+  await expect(deleteCleanupDialog.getByText('清理决定未完成')).toBeVisible()
+  await queueDeleteButton.click()
+  await expect(page.getByText('永久删除任务已创建')).toBeVisible()
+  await expect(deleteCleanupDialog).toBeHidden()
+  await expect(page.getByText('未来 7 天没有需要确认清理的数据库。平台不会因到期自动停机或删除。')).toBeVisible()
+
+  await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`)
+  await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}`)
+  await page.unroute(`**/api/v1/instances/${cleanupReadyID}/actions/delete`)
+  await page.unroute(`**/api/v1/instances/${cleanupReadyID}/cleanup-review`)
+  await page.unroute(`**/api/v1/instances/${cleanupBlockedID}/cleanup-decision`)
+  await page.unroute(`**/api/v1/instances/${cleanupBlockedID}/cleanup-review`)
   await page.unroute(`**/api/v1/tasks/${retriedTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${retriedTaskID}`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}/retry`)
@@ -1165,6 +1250,8 @@ test('initializes the platform and switches the embedded interface language', as
   expect(viewerProjectCreate.status()).toBe(403)
   const viewerBatchStop = await developerPage.request.post('/api/v1/instances/batch-actions/stop', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
   expect(viewerBatchStop.status()).toBe(403)
+  const viewerCleanupDecision = await developerPage.request.post('/api/v1/instances/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/cleanup-decision', { data: { decision: 'extend', days: 7 } })
+  expect(viewerCleanupDecision.status()).toBe(403)
   const viewerUsers = await developerPage.request.get('/api/v1/users')
   expect(viewerUsers.status()).toBe(403)
   await developerPage.getByRole('button', { name: '账号菜单' }).click()

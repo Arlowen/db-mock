@@ -108,6 +108,7 @@ export function AuditPage() {
     if (typeof value === 'boolean') return t(value ? 'yes' : 'no')
     if (key === 'freedBytes' && typeof value === 'number') return bytes(value)
     if (key === 'status' && typeof value === 'string') return translateCode(t, value)
+    if (key === 'cleanupDecision' && typeof value === 'string') return t(`cleanupDecision_${value}`, { defaultValue: value })
     if (key === 'locale' && value === 'zh-CN') return t('languageChinese')
     if (key === 'locale' && value === 'en-US') return t('languageEnglish')
     return auditValueText(value)

@@ -118,6 +118,62 @@ func TestValidateBatchInstanceActionKeepsFailedRecoveryIndividual(t *testing.T) 
 	}
 }
 
+func TestBuildCleanupReviewExplainsEveryDeleteBlocker(t *testing.T) {
+	instanceID, taskID := uuid.New(), uuid.New()
+	expiresAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	review := buildCleanupReview(domain.Instance{
+		ID: instanceID, Name: "orders-db", Status: "running", Purpose: "Release regression",
+		Owner: "Payments QA", ExpiresAt: &expiresAt,
+	}, []domain.InstanceBackup{{ID: uuid.New()}, {ID: uuid.New()}}, []domain.Task{
+		{ID: uuid.New(), Status: "failed"},
+		{ID: taskID, Kind: "instance.stop", Status: "queued", Stage: "queued"},
+	})
+	if review.DeleteReady || review.BackupCount != 2 || review.ActiveTask == nil || review.ActiveTask.ID != taskID ||
+		len(review.Blockers) != 2 || review.Blockers[0] != "active_operation" || review.Blockers[1] != "backups_present" {
+		t.Fatalf("cleanup review = %#v", review)
+	}
+
+	ready := buildCleanupReview(domain.Instance{ID: instanceID, Name: "failed-db", Status: "failed"}, nil, nil)
+	if !ready.DeleteReady || len(ready.Blockers) != 0 {
+		t.Fatalf("failed instance without managed blockers should be deletable: %#v", ready)
+	}
+	busy := buildCleanupReview(domain.Instance{ID: instanceID, Name: "busy-db", Status: "backing_up"}, nil, nil)
+	if busy.DeleteReady || len(busy.Blockers) != 1 || busy.Blockers[0] != "status_not_deletable" {
+		t.Fatalf("busy instance cleanup review = %#v", busy)
+	}
+}
+
+func TestCleanupDecisionExpiryExtendsFromTheLaterBoundary(t *testing.T) {
+	now := time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC)
+	expired := now.Add(-48 * time.Hour)
+	got, err := cleanupDecisionExpiry(&expired, "extend", 7, now)
+	if err != nil || got == nil || !got.Equal(now.AddDate(0, 0, 7)) {
+		t.Fatalf("expired extension = %v, %v", got, err)
+	}
+	future := now.Add(72 * time.Hour)
+	got, err = cleanupDecisionExpiry(&future, "extend", 7, now)
+	if err != nil || got == nil || !got.Equal(future.AddDate(0, 0, 7)) {
+		t.Fatalf("future extension = %v, %v", got, err)
+	}
+	got, err = cleanupDecisionExpiry(&future, "retain", 0, now)
+	if err != nil || got != nil {
+		t.Fatalf("retain decision = %v, %v", got, err)
+	}
+	for _, input := range []struct {
+		decision string
+		days     int
+	}{
+		{decision: "extend", days: 0},
+		{decision: "extend", days: 366},
+		{decision: "retain", days: 7},
+		{decision: "delete", days: 0},
+	} {
+		if _, err = cleanupDecisionExpiry(nil, input.decision, input.days, now); !errors.Is(err, domain.ErrInvalid) {
+			t.Fatalf("cleanupDecisionExpiry(%q, %d) error = %v, want invalid", input.decision, input.days, err)
+		}
+	}
+}
+
 func TestValidateInstanceActionRequestRejectsCrossActionFields(t *testing.T) {
 	versionID := uuid.New()
 	for name, test := range map[string]struct {

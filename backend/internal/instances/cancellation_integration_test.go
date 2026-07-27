@@ -234,6 +234,36 @@ func TestQueuedDeleteCancellationRestoresSuspendedBackupPolicy(t *testing.T) {
 	}
 }
 
+func TestDeleteQueueAtomicallyRejectsExistingBackups(t *testing.T) {
+	ctx, pool := openCancellationTest(t)
+	fixture := seedCancellationFixture(t, ctx, pool)
+	backupID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO instance_backups(id,instance_id,host_id,template_version_id,
+		name,status,remote_path,created_by) VALUES($1,$2,$3,$4,'cleanup-blocker','ready',$5,$6)`,
+		backupID, fixture.instanceID, fixture.hostID, fixture.versionID,
+		"/opt/dbmock/backups/"+backupID.String()+".tar.gz", fixture.userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	resourceID := fixture.instanceID
+	_, err := target.CreateInstanceActionTask(ctx, store.TaskInput{Kind: "instance.delete", ResourceType: "instance",
+		ResourceID: &resourceID, RequestedBy: fixture.userID, HostID: &fixture.hostID,
+		Payload: ActionPayload{InstanceID: fixture.instanceID, PreviousStatus: "running", PreviousDesiredState: "running"}},
+		fixture.instanceID, "running", "deleting")
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("delete queue error = %v, want conflict", err)
+	}
+	instance, getErr := target.GetInstance(ctx, fixture.instanceID)
+	if getErr != nil || instance.Status != "running" {
+		t.Fatalf("blocked delete changed instance state: instance=%#v err=%v", instance, getErr)
+	}
+	var taskCount int
+	if countErr := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE resource_id=$1`, fixture.instanceID).
+		Scan(&taskCount); countErr != nil || taskCount != 0 {
+		t.Fatalf("blocked delete persisted tasks=%d err=%v", taskCount, countErr)
+	}
+}
+
 func TestQueuedScheduledBackupCancellationRestoresInstanceAndTracksOutcome(t *testing.T) {
 	ctx, pool := openCancellationTest(t)
 	fixture := seedCancellationFixture(t, ctx, pool)
