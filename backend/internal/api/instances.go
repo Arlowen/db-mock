@@ -22,6 +22,7 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.With(requireOperator).Post("/", s.createInstance)
 	r.With(requireOperator).Post("/batch-actions/{action}", s.batchInstanceAction)
 	r.Get("/{id}", s.getInstance)
+	r.Get("/{id}/tasks", s.listInstanceRelatedTasks)
 	r.With(requireOperator).Patch("/{id}", s.updateInstance)
 	r.Get("/{id}/cleanup-review", s.getInstanceCleanupReview)
 	r.With(requireOperator).Post("/{id}/cleanup-decision", s.updateInstanceCleanupDecision)
@@ -35,6 +36,24 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.With(requireOperator).Get("/{id}/connection", s.instanceConnection)
 	r.Get("/{id}/logs", s.instanceLogs)
 	r.Get("/{id}/metrics", s.instanceMetrics)
+}
+
+func (s *Server) listInstanceRelatedTasks(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if _, err = s.store.GetInstance(r.Context(), id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	items, err := s.store.ListInstanceRelatedTasks(r.Context(), id, 100)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) getInstanceBackupPolicy(w http.ResponseWriter, r *http.Request) {

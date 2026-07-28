@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import appI18n from '../i18n'
 import { ApiError, api, errorMessage } from '../lib/api'
+import { failedBackupDeleteRecoveries } from '../lib/backup-delete-recovery'
 import { cleanupContinuationPhase, cleanupEvidenceState, hasActiveBackupOperation, type CleanupEvidenceState } from '../lib/cleanup-continuation'
 import { connectionHandoffSummary } from '../lib/connection-handoff'
 import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
@@ -26,7 +27,7 @@ import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from
 import { permissionsFor } from '../lib/permissions'
 import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { taskFailureGuidance } from '../lib/task-failure'
-import { taskHostRecoveryPath } from '../lib/task-recovery'
+import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { isRecoverableInstanceStatus, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
@@ -654,6 +655,7 @@ export function InstanceDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskInventoryState, setTaskInventoryState] = useState<CleanupEvidenceState>('loading')
   const [taskInventoryError, setTaskInventoryError] = useState('')
+  const [cleanupRetryError, setCleanupRetryError] = useState('')
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [upgradeVersion, setUpgradeVersion] = useState<string>()
@@ -695,7 +697,7 @@ export function InstanceDetailPage() {
         api<{ items: Registry[] }>('/registries'),
         api<{ items: InstanceBackup[] }>(`/instances/${id}/backups`),
         api<{ policy: InstanceBackupPolicy | null }>(`/instances/${id}/backup-policy`),
-        api<{ items: Task[] }>(`/tasks?resourceType=instance&resourceId=${encodeURIComponent(id)}`),
+        api<{ items: Task[] }>(`/instances/${id}/tasks`),
       ])
       if (catalog.status === 'fulfilled') setTemplates(catalog.value.items)
       if (projectList.status === 'fulfilled') setProjects(projectList.value.items)
@@ -724,6 +726,7 @@ export function InstanceDetailPage() {
       setPageError(failedRequest?.status === 'rejected' ? errorMessage(failedRequest.reason) : '')
     } catch (error) { setPageError(errorMessage(error)) } finally { setPageLoading(false) }
   }, [id])
+  const instanceTasks = tasks.filter((task) => task.resourceType === 'instance' && task.resourceId === id)
   const activeCleanupTask = tasks.find((task) => ['queued', 'running', 'retrying'].includes(task.status))
   const hasActiveTask = !!activeCleanupTask
   const hasActiveOperation = hasActiveTask || hasActiveBackupOperation(backups.map((backup) => backup.status))
@@ -734,6 +737,7 @@ export function InstanceDetailPage() {
     setBackupInventoryError('')
     setTaskInventoryState('loading')
     setTaskInventoryError('')
+    setCleanupRetryError('')
     void load()
   }, [load])
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
@@ -802,7 +806,7 @@ export function InstanceDetailPage() {
       setActioning(actionKey)
       const result = await api<{ backup: InstanceBackup; task: Task }>(`/instances/${id}/backups/${backupAction.backup.id}/${backupAction.type}`, { method: 'POST', body: { confirmName: backupConfirm } })
       setBackups((current) => current.map((backup) => backup.id === result.backup.id ? result.backup : backup))
-      if (backupAction.type === 'restore') setTasks((current) => [result.task, ...current])
+      setTasks((current) => [result.task, ...current])
       notifyTask(result.task)
       setBackupAction(undefined)
       setBackupConfirm('')
@@ -928,8 +932,8 @@ export function InstanceDetailPage() {
     } catch { /* form marks errors */ }
   }
   const project = projects.find((candidate) => candidate.id === item.projectId)
-  const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, isRecoverableInstanceStatus(item.status))
-  const deploymentHandoff = selectDeploymentHandoff(tasks, item.status)
+  const { activeTask, failedTask, operationTask } = selectRecoveryTasks(instanceTasks, isRecoverableInstanceStatus(item.status))
+  const deploymentHandoff = selectDeploymentHandoff(instanceTasks, item.status)
   const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
   const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
   const lifecycleRequestCanRetry = lifecycleRequestFailure && !operationTask &&
@@ -943,6 +947,22 @@ export function InstanceDetailPage() {
       notifyTask(retried)
       await load()
     } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+  }
+  const retryBackupDelete = async (task: Task) => {
+    const actionKey = `retry-backup-delete:${task.id}`
+    try {
+      setActioning(actionKey)
+      setCleanupRetryError('')
+      const retried = await api<Task>(`/tasks/${task.id}/retry`, { method: 'POST', body: {} })
+      setTasks((current) => [retried, ...current])
+      notifyTask(retried)
+      await load()
+    } catch (error) {
+      setCleanupRetryError(errorMessage(error))
+      await load()
+    } finally {
+      setActioning('')
+    }
   }
   const lifecycleRequestFailurePanel = lifecycleRequestFailure && !operationTask && <Alert
     className="instance-page-alert instance-action-request-alert"
@@ -1035,14 +1055,19 @@ export function InstanceDetailPage() {
     : t('backupScheduleDisabled')
   const backupScheduleWaiting = !!backupPolicy?.enabled && !!backupPolicy.nextRunAt && new Date(backupPolicy.nextRunAt).getTime() <= Date.now()
   const cleanupContinuationRequested = detailParams.get('cleanup') === 'review' && activeTab === 'backups'
+  const failedBackupDeletes = failedBackupDeleteRecoveries(backups, tasks)
+  const failedBackupDeleteTaskByBackupID = new Map(failedBackupDeletes.map(({ backup, task }) => [backup.id, task]))
   const cleanupEvidence = cleanupEvidenceState(backupInventoryState, taskInventoryState)
   const cleanupPhase = cleanupContinuationPhase({
     evidenceState: cleanupEvidence,
     backupStatuses: backups.map((backup) => backup.status),
     hasActiveTask,
+    failedBackupDeleteCount: failedBackupDeletes.length,
   })
   const cleanupContinuationTone: 'info' | 'error' | 'warning' | 'success' = cleanupPhase === 'unavailable'
     ? 'error'
+    : cleanupPhase === 'failed'
+      ? 'error'
     : cleanupPhase === 'blocked'
       ? 'warning'
       : cleanupPhase === 'ready'
@@ -1054,12 +1079,15 @@ export function InstanceDetailPage() {
       ? t('cleanupBackupContinuationUnavailable', { error: backupInventoryError || taskInventoryError })
       : cleanupPhase === 'processing'
         ? t('cleanupBackupContinuationProcessing')
+        : cleanupPhase === 'failed'
+          ? t('cleanupBackupDeleteFailedSummary', { count: failedBackupDeletes.length })
         : cleanupPhase === 'blocked'
           ? t('cleanupBackupContinuationBlocked', { count: backups.length })
           : t('cleanupBackupContinuationReady')
   const clearCleanupContinuation = () => {
     const next = new URLSearchParams(detailParams)
     next.delete('cleanup')
+    setCleanupRetryError('')
     setDetailParams(next, { replace: true })
   }
   const closeCleanupReview = () => {
@@ -1074,6 +1102,30 @@ export function InstanceDetailPage() {
     description={<div className="cleanup-continuation-body">
       <Typography.Text>{cleanupContinuationDescription}</Typography.Text>
       {!canOperate && <Typography.Text type="secondary">{t('cleanupBackupContinuationReadOnly')}</Typography.Text>}
+      {cleanupPhase === 'failed' && <div className="cleanup-backup-failure-list">
+        {failedBackupDeletes.map(({ backup, task }) => {
+          const guidance = taskFailureGuidance(task)
+          const recoveryPath = guidance.inspectHost ? taskHostRecoveryPathForTask(task) : undefined
+          const retryKey = `retry-backup-delete:${task.id}`
+          return <div className="cleanup-backup-failure" key={task.id}>
+            <div className="cleanup-backup-failure-header">
+              <div><Typography.Text type="secondary">{t('backup')}</Typography.Text><Typography.Text strong>{backup.name}</Typography.Text></div>
+              <StatusTag value={task.status} />
+            </div>
+            <TaskFailureGuidance task={task} hostName={item.hostName} />
+            <Space wrap className="cleanup-backup-failure-actions">
+              {recoveryPath && <Button size="small" type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(recoveryPath)}>{t('inspectFailedHost')}</Button>}
+              {canOperate && !guidance.inspectHost && <Button size="small" type="primary" icon={<ReloadOutlined />} loading={actioning === retryKey} disabled={!!actioning && actioning !== retryKey} onClick={() => void retryBackupDelete(task)}>{t('retryBackupDelete')}</Button>}
+              <Button size="small" onClick={() => navigate(`/tasks?task=${task.id}`)}>{t('viewTask')}</Button>
+            </Space>
+          </div>
+        })}
+      </div>}
+      {cleanupRetryError && <div className="cleanup-backup-retry-error" role="alert">
+        <Typography.Text strong type="danger">{t('cleanupBackupDeleteRetryFailed')}</Typography.Text>
+        <Typography.Text type="danger">{cleanupRetryError}</Typography.Text>
+        <Typography.Text type="secondary">{t('cleanupBackupDeleteRetryFailedHint')}</Typography.Text>
+      </div>}
       <Space wrap className="cleanup-continuation-actions">
         {cleanupPhase === 'ready' && canOperate && <Button size="small" type="primary" icon={<SafetyCertificateOutlined />} disabled={!!actioning} onClick={() => setCleanupOpen(true)}>{t('continueCleanupReview')}</Button>}
         {cleanupPhase === 'processing' && activeCleanupTask && <Button size="small" onClick={() => navigate(`/tasks?task=${activeCleanupTask.id}`)}>{t('viewTask')}</Button>}
@@ -1084,7 +1136,10 @@ export function InstanceDetailPage() {
   />
   const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'cleanup', icon: <SafetyCertificateOutlined />, label: t('reviewCleanup'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
   const backupColumns = [
-    { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => <><Typography.Text strong>{value}</Typography.Text>{backup.errorMessage && <><br /><Typography.Text type="danger">{translateCode(t, backup.errorMessage, 'statusMessage')}</Typography.Text></>}</> },
+    { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => {
+      const failedDeleteTask = failedBackupDeleteTaskByBackupID.get(backup.id)
+      return <><Typography.Text strong>{value}</Typography.Text>{failedDeleteTask ? <><br /><Typography.Text type="danger">{t('backupDeleteFailedInline')}</Typography.Text></> : backup.errorMessage && <><br /><Typography.Text type="danger">{translateCode(t, backup.errorMessage, 'statusMessage')}</Typography.Text></>}</>
+    } },
     { title: t('status'), dataIndex: 'status', width: 110, render: (value: string) => <StatusTag value={value} /> },
     { title: t('source'), dataIndex: 'creationType', width: 105, render: (value: InstanceBackup['creationType']) => <Tag>{t(value === 'scheduled' ? 'scheduledBackup' : 'manualBackup')}</Tag> },
     { title: t('version'), dataIndex: 'templateVersion', width: 105 },
@@ -1092,7 +1147,13 @@ export function InstanceDetailPage() {
     { title: t('sha256'), dataIndex: 'sha256', width: 165, render: (value: string) => value ? <Typography.Text code copyable={{ text: value }}>{value.slice(0, 12)}…</Typography.Text> : '—' },
     { title: t('createdBy'), dataIndex: 'createdByUsername', width: 130 },
     { title: t('createdAt'), dataIndex: 'createdAt', width: 180, render: (value: string) => formatDateTime(value, i18n.language, timezone) },
-    { title: '', width: 180, align: 'right' as const, render: (_: unknown, backup: InstanceBackup) => canOperate ? <Space><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !!operationTask || backup.status !== 'ready' || backup.templateVersionId !== item.templateVersionId} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'restore', backup }) }}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'delete', backup }) }}>{t('delete')}</Button></Space> : null },
+    { title: '', width: 260, align: 'right' as const, render: (_: unknown, backup: InstanceBackup) => {
+      const failedDeleteTask = failedBackupDeleteTaskByBackupID.get(backup.id)
+      return <Space>
+        {failedDeleteTask && <Button size="small" onClick={() => navigate(`/tasks?task=${failedDeleteTask.id}`)}>{t('viewTask')}</Button>}
+        {canOperate && <><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !!operationTask || backup.status !== 'ready' || backup.templateVersionId !== item.templateVersionId} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'restore', backup }) }}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'delete', backup }) }}>{t('delete')}</Button></>}
+      </Space>
+    } },
   ]
   const backupsTab = <Card title={t('backups')} extra={canOperate ? <Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={() => { setBackupName(''); setBackupCreateOpen(true) }}>{t('createBackup')}</Button> : undefined}>
     {cleanupContinuationPanel}

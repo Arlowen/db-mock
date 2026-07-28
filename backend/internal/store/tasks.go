@@ -218,6 +218,28 @@ func (s *Store) ListTasks(ctx context.Context, status, resourceType string, reso
 	return items, rows.Err()
 }
 
+func (s *Store) ListInstanceRelatedTasks(ctx context.Context, instanceID uuid.UUID, limit int) ([]domain.Task, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, "SELECT "+taskColumns+` FROM tasks
+        WHERE (resource_type='instance' AND resource_id=$1) OR payload->>'instanceId'=$1::text
+        ORDER BY created_at DESC LIMIT $2`, instanceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.Task, 0)
+	for rows.Next() {
+		var item domain.Task
+		if err := rows.Scan(taskScan(&item)...); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) HasActiveResourceTask(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
 	var active bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tasks

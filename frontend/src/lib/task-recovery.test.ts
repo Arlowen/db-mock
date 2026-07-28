@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryHostID, taskRecoveryResourcePath } from './task-recovery'
+import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from './task-recovery'
 import type { Host, Task } from './types'
 
 const host = { id: 'host-id', status: 'online', maintenance: false } as Host
@@ -28,7 +28,10 @@ describe('task recovery helpers', () => {
   it('derives only known resource destinations', () => {
     expect(taskRecoveryResourcePath(task)).toBe('/instances/instance-id')
     expect(taskRecoveryResourcePath({ ...task, resourceType: 'host', resourceId: 'host-id' })).toBe('/hosts?host=host-id')
-    expect(taskRecoveryResourcePath({ ...task, resourceType: 'backup' })).toBeUndefined()
+    const backupTask = { ...task, resourceType: 'backup', resourceId: 'backup-id', payload: { instanceId: 'instance id' } }
+    expect(taskRecoveryInstanceID(backupTask)).toBe('instance id')
+    expect(taskRecoveryResourcePath(backupTask)).toBe('/instances/instance%20id?tab=backups&cleanup=review')
+    expect(taskRecoveryResourcePath({ ...backupTask, payload: {} })).toBeUndefined()
   })
 
   it('requires a ready host before retry and follows the retried task state', () => {

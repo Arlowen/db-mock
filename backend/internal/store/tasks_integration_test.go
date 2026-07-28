@@ -213,6 +213,50 @@ func TestRetryTaskPersistsRollbackLineageAcrossAttempts(t *testing.T) {
 	}
 }
 
+func TestListInstanceRelatedTasksIncludesBackupResourcesAndExcludesOtherInstances(t *testing.T) {
+	ctx, pool := openInstanceStoreTest(t)
+	userID, hostID := uuid.New(), uuid.New()
+	instanceID, otherInstanceID, backupID := uuid.New(), uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'task-scope','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,
+		connection_address,data_root,status) VALUES($1,'scope-host','127.0.0.1','tester','password','sealed',
+		'127.0.0.1','/opt/dbmock','online')`, hostID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	instanceTask, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.restart", ResourceType: "instance",
+		ResourceID: &instanceID, RequestedBy: userID, HostID: &hostID, Payload: map[string]any{"instanceId": instanceID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupTask, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.backup.delete", ResourceType: "backup",
+		ResourceID: &backupID, RequestedBy: userID, HostID: &hostID, Payload: map[string]any{"instanceId": instanceID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTask, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.restart", ResourceType: "instance",
+		ResourceID: &otherInstanceID, RequestedBy: userID, HostID: &hostID, Payload: map[string]any{"instanceId": otherInstanceID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE tasks SET created_at=CASE id
+		WHEN $1 THEN now()-interval '2 minutes'
+		WHEN $2 THEN now()-interval '1 minute'
+		ELSE now() END WHERE id IN ($1,$2,$3)`, instanceTask.ID, backupTask.ID, otherTask.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := target.ListInstanceRelatedTasks(ctx, instanceID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID != backupTask.ID || items[1].ID != instanceTask.ID {
+		t.Fatalf("related tasks = %#v, want backup then instance task", items)
+	}
+}
+
 func waitForAdvisoryWaiters(t *testing.T, ctx context.Context, pool *pgxpool.Pool, wanted int, timeout time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

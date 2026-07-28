@@ -4,6 +4,7 @@ export type CleanupContinuationPhase =
   | 'loading'
   | 'unavailable'
   | 'processing'
+  | 'failed'
   | 'blocked'
   | 'ready'
 
@@ -19,16 +20,19 @@ interface CleanupContinuationInput {
   evidenceState: CleanupEvidenceState
   backupStatuses: string[]
   hasActiveTask: boolean
+  failedBackupDeleteCount?: number
 }
 
 export function cleanupContinuationPhase({
   evidenceState,
   backupStatuses,
   hasActiveTask,
+  failedBackupDeleteCount = 0,
 }: CleanupContinuationInput): CleanupContinuationPhase {
   if (evidenceState === 'loading') return 'loading'
   if (evidenceState === 'error') return 'unavailable'
   if (hasActiveTask || backupStatuses.some((status) => activeBackupStatuses.has(status))) return 'processing'
+  if (failedBackupDeleteCount > 0) return 'failed'
   return backupStatuses.length > 0 ? 'blocked' : 'ready'
 }
 

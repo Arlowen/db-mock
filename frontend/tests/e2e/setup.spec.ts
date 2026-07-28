@@ -346,6 +346,8 @@ test('initializes the platform and switches the embedded interface language', as
   const upgradeImageID = '57575757-5757-4575-8575-575757575757'
   const upgradeRegistryID = '58585858-5858-4585-8585-585858585858'
   const backupID = '60606060-6060-4060-8060-606060606060'
+  const backupDeleteTaskID = '63636363-6363-4363-8363-636363636363'
+  const backupDeleteRetryTaskID = '63636363-6363-4363-8363-636363636364'
   let failLogs = true
   let failConnection = false
   let failRestartRequest = true
@@ -361,6 +363,8 @@ test('initializes the platform and switches the embedded interface language', as
   let instanceBackups: Array<Record<string, unknown>> = []
   let failBackupInventory = false
   let failTaskInventory = false
+  let failBackupDeleteRetry = true
+  let backupDeleteRetryCount = 0
   let instanceBackupPolicy: Record<string, unknown> | null = null
   let sourceVersionSelectable = true
   await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
@@ -395,7 +399,7 @@ test('initializes the platform and switches the embedded interface language', as
       blockers: backupCount > 0 ? ['backups_present'] : [],
     } })
   })
-  await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => {
+  await page.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => {
     if (failTaskInventory) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task inventory outage' } } })
     await route.fulfill({ json: { items: relatedTasks } })
   })
@@ -422,7 +426,16 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
     submittedBackupDeleteBody = route.request().postDataJSON()
     instanceBackups = [{ ...instanceBackups[0], status: 'deleting' }]
-    await route.fulfill({ status: 202, json: { backup: instanceBackups[0], task: { id: '63636363-6363-4363-8363-636363636363', kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
+    const task = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 0, stage: 'queued', message: '', payload: { instanceId: instanceID, backupId: backupID }, cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
+    relatedTasks = [task, ...relatedTasks]
+    await route.fulfill({ status: 202, json: { backup: instanceBackups[0], task } })
+  })
+  await page.route(`**/api/v1/tasks/${backupDeleteTaskID}/retry`, async (route) => {
+    backupDeleteRetryCount += 1
+    if (failBackupDeleteRetry) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task retry outage' } } })
+    const retried = { ...relatedTasks[0], id: backupDeleteRetryTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', createdAt: new Date(Date.now() + 1000).toISOString() }
+    relatedTasks = [retried, ...relatedTasks]
+    await route.fulfill({ status: 202, json: retried })
   })
   await page.route(`**/api/v1/instances/${instanceID}/actions/upgrade`, async (route) => {
     submittedUpgradeBody = route.request().postDataJSON()
@@ -595,7 +608,34 @@ test('initializes the platform and switches the embedded interface language', as
   await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
   await expect.poll(() => submittedBackupDeleteBody).toEqual({ confirmName: '\u53d1\u5e03\u524d\u5907\u4efd' })
   await expect(cleanupContinuation.getByText('备份或实例操作仍在执行；完成后本页会自动重新检查清理条件。')).toBeVisible()
+  instanceBackups = [{ ...instanceBackups[0], status: 'ready', errorMessage: 'remote command failed: permission denied while deleting archive' }]
+  relatedTasks = [{
+    ...relatedTasks[0],
+    status: 'failed',
+    progress: 40,
+    stage: 'files',
+    message: 'removing_backup_archive_from_host',
+    errorCode: 'task_failed',
+    errorMessage: 'remote command failed: permission denied while deleting archive',
+    cancelable: false,
+    attempts: 1,
+    finishedAt: new Date().toISOString(),
+  }]
+  await cleanupContinuation.getByRole('button', { name: '刷新状态' }).click()
+  await expect(cleanupContinuation.getByText('有 1 个备份删除操作未完成，永久删除仍被阻断。请先按下方建议恢复，再从本页继续清理。')).toBeVisible()
+  await expect(cleanupContinuation.getByText('当前阶段未完成，平台无法从已有信息确定唯一原因。')).toBeVisible()
+  await expect(cleanupContinuation.getByText('备份可能仍保留在主机上，不会影响当前数据库运行。')).toBeVisible()
+  await expect(page.getByText('上次删除未完成')).toBeVisible()
+  await cleanupContinuation.getByRole('button', { name: '重试删除' }).click()
+  await expect.poll(() => backupDeleteRetryCount).toBe(1)
+  await expect(cleanupContinuation.getByText('备份删除重试未排队')).toBeVisible()
+  await expect(cleanupContinuation.getByText('备份仍保留在主机上，数据库运行不受本次重试影响。刷新状态并处理提示原因后可以再次尝试。')).toBeVisible()
+  failBackupDeleteRetry = false
+  await cleanupContinuation.getByRole('button', { name: '重试删除' }).click()
+  await expect.poll(() => backupDeleteRetryCount).toBe(2)
+  await expect(cleanupContinuation.getByText('备份或实例操作仍在执行；完成后本页会自动重新检查清理条件。')).toBeVisible()
   instanceBackups = []
+  relatedTasks = [{ ...relatedTasks[0], status: 'succeeded', progress: 100, stage: 'files', finishedAt: new Date().toISOString() }]
   await cleanupContinuation.getByRole('button', { name: '刷新状态' }).click()
   await expect(cleanupContinuation.getByText('托管备份已清空，且没有进行中的操作。请重新执行一次服务端清理审查，然后进入名称确认。')).toBeVisible()
   await cleanupContinuation.getByRole('button', { name: '继续清理审查' }).click()
@@ -751,7 +791,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}/backup-policy`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`)
-  await page.unroute('**/api/v1/tasks?resourceType=instance&resourceId=**')
+  await page.unroute(`**/api/v1/instances/${instanceID}/tasks`)
+  await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/retry`)
   await page.unroute('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry')
   await page.unroute('**/api/v1/templates')
   await page.unroute('**/api/v1/images')
@@ -1508,9 +1549,11 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.unroute('**/api/v1/tasks')
   await developerPage.unroute('**/api/v1/hosts')
   await developerPage.unroute('**/api/v1/instances')
-  await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [] } }))
+  const viewerFailedBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'Viewer cleanup backup', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const viewerFailedBackupTask = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'failed', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
+  await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [viewerFailedBackup] } }))
   await developerPage.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
-  await developerPage.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }] } }))
+  await developerPage.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => route.fulfill({ json: { items: [viewerFailedBackupTask, { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }] } }))
   await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: 'running' } }))
   await developerPage.goto(`/instances/${instanceID}`)
   await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()
@@ -1520,6 +1563,9 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
   const viewerCleanupContinuation = developerPage.locator('.cleanup-continuation-alert')
   await expect(viewerCleanupContinuation.getByText('当前账号可以查看阻断条件，但需要管理员或运维删除备份并继续清理。')).toBeVisible()
+  await expect(viewerCleanupContinuation.getByText(/有 1 个备份删除操作未完成/)).toBeVisible()
+  await expect(viewerCleanupContinuation.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(viewerCleanupContinuation.getByRole('button', { name: '重试删除' })).toHaveCount(0)
   await expect(viewerCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
   await expect(developerPage.getByRole('button', { name: '创建备份' })).toHaveCount(0)
   await developerPage.goto('/')

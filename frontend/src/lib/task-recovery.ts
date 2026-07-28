@@ -20,10 +20,18 @@ export function taskHostRecoveryPathForTask(task?: Pick<Task, 'id' | 'hostId' | 
   return taskHostRecoveryPath(taskRecoveryHostID(task), task?.id)
 }
 
+export function taskRecoveryInstanceID(task?: Pick<Task, 'resourceType' | 'resourceId' | 'payload'>): string | undefined {
+  if (task?.resourceType === 'instance') return task.resourceId?.trim() || undefined
+  const instanceID = task?.payload?.instanceId
+  return typeof instanceID === 'string' && instanceID.trim() ? instanceID.trim() : undefined
+}
+
 export function taskRecoveryResourcePath(task?: Task): string | undefined {
-  if (!task?.resourceId) return undefined
-  if (task.resourceType === 'instance') return `/instances/${encodeURIComponent(task.resourceId)}`
-  if (task.resourceType === 'host') return `/hosts?host=${encodeURIComponent(task.resourceId)}`
+  if (!task) return undefined
+  const instanceID = taskRecoveryInstanceID(task)
+  if (task.resourceType === 'instance' && instanceID) return `/instances/${encodeURIComponent(instanceID)}`
+  if (task.resourceType === 'backup' && instanceID) return `/instances/${encodeURIComponent(instanceID)}?tab=backups&cleanup=review`
+  if (task.resourceType === 'host' && task.resourceId) return `/hosts?host=${encodeURIComponent(task.resourceId)}`
   return undefined
 }
 

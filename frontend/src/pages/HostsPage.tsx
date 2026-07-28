@@ -12,7 +12,7 @@ import { reservationForHost } from '../lib/host-capacity'
 import { dockerManagementReady, hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { hostTaskRecoveryPhase, taskRecoveryResourcePath } from '../lib/task-recovery'
+import { hostTaskRecoveryPhase, taskRecoveryInstanceID, taskRecoveryResourcePath } from '../lib/task-recovery'
 import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Task } from '../lib/types'
@@ -400,8 +400,9 @@ export function HostsPage() {
   </div>
   const recoveryPhase = detail && recoveryTask ? hostTaskRecoveryPhase(recoveryTask, detail, Boolean(activeTask)) : undefined
   const recoveryResourcePath = taskRecoveryResourcePath(recoveryTask)
-  const recoveryResourceName = recoveryTask?.resourceType === 'instance'
-    ? instances.find((instance) => instance.id === recoveryTask.resourceId)?.name || recoveryTask.resourceId
+  const recoveryInstanceID = taskRecoveryInstanceID(recoveryTask)
+  const recoveryResourceName = recoveryInstanceID
+    ? instances.find((instance) => instance.id === recoveryInstanceID)?.name || recoveryInstanceID
     : recoveryTask?.resourceId
   const recoveryTitleKey = recoveryTaskLoading && !recoveryTask
     ? 'hostRecoveryLoadingTitle'

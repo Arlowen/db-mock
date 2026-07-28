@@ -35,6 +35,12 @@ describe('cleanup continuation', () => {
   it('keeps remaining backups blocked and only continues from an authoritative empty inventory', () => {
     expect(cleanupContinuationPhase({
       evidenceState: 'ready',
+      backupStatuses: ['ready'],
+      hasActiveTask: false,
+      failedBackupDeleteCount: 1,
+    })).toBe('failed')
+    expect(cleanupContinuationPhase({
+      evidenceState: 'ready',
       backupStatuses: ['ready', 'failed'],
       hasActiveTask: false,
     })).toBe('blocked')
