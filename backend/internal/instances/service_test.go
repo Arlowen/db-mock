@@ -113,6 +113,32 @@ func TestBatchActionRejectsUnsafeRequestShapes(t *testing.T) {
 	}
 }
 
+func TestBatchCleanupDecisionRejectsUnsafeRequestShapes(t *testing.T) {
+	service := &Service{}
+	instanceID := uuid.New()
+	tests := []struct {
+		name        string
+		decision    string
+		days        int
+		instanceIDs []uuid.UUID
+	}{
+		{name: "delete is never a batch decision", decision: "delete", instanceIDs: []uuid.UUID{instanceID}},
+		{name: "empty selection", decision: "extend", days: 7},
+		{name: "duplicate IDs", decision: "retain", instanceIDs: []uuid.UUID{instanceID, instanceID}},
+		{name: "nil ID", decision: "extend", days: 7, instanceIDs: []uuid.UUID{uuid.Nil}},
+		{name: "too many IDs", decision: "retain", instanceIDs: make([]uuid.UUID, 101)},
+		{name: "invalid extension", decision: "extend", days: 366, instanceIDs: []uuid.UUID{instanceID}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := service.BatchCleanupDecision(context.Background(), test.decision, test.days,
+				test.instanceIDs, time.Now()); !errors.Is(err, domain.ErrInvalid) {
+				t.Fatalf("BatchCleanupDecision error = %v, want invalid input", err)
+			}
+		})
+	}
+}
+
 func TestValidateBatchInstanceActionKeepsFailedRecoveryIndividual(t *testing.T) {
 	for _, test := range []struct{ status, action string }{
 		{status: "stopped", action: "start"},

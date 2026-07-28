@@ -73,7 +73,10 @@ button { font: inherit; }
 .workbench-attention-actions { grid-column: 2; grid-row: 1 / span 4; justify-content: flex-end; align-self: center; }
 .workbench-lifecycle-card .ant-card-head-wrapper { gap: 16px; }
 .workbench-lifecycle-item { align-items: center !important; }
+.workbench-lifecycle-item.is-selected { margin-inline: -8px; padding-inline: 8px; border-radius: 9px; background: #f3f7ff; }
 .workbench-lifecycle-item .ant-list-item-meta { min-width: 0; }
+.cleanup-candidate-main { min-width: 0; flex: 1 1 auto; display: flex; align-items: flex-start; }
+.cleanup-candidate-checkbox { flex: none; align-self: flex-start; margin: 5px 12px 0 0; }
 .workbench-instance-link.ant-btn { height: auto; max-width: 360px; padding: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
 .workbench-lifecycle-details { min-width: 0; display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(110px, .7fr) minmax(220px, 1.5fr) auto; align-items: center; gap: 8px 18px; color: #667085; font-size: 12px; }
 .workbench-lifecycle-details span, .workbench-lifecycle-details strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -88,6 +91,20 @@ button { font: inherit; }
 .cleanup-candidate-evidence .ant-tag { margin-inline-end: 0; }
 .cleanup-candidate-evidence > .ant-typography { font-size: 12px; }
 .cleanup-evidence-link.ant-btn { height: auto; padding: 0 2px; font-size: 12px; }
+.cleanup-batch-toolbar { margin: 12px 0 4px; padding: 12px 14px; border: 1px solid #bfd4fb; border-radius: 9px; background: #f7faff; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.cleanup-batch-toolbar-copy { min-width: 0; display: grid; gap: 2px; }
+.cleanup-batch-toolbar-actions { flex: none; }
+.cleanup-batch-result { margin: 12px 0 4px; }
+.cleanup-batch-result.ant-alert { align-items: flex-start; flex-wrap: wrap; }
+.cleanup-batch-result-details { min-width: 0; display: grid; gap: 5px; }
+.cleanup-batch-result-details ul { margin: 2px 0 0; padding-inline-start: 20px; }
+.cleanup-batch-confirm { display: grid; gap: 16px; }
+.cleanup-batch-preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cleanup-batch-preview { max-height: 340px; overflow-y: auto; }
+.cleanup-batch-preview-row { min-width: 0; width: 100%; display: grid; grid-template-columns: minmax(190px, 1fr) minmax(300px, auto); align-items: center; gap: 12px 20px; }
+.cleanup-batch-preview-row > div:first-child { min-width: 0; display: grid; gap: 2px; }
+.cleanup-batch-preview-row > div:first-child .ant-typography { min-width: 0; overflow-wrap: anywhere; }
+.cleanup-batch-preview-expiry { justify-content: flex-end; }
 .cleanup-review, .cleanup-delete-confirm { display: grid; gap: 16px; }
 .cleanup-review-loading { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .cleanup-blockers ul { margin: 0 0 12px; padding-inline-start: 20px; }
@@ -721,6 +738,8 @@ button { font: inherit; }
   .instance-operation.is-failed .instance-operation-actions { justify-self: start; }
   .instance-bulk-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
   .instance-bulk-result .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 10px; }
+  .cleanup-batch-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
+  .cleanup-batch-result .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 10px; }
 }
 
 @media (max-width: 1000px) {
@@ -802,6 +821,11 @@ button { font: inherit; }
   .cleanup-candidate-filter { width: 100%; }
   .cleanup-candidate-filter .ant-segmented-group { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cleanup-candidate-filter .ant-segmented-item-label { min-width: 0; padding-inline: 6px; }
+  .cleanup-batch-toolbar { align-items: stretch; flex-direction: column; }
+  .cleanup-batch-toolbar-actions { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .cleanup-batch-toolbar-actions .ant-btn { width: 100%; }
+  .cleanup-batch-preview-row { grid-template-columns: minmax(0, 1fr); }
+  .cleanup-batch-preview-expiry { justify-content: flex-start; }
   .cleanup-review-footer { flex-direction: column-reverse; align-items: stretch; }
   .cleanup-review-decision-actions { width: 100%; display: grid; }
   .cleanup-review-footer > .ant-btn, .cleanup-review-decision-actions .ant-btn { width: 100%; }

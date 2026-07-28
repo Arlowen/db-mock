@@ -1505,14 +1505,45 @@ test('initializes the platform and switches the embedded interface language', as
   const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
   const cleanupReadyID = '44444444-4444-4444-8444-444444444442'
   const cleanupDeleteTaskID = '44444444-4444-4444-8444-444444444443'
+  const cleanupBatchFirstID = '44444444-4444-4444-8444-444444444451'
+  const cleanupBatchSecondID = '44444444-4444-4444-8444-444444444452'
+  const cleanupBatchRejectedID = '44444444-4444-4444-8444-444444444453'
   const cleanupBlocked = { id: cleanupBlockedID, name: '订单回归 PostgreSQL', purpose: '订单 4.2 发布回归', owner: '支付 QA', expiresAt: new Date(Date.now() - 172800000).toISOString(), status: 'running', environment: 'testing', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', backupCount: 2, deleteReady: false, blockers: ['backups_present'] }
   const cleanupReady = { ...cleanupBlocked, id: cleanupReadyID, name: '缓存兼容 Redis', purpose: '缓存客户端兼容验证', owner: '基础架构 QA', expiresAt: new Date(Date.now() + 259200000).toISOString(), status: 'stopped', templateName: 'Redis', templateVersion: '7.4', backupCount: 0, deleteReady: true, blockers: [] }
+  const cleanupBatchFirst = { ...cleanupReady, id: cleanupBatchFirstID, name: '结算回归 PostgreSQL', purpose: '结算发布回归', owner: '结算 QA', expiresAt: new Date(Date.now() - 86400000).toISOString() }
+  const cleanupBatchSecond = { ...cleanupReady, id: cleanupBatchSecondID, name: '库存联调 PostgreSQL', purpose: '库存与订单联调', owner: '供应链 QA', expiresAt: new Date(Date.now() + 86400000).toISOString() }
+  const cleanupBatchRejected = { ...cleanupReady, id: cleanupBatchRejectedID, name: '营销压测 PostgreSQL', purpose: '营销容量压测', owner: '营销 QA', expiresAt: new Date(Date.now() + 259200000).toISOString() }
   attentionItems = []
-  lifecycleItems = [cleanupBlocked]
+  lifecycleItems = [cleanupBatchFirst, cleanupBatchSecond, cleanupBatchRejected]
   let cleanupReviewAttempts = 0
   let cleanupDecisionAttempts = 0
   let cleanupDeleteAttempts = 0
   let cleanupDecisionBody: Record<string, unknown> = {}
+  const cleanupBatchBodies: Array<Record<string, unknown>> = []
+  await page.route('**/api/v1/instances/batch-cleanup-decisions', async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>
+    cleanupBatchBodies.push(body)
+    const decision = body.decision
+    const instanceIDs = body.instanceIds as string[]
+    if (decision === 'retain') {
+      const selected = [cleanupBatchFirst, cleanupBatchSecond].filter((item) => instanceIDs.includes(item.id))
+      lifecycleItems = []
+      await route.fulfill({ json: { decision, days: 0, updated: selected.map((item) => ({ instanceId: item.id, instanceName: item.name, instance: { ...item, expiresAt: undefined } })), rejected: [] } })
+      return
+    }
+    if (cleanupBatchBodies.filter((item) => item.decision === 'extend').length === 1) {
+      lifecycleItems = [cleanupBatchRejected]
+      await route.fulfill({ json: {
+        decision,
+        days: 7,
+        updated: [cleanupBatchFirst, cleanupBatchSecond].map((item) => ({ instanceId: item.id, instanceName: item.name, instance: { ...item, expiresAt: new Date(Date.now() + 1209600000).toISOString() } })),
+        rejected: [{ instanceId: cleanupBatchRejected.id, instanceName: cleanupBatchRejected.name, code: 'resource_conflict', message: 'resource conflict: cleanup decisions cannot change after deletion starts' }],
+      } })
+      return
+    }
+    lifecycleItems = []
+    await route.fulfill({ json: { decision, days: 7, updated: [{ instanceId: cleanupBatchRejected.id, instanceName: cleanupBatchRejected.name, instance: { ...cleanupBatchRejected, expiresAt: new Date(Date.now() + 1209600000).toISOString() } }], rejected: [] } })
+  })
   await page.route(`**/api/v1/instances/${cleanupBlockedID}/cleanup-review`, async (route) => {
     cleanupReviewAttempts += 1
     if (cleanupReviewAttempts === 1) {
@@ -1547,6 +1578,36 @@ test('initializes the platform and switches the embedded interface language', as
 
   await page.goto('/')
   await expect(page.getByText('集中审查清理候选')).toBeVisible()
+  await page.getByRole('checkbox', { name: '选择当前 3 项' }).check()
+  await expect(page.getByText('已选择 3 个清理候选')).toBeVisible()
+  await page.getByRole('button', { name: '批量延期 3 项' }).click()
+  let cleanupBatchDialog = page.getByRole('dialog', { name: '批量延期 3 个数据库' })
+  await expect(cleanupBatchDialog.getByText('每项从当前到期日或今天的较晚者延期 7 天')).toBeVisible()
+  await expect(cleanupBatchDialog.getByText('不会改动数据库运行状态、数据、备份或连接信息')).toBeVisible()
+  await expect(cleanupBatchDialog.getByText(cleanupBatchFirst.name, { exact: true })).toBeVisible()
+  await expect(cleanupBatchDialog.getByText(cleanupBatchSecond.name, { exact: true })).toBeVisible()
+  await expect(cleanupBatchDialog.getByText(cleanupBatchRejected.name, { exact: true })).toBeVisible()
+  await cleanupBatchDialog.getByRole('button', { name: '确认延期 3 项' }).click()
+  await expect(page.getByText('2 项已更新，1 项需处理')).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: '2 项已更新，1 项需处理' }).getByText(cleanupBatchRejected.name, { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '只重试失败的 1 项' }).click()
+  await expect(page.getByText('3 项清理决定已更新')).toBeVisible()
+  expect(cleanupBatchBodies[0]).toEqual({ instanceIds: [cleanupBatchFirstID, cleanupBatchSecondID, cleanupBatchRejectedID], decision: 'extend', days: 7 })
+  expect(cleanupBatchBodies[1]).toEqual({ instanceIds: [cleanupBatchRejectedID], decision: 'extend', days: 7 })
+
+  lifecycleItems = [cleanupBatchFirst, cleanupBatchSecond]
+  await page.reload()
+  await page.getByRole('checkbox', { name: '选择当前 2 项' }).check()
+  await page.getByRole('button', { name: '批量长期保留 2 项' }).click()
+  cleanupBatchDialog = page.getByRole('dialog', { name: '批量长期保留 2 个数据库' })
+  await expect(cleanupBatchDialog.getByText('清空所选数据库的预计到期时间')).toBeVisible()
+  await expect(cleanupBatchDialog.getByText('长期保留', { exact: true })).toHaveCount(2)
+  await cleanupBatchDialog.getByRole('button', { name: '确认长期保留 2 项' }).click()
+  await expect(page.getByText('2 项清理决定已更新')).toBeVisible()
+  expect(cleanupBatchBodies[2]).toEqual({ instanceIds: [cleanupBatchFirstID, cleanupBatchSecondID], decision: 'retain', days: 0 })
+
+  lifecycleItems = [cleanupBlocked]
+  await page.reload()
   await expect(page.getByText('需先处理阻断')).toBeVisible()
   await expect(page.getByRole('button', { name: '2 个备份需处理' })).toBeVisible()
   await page.getByText('可复核 0', { exact: true }).click()
@@ -1592,6 +1653,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${cleanupReadyID}/cleanup-review`)
   await page.unroute(`**/api/v1/instances/${cleanupBlockedID}/cleanup-decision`)
   await page.unroute(`**/api/v1/instances/${cleanupBlockedID}/cleanup-review`)
+  await page.unroute('**/api/v1/instances/batch-cleanup-decisions')
   await page.unroute(`**/api/v1/tasks/${retriedTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${retriedTaskID}`)
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/logs`)
@@ -1784,6 +1846,8 @@ test('initializes the platform and switches the embedded interface language', as
   expect(viewerBatchRestart.status()).toBe(403)
   const viewerCleanupDecision = await developerPage.request.post('/api/v1/instances/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/cleanup-decision', { data: { decision: 'extend', days: 7 } })
   expect(viewerCleanupDecision.status()).toBe(403)
+  const viewerBatchCleanupDecision = await developerPage.request.post('/api/v1/instances/batch-cleanup-decisions', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'], decision: 'retain', days: 0 } })
+  expect(viewerBatchCleanupDecision.status()).toBe(403)
   const viewerUsers = await developerPage.request.get('/api/v1/users')
   expect(viewerUsers.status()).toBe(403)
   const viewerTaskCenterBackup = { ...taskCenterBackupTask, errorCode: 'task_failed', errorMessage: 'permission denied while deleting backup archive' }

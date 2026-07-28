@@ -1,15 +1,17 @@
-import { Alert, Button, Card, Col, List, Row, Segmented, Space, Statistic, Tag, Typography } from 'antd'
-import { AlertOutlined, AuditOutlined, CloudServerOutlined, ContainerOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Checkbox, Col, List, message, Row, Segmented, Space, Statistic, Tag, Typography } from 'antd'
+import { AlertOutlined, AuditOutlined, ClockCircleOutlined, CloudServerOutlined, ContainerOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined, SaveOutlined } from '@ant-design/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { CleanupBatchDecisionModal } from '../components/CleanupBatchDecisionModal'
 import { InstanceCleanupReviewModal } from '../components/InstanceCleanupReview'
 import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { cleanupCandidateCounts, cleanupCandidateMissingContext, filterCleanupCandidates, type CleanupCandidateFilter } from '../lib/cleanup-candidates'
+import { cleanupDecisionRejectedMessage, type BatchCleanupDecisionResponse, type CleanupDecision } from '../lib/cleanup-decisions'
 import { dashboardAttentionCanRetry, dashboardAttentionGuidance, dashboardAttentionResourcePath } from '../lib/dashboard-attention'
 import { lifecycleCounts } from '../lib/instance-lifecycle'
 import { formatDateTime, translateCode } from '../lib/localization'
@@ -36,6 +38,11 @@ export function DashboardPage() {
   const [retryingTaskID, setRetryingTaskID] = useState('')
   const [cleanupInstance, setCleanupInstance] = useState<DashboardInstance>()
   const [cleanupFilter, setCleanupFilter] = useState<CleanupCandidateFilter>('all')
+  const [selectedCleanupIDs, setSelectedCleanupIDs] = useState<string[]>([])
+  const [cleanupBatchDecision, setCleanupBatchDecision] = useState<CleanupDecision>()
+  const [cleanupBatchSubmitting, setCleanupBatchSubmitting] = useState(false)
+  const [cleanupBatchRequestError, setCleanupBatchRequestError] = useState('')
+  const [cleanupBatchResult, setCleanupBatchResult] = useState<BatchCleanupDecisionResponse>()
 
   const load = useCallback(async () => {
     try {
@@ -59,6 +66,23 @@ export function DashboardPage() {
     () => filterCleanupCandidates(dashboard?.lifecycleInstances || [], cleanupFilter),
     [cleanupFilter, dashboard?.lifecycleInstances],
   )
+  const selectedCleanupCandidates = useMemo(() => {
+    const selected = new Set(selectedCleanupIDs)
+    return (dashboard?.lifecycleInstances || []).filter((item) => selected.has(item.id))
+  }, [dashboard?.lifecycleInstances, selectedCleanupIDs])
+  const visibleCleanupIDs = useMemo(() => cleanupCandidates.map((item) => item.id), [cleanupCandidates])
+  const visibleCleanupSelectedCount = useMemo(() => {
+    const selected = new Set(selectedCleanupIDs)
+    return visibleCleanupIDs.filter((id) => selected.has(id)).length
+  }, [selectedCleanupIDs, visibleCleanupIDs])
+
+  useEffect(() => {
+    const available = new Set((dashboard?.lifecycleInstances || []).map((item) => item.id))
+    setSelectedCleanupIDs((current) => {
+      const next = current.filter((id) => available.has(id))
+      return next.length === current.length ? current : next
+    })
+  }, [dashboard?.lifecycleInstances])
   const onboarding = dashboard && hostCount === 0
     ? { title: t('workbenchNoHostTitle'), hint: t('workbenchNoHostHint'), action: t('addHost'), path: '/hosts?create=1' }
     : dashboard && instanceCount === 0
@@ -86,6 +110,68 @@ export function DashboardPage() {
       setRetryingTaskID('')
     }
   }
+
+  const toggleVisibleCleanupCandidates = (checked: boolean) => {
+    setSelectedCleanupIDs((current) => {
+      const next = new Set(current)
+      visibleCleanupIDs.forEach((id) => checked ? next.add(id) : next.delete(id))
+      return Array.from(next)
+    })
+  }
+
+  const openCleanupBatchDecision = (decision: CleanupDecision) => {
+    setCleanupBatchRequestError('')
+    setCleanupBatchDecision(decision)
+  }
+
+  const submitCleanupBatchDecision = async (
+    decision: CleanupDecision,
+    instanceIDs: string[],
+    closeConfirmation: boolean,
+  ) => {
+    try {
+      setCleanupBatchSubmitting(true)
+      setCleanupBatchRequestError('')
+      const result = await api<BatchCleanupDecisionResponse>('/instances/batch-cleanup-decisions', {
+        method: 'POST',
+        body: { instanceIds: instanceIDs, decision, days: decision === 'extend' ? 7 : 0 },
+      })
+      setCleanupBatchResult((current) => {
+        if (closeConfirmation || !current || current.decision !== decision) return result
+        const retried = new Set(instanceIDs)
+        return {
+          ...result,
+          updated: [...current.updated.filter((item) => !retried.has(item.instanceId)), ...result.updated],
+          rejected: [...current.rejected.filter((item) => !retried.has(item.instanceId)), ...result.rejected],
+        }
+      })
+      setSelectedCleanupIDs(result.rejected.map((item) => item.instanceId))
+      if (closeConfirmation) setCleanupBatchDecision(undefined)
+      await load()
+    } catch (error) {
+      if (closeConfirmation) setCleanupBatchRequestError(errorMessage(error))
+      else message.error(errorMessage(error))
+    } finally {
+      setCleanupBatchSubmitting(false)
+    }
+  }
+
+  const cleanupBatchResultAlert = cleanupBatchResult && <Alert
+    className="cleanup-batch-result"
+    type={cleanupBatchResult.rejected.length ? cleanupBatchResult.updated.length ? 'warning' : 'error' : 'success'}
+    showIcon
+    message={cleanupBatchResult.rejected.length
+      ? t('batchCleanupPartialResultTitle', { updated: cleanupBatchResult.updated.length, failed: cleanupBatchResult.rejected.length })
+      : t('batchCleanupSuccessTitle', { count: cleanupBatchResult.updated.length })}
+    description={<div className="cleanup-batch-result-details">
+      {cleanupBatchResult.updated.length > 0 && <Typography.Text>{t(cleanupBatchResult.decision === 'extend' ? 'batchCleanupExtendedSummary' : 'batchCleanupRetainedSummary', { count: cleanupBatchResult.updated.length })}</Typography.Text>}
+      {cleanupBatchResult.rejected.length > 0 && <ul>{cleanupBatchResult.rejected.map((item) => <li key={item.instanceId}><strong>{item.instanceName || item.instanceId.slice(0, 8)}</strong>: {cleanupDecisionRejectedMessage(item)}</li>)}</ul>}
+    </div>}
+    action={<Space wrap>
+      {cleanupBatchResult.rejected.length > 0 && <Button size="small" icon={<ReloadOutlined />} loading={cleanupBatchSubmitting} onClick={() => void submitCleanupBatchDecision(cleanupBatchResult.decision, cleanupBatchResult.rejected.map((item) => item.instanceId), false)}>{t('retryBatchCleanupFailed', { count: cleanupBatchResult.rejected.length })}</Button>}
+      <Button size="small" type="text" onClick={() => setCleanupBatchResult(undefined)}>{t('dismiss')}</Button>
+    </Space>}
+  />
 
   return <>
     <PageHeader title={t('workbench')} description={t('workbenchDescription')} />
@@ -140,6 +226,7 @@ export function DashboardPage() {
       title={<Space wrap><span>{t('lifecycleQueue')}</span>{dueCounts.expired > 0 && <Typography.Text type="danger">{t('expiredCount', { count: dueCounts.expired })}</Typography.Text>}{dueCounts.dueSoon > 0 && <Typography.Text type="warning">{t('dueSoonCount', { count: dueCounts.dueSoon })}</Typography.Text>}</Space>}
       extra={canOperate ? <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/instances?create=1')}>{t('createInstance')}</Button> : undefined}
     >
+      {cleanupBatchResultAlert}
       {dashboard?.lifecycleInstances.length ? <>
         <div className="cleanup-candidate-toolbar">
           <div className="cleanup-candidate-intro">
@@ -148,6 +235,12 @@ export function DashboardPage() {
           </div>
           <div className="cleanup-candidate-controls">
             {cleanupCounts.missingContext > 0 && <Typography.Text type="warning">{t('cleanupCandidateMissingContextCount', { count: cleanupCounts.missingContext })}</Typography.Text>}
+            {canOperate && <Checkbox
+              checked={visibleCleanupIDs.length > 0 && visibleCleanupSelectedCount === visibleCleanupIDs.length}
+              indeterminate={visibleCleanupSelectedCount > 0 && visibleCleanupSelectedCount < visibleCleanupIDs.length}
+              disabled={cleanupBatchSubmitting || visibleCleanupIDs.length === 0}
+              onChange={(event) => toggleVisibleCleanupCandidates(event.target.checked)}
+            >{t('selectVisibleCleanupCandidates', { count: visibleCleanupIDs.length })}</Checkbox>}
             <Segmented
               className="cleanup-candidate-filter"
               aria-label={t('cleanupCandidateFilter')}
@@ -161,29 +254,49 @@ export function DashboardPage() {
             />
           </div>
         </div>
+        {canOperate && selectedCleanupCandidates.length > 0 && <div className="cleanup-batch-toolbar">
+          <div className="cleanup-batch-toolbar-copy">
+            <Typography.Text strong>{t('batchCleanupSelectionCount', { count: selectedCleanupCandidates.length })}</Typography.Text>
+            <Typography.Text type="secondary">{t('batchCleanupSelectionHint')}</Typography.Text>
+          </div>
+          <Space wrap className="cleanup-batch-toolbar-actions">
+            <Button type="primary" icon={<ClockCircleOutlined />} disabled={cleanupBatchSubmitting} onClick={() => openCleanupBatchDecision('extend')}>{t('batchCleanupExtendCount', { count: selectedCleanupCandidates.length })}</Button>
+            <Button icon={<SaveOutlined />} disabled={cleanupBatchSubmitting} onClick={() => openCleanupBatchDecision('retain')}>{t('batchCleanupRetainCount', { count: selectedCleanupCandidates.length })}</Button>
+            <Button disabled={cleanupBatchSubmitting} onClick={() => setSelectedCleanupIDs([])}>{t('clearSelection')}</Button>
+          </Space>
+        </div>}
         {cleanupCandidates.length ? <List
           dataSource={cleanupCandidates}
-          renderItem={(item) => <List.Item className="workbench-lifecycle-item" actions={[
+          renderItem={(item) => <List.Item className={`workbench-lifecycle-item${selectedCleanupIDs.includes(item.id) ? ' is-selected' : ''}`} actions={[
             ...(canOperate ? [<Button key="cleanup" icon={<SafetyCertificateOutlined />} onClick={() => setCleanupInstance(item)}>{t('reviewCleanup')}</Button>] : []),
             <Button key="details" type="link" onClick={() => navigate(`/instances/${item.id}`)}>{t('details')}</Button>,
           ]}>
-            <List.Item.Meta
-              title={<Space wrap><Button type="link" className="workbench-instance-link" onClick={() => navigate(`/instances/${item.id}`)}>{item.name}</Button><StatusTag value={item.status} /><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space>}
-              description={<>
-                <div className="workbench-lifecycle-details"><span>{item.purpose || t('purposeMissing')}</span><span>{item.owner || t('ownerMissing')}</span><span>{item.templateName} {item.templateVersion} · {item.hostName} · {translateCode(t, item.environment)}</span><strong>{formatDateTime(item.expiresAt, i18n.language, timezone)}</strong></div>
-                <div className="cleanup-candidate-evidence">
-                  <Tag color={item.deleteReady ? 'success' : 'warning'}>{t(item.deleteReady ? 'cleanupCandidateReady' : 'cleanupCandidateBlocked')}</Tag>
-                  {cleanupCandidateMissingContext(item) && <Tag color="error">{t('cleanupCandidateMissingContext')}</Tag>}
-                  {item.backupCount > 0
-                    ? <Button type="link" size="small" className="cleanup-evidence-link" onClick={() => navigate(`/instances/${item.id}?tab=backups&cleanup=review`)}>{t('cleanupCandidateBackupCount', { count: item.backupCount })}</Button>
-                    : <Typography.Text type="secondary">{t('cleanupCandidateNoBackups')}</Typography.Text>}
-                  {item.activeTask
-                    ? <Button type="link" size="small" className="cleanup-evidence-link" onClick={() => navigate(`/tasks?task=${item.activeTask!.id}`)}>{t('cleanupCandidateActiveTask', { task: translateCode(t, item.activeTask.kind, 'taskKind') })}</Button>
-                    : <Typography.Text type="secondary">{t('cleanupCandidateNoActiveTask')}</Typography.Text>}
-                  {item.blockers.includes('status_not_deletable') && <Typography.Text type="warning">{t('cleanupCandidateStatusBlocked', { status: translateCode(t, item.status) })}</Typography.Text>}
-                </div>
-              </>}
-            />
+            <div className="cleanup-candidate-main">
+              {canOperate && <Checkbox
+                className="cleanup-candidate-checkbox"
+                aria-label={t('selectCleanupCandidate', { name: item.name })}
+                checked={selectedCleanupIDs.includes(item.id)}
+                disabled={cleanupBatchSubmitting}
+                onChange={(event) => setSelectedCleanupIDs((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))}
+              />}
+              <List.Item.Meta
+                title={<Space wrap><Button type="link" className="workbench-instance-link" onClick={() => navigate(`/instances/${item.id}`)}>{item.name}</Button><StatusTag value={item.status} /><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space>}
+                description={<>
+                  <div className="workbench-lifecycle-details"><span>{item.purpose || t('purposeMissing')}</span><span>{item.owner || t('ownerMissing')}</span><span>{item.templateName} {item.templateVersion} · {item.hostName} · {translateCode(t, item.environment)}</span><strong>{formatDateTime(item.expiresAt, i18n.language, timezone)}</strong></div>
+                  <div className="cleanup-candidate-evidence">
+                    <Tag color={item.deleteReady ? 'success' : 'warning'}>{t(item.deleteReady ? 'cleanupCandidateReady' : 'cleanupCandidateBlocked')}</Tag>
+                    {cleanupCandidateMissingContext(item) && <Tag color="error">{t('cleanupCandidateMissingContext')}</Tag>}
+                    {item.backupCount > 0
+                      ? <Button type="link" size="small" className="cleanup-evidence-link" onClick={() => navigate(`/instances/${item.id}?tab=backups&cleanup=review`)}>{t('cleanupCandidateBackupCount', { count: item.backupCount })}</Button>
+                      : <Typography.Text type="secondary">{t('cleanupCandidateNoBackups')}</Typography.Text>}
+                    {item.activeTask
+                      ? <Button type="link" size="small" className="cleanup-evidence-link" onClick={() => navigate(`/tasks?task=${item.activeTask!.id}`)}>{t('cleanupCandidateActiveTask', { task: translateCode(t, item.activeTask.kind, 'taskKind') })}</Button>
+                      : <Typography.Text type="secondary">{t('cleanupCandidateNoActiveTask')}</Typography.Text>}
+                    {item.blockers.includes('status_not_deletable') && <Typography.Text type="warning">{t('cleanupCandidateStatusBlocked', { status: translateCode(t, item.status) })}</Typography.Text>}
+                  </div>
+                </>}
+              />
+            </div>
           </List.Item>}
         /> : <EmptyState compact description={t('cleanupCandidateFilteredEmpty')} />}
       </> : !loadError && <EmptyState compact description={t('lifecycleQueueEmpty')} />}
@@ -195,5 +308,19 @@ export function DashboardPage() {
       onClose={() => setCleanupInstance(undefined)}
       onChanged={load}
     />}
+    <CleanupBatchDecisionModal
+      decision={cleanupBatchDecision}
+      items={selectedCleanupCandidates}
+      submitting={cleanupBatchSubmitting}
+      requestError={cleanupBatchRequestError}
+      timezone={timezone}
+      onCancel={() => {
+        if (!cleanupBatchSubmitting) {
+          setCleanupBatchDecision(undefined)
+          setCleanupBatchRequestError('')
+        }
+      }}
+      onSubmit={() => cleanupBatchDecision && void submitCleanupBatchDecision(cleanupBatchDecision, selectedCleanupCandidates.map((item) => item.id), true)}
+    />
   </>
 }

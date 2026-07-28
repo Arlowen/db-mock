@@ -484,3 +484,43 @@ func TestBatchActionQueuesEligibleInstancesAndReportsPartialFailures(t *testing.
 		t.Fatalf("ineligible instance changed: instance=%#v err=%v", stopped, err)
 	}
 }
+
+func TestBatchCleanupDecisionUpdatesEligibleInstancesAndReportsPartialFailures(t *testing.T) {
+	ctx, pool := openCancellationTest(t)
+	fixture := seedCancellationFixture(t, ctx, pool)
+	now := time.Date(2026, 7, 28, 8, 0, 0, 0, time.UTC)
+	expiredAt := now.Add(-48 * time.Hour)
+	if _, err := pool.Exec(ctx, `UPDATE instances SET expires_at=$2 WHERE id=$1`, fixture.instanceID, expiredAt); err != nil {
+		t.Fatal(err)
+	}
+	deletingID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO instances(id,name,host_id,template_version_id,status,desired_state,
+		cpu,memory_bytes,reserved_disk_bytes,host_port,container_port,database_username,encrypted_password,
+		compose_project,remote_directory,configuration,expires_at) VALUES($1,'deleting-batch-cleanup-db',$2,$3,
+		'deleting','running',1,1073741824,10737418240,25434,5432,'postgres','sealed',$4,$5,$6,$7)`,
+		deletingID, fixture.hostID, fixture.versionID, "dbmock_"+strings.ReplaceAll(deletingID.String(), "-", ""),
+		"/opt/dbmock/instances/"+deletingID.String(), json.RawMessage(`{"extraEnvironment":{}}`), now); err != nil {
+		t.Fatal(err)
+	}
+
+	target := store.New(pool)
+	service := NewService(target, nil, nil, nil)
+	missingID := uuid.New()
+	outcomes, err := service.BatchCleanupDecision(ctx, "extend", 7,
+		[]uuid.UUID{fixture.instanceID, deletingID, missingID}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outcomes) != 3 || outcomes[0].Instance == nil || outcomes[0].Err != nil ||
+		!errors.Is(outcomes[1].Err, domain.ErrConflict) || !errors.Is(outcomes[2].Err, domain.ErrNotFound) {
+		t.Fatalf("unexpected batch cleanup outcomes: %#v", outcomes)
+	}
+	if outcomes[0].InstanceName != "cancel-db" || outcomes[0].Instance.ExpiresAt == nil ||
+		!outcomes[0].Instance.ExpiresAt.Equal(now.AddDate(0, 0, 7)) {
+		t.Fatalf("updated batch cleanup outcome = %#v", outcomes[0])
+	}
+	deleting, err := target.GetInstance(ctx, deletingID)
+	if err != nil || deleting.ExpiresAt == nil || !deleting.ExpiresAt.Equal(now) {
+		t.Fatalf("deleting instance changed: instance=%#v err=%v", deleting, err)
+	}
+}

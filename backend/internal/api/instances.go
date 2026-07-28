@@ -21,6 +21,7 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.Get("/", s.listInstances)
 	r.With(requireOperator).Post("/", s.createInstance)
 	r.With(requireOperator).Post("/batch-actions/{action}", s.batchInstanceAction)
+	r.With(requireOperator).Post("/batch-cleanup-decisions", s.batchInstanceCleanupDecision)
 	r.Get("/{id}", s.getInstance)
 	r.Get("/{id}/tasks", s.listInstanceRelatedTasks)
 	r.With(requireOperator).Patch("/{id}", s.updateInstance)
@@ -331,6 +332,66 @@ func (s *Server) updateInstanceCleanupDecision(w http.ResponseWriter, r *http.Re
 	_ = s.auditWithChanges(r, actor, "instance.cleanup_decision", "instance", &id, item.Name, nil,
 		"success", "", changes)
 	httpx.JSON(w, http.StatusOK, item)
+}
+
+func (s *Server) batchInstanceCleanupDecision(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		InstanceIDs []uuid.UUID `json:"instanceIds"`
+		Decision    string      `json:"decision"`
+		Days        int         `json:"days"`
+	}
+	if err := httpx.Decode(r, &input); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	input.Decision = strings.TrimSpace(input.Decision)
+	now := time.Now()
+	outcomes, err := s.instances.BatchCleanupDecision(r.Context(), input.Decision, input.Days, input.InstanceIDs, now)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	type updatedItem struct {
+		InstanceID   uuid.UUID       `json:"instanceId"`
+		InstanceName string          `json:"instanceName"`
+		Instance     domain.Instance `json:"instance"`
+	}
+	type rejectedItem struct {
+		InstanceID   uuid.UUID `json:"instanceId"`
+		InstanceName string    `json:"instanceName,omitempty"`
+		Code         string    `json:"code"`
+		Message      string    `json:"message"`
+	}
+	updated := make([]updatedItem, 0, len(outcomes))
+	rejected := make([]rejectedItem, 0)
+	actor, _ := auth.ActorFrom(r.Context())
+	for _, outcome := range outcomes {
+		if outcome.Err != nil {
+			code, message := batchActionError(outcome.Err)
+			rejected = append(rejected, rejectedItem{InstanceID: outcome.InstanceID,
+				InstanceName: outcome.InstanceName, Code: code, Message: message})
+			continue
+		}
+		if outcome.Instance == nil {
+			rejected = append(rejected, rejectedItem{InstanceID: outcome.InstanceID,
+				InstanceName: outcome.InstanceName, Code: "internal_error", Message: "Internal server error"})
+			continue
+		}
+		item := *outcome.Instance
+		updated = append(updated, updatedItem{InstanceID: outcome.InstanceID,
+			InstanceName: outcome.InstanceName, Instance: item})
+		changes := instanceAuditChanges(outcome.Before, item)
+		changes["cleanupDecision"] = input.Decision
+		changes["batch"] = true
+		if input.Decision == "extend" {
+			changes["extensionDays"] = input.Days
+		}
+		_ = s.auditWithChanges(r, actor, "instance.cleanup_decision", "instance", &outcome.InstanceID,
+			item.Name, nil, "success", "", changes)
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"decision": input.Decision, "days": input.Days, "updated": updated, "rejected": rejected,
+	})
 }
 
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {

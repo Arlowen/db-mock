@@ -77,6 +77,14 @@ type BatchActionOutcome struct {
 	Err          error
 }
 
+type BatchCleanupDecisionOutcome struct {
+	InstanceID   uuid.UUID
+	InstanceName string
+	Before       domain.Instance
+	Instance     *domain.Instance
+	Err          error
+}
+
 type CleanupReview struct {
 	InstanceID   uuid.UUID                   `json:"instanceId"`
 	InstanceName string                      `json:"instanceName"`
@@ -537,6 +545,46 @@ func (s *Service) ApplyCleanupDecision(ctx context.Context, instanceID uuid.UUID
 		return domain.Instance{}, err
 	}
 	return s.store.UpdateInstanceExpiry(ctx, instanceID, expiresAt)
+}
+
+func (s *Service) BatchCleanupDecision(ctx context.Context, decision string, days int, instanceIDs []uuid.UUID, now time.Time) ([]BatchCleanupDecisionOutcome, error) {
+	if _, err := cleanupDecisionExpiry(nil, decision, days, now); err != nil {
+		return nil, err
+	}
+	if len(instanceIDs) == 0 || len(instanceIDs) > 100 {
+		return nil, fmt.Errorf("%w: select between 1 and 100 instances", domain.ErrInvalid)
+	}
+	seen := make(map[uuid.UUID]struct{}, len(instanceIDs))
+	for _, instanceID := range instanceIDs {
+		if instanceID == uuid.Nil {
+			return nil, fmt.Errorf("%w: instance IDs must be valid UUIDs", domain.ErrInvalid)
+		}
+		if _, duplicate := seen[instanceID]; duplicate {
+			return nil, fmt.Errorf("%w: instance IDs must be unique", domain.ErrInvalid)
+		}
+		seen[instanceID] = struct{}{}
+	}
+
+	outcomes := make([]BatchCleanupDecisionOutcome, 0, len(instanceIDs))
+	for _, instanceID := range instanceIDs {
+		outcome := BatchCleanupDecisionOutcome{InstanceID: instanceID}
+		before, err := s.store.GetInstance(ctx, instanceID)
+		if err != nil {
+			outcome.Err = err
+			outcomes = append(outcomes, outcome)
+			continue
+		}
+		outcome.InstanceName = before.Name
+		outcome.Before = before
+		item, err := s.ApplyCleanupDecision(ctx, instanceID, decision, days, now)
+		if err != nil {
+			outcome.Err = err
+		} else {
+			outcome.Instance = &item
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	return outcomes, nil
 }
 
 func cleanupDecisionExpiry(current *time.Time, decision string, days int, now time.Time) (*time.Time, error) {
