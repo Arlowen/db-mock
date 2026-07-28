@@ -13,6 +13,7 @@ import { formatCompactDateTime, formatDateTime, translateCode } from '../lib/loc
 import { permissionsFor } from '../lib/permissions'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask, taskRecoveryHostID } from '../lib/task-recovery'
+import { taskResourceReference } from '../lib/task-resource'
 import { isTaskCancellationPending } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Host, Instance, Task } from '../lib/types'
@@ -119,10 +120,18 @@ export function TasksPage() {
   const instanceNames = useMemo(() => new Map(instances.map((instance) => [instance.id, instance.name])), [instances])
   const compactLayout = screens.md === false
   const resourceLink = useCallback((task: Task): ResourceLink => {
-    if (!task.resourceId) return { label: '—' }
-    if (task.resourceType === 'host') return { label: hostNames.get(task.resourceId) || task.resourceId.slice(0, 8), path: `/hosts?host=${task.resourceId}`, icon: <CloudServerOutlined /> }
-    if (task.resourceType === 'instance') return { label: instanceNames.get(task.resourceId) || task.resourceId.slice(0, 8), path: `/instances/${task.resourceId}`, icon: <DatabaseOutlined /> }
-    return { label: task.resourceId.slice(0, 8) }
+    const reference = taskResourceReference(task)
+    const label = reference.lookupType === 'host' && reference.lookupID
+      ? hostNames.get(reference.lookupID) || reference.lookupID.slice(0, 8)
+      : reference.lookupType === 'instance' && reference.lookupID
+        ? instanceNames.get(reference.lookupID) || reference.lookupID.slice(0, 8)
+        : reference.fallbackID?.slice(0, 8) || '—'
+    const icon = reference.lookupType === 'host'
+      ? <CloudServerOutlined />
+      : reference.lookupType === 'instance'
+        ? <DatabaseOutlined />
+        : undefined
+    return { label, path: reference.path, icon }
   }, [hostNames, instanceNames])
 
   const closeDetail = () => { setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); setParams({}, { replace: true }) }
@@ -219,14 +228,14 @@ export function TasksPage() {
     navigate(selectedRecoveryPath)
   }
   const hasDrawerLeadingAction = !!selectedResource?.path || !!(canOperate && continueTo)
-  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{selectedResource?.path && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t('viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{selectedResource?.path && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />
     {listError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('taskListLoadFailed')} description={listError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {resourceDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('taskResourceDataLoadFailed')} description={resourceDataError} action={<Button size="small" onClick={() => void loadResources()}>{t('retry')}</Button>} />}
     {actionError && !taskID && <Alert className="instance-page-alert" type="error" showIcon closable message={t('taskActionFailed')} description={actionError} onClose={() => setActionError('')} />}
-    {showFilters && <Card className="table-filter-card task-filter-card"><div className="task-filter-toolbar"><Input.Search allowClear aria-label={t('tasksSearchLabel')} placeholder={t('tasksSearchPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} className="task-filter-search" /><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value); setPage(1) }} className="task-filter-status" options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('resource')} value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value); setPage(1) }} className="task-filter-resource" options={[{ value: '', label: t('allResources') }, ...['instance', 'host'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Typography.Text type="secondary" className="task-filter-count" aria-live="polite">{search ? t('taskFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('taskResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
+    {showFilters && <Card className="table-filter-card task-filter-card"><div className="task-filter-toolbar"><Input.Search allowClear aria-label={t('tasksSearchLabel')} placeholder={t('tasksSearchPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} className="task-filter-search" /><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value); setPage(1) }} className="task-filter-status" options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('resource')} value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value); setPage(1) }} className="task-filter-resource" options={[{ value: '', label: t('allResources') }, ...['instance', 'host', 'backup'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Typography.Text type="secondary" className="task-filter-count" aria-live="polite">{search ? t('taskFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('taskResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
     {showList && (compactLayout
       ? <Card className="task-mobile-list-card" title={!showFilters ? t('tasks') : undefined} extra={!showFilters ? listActions : undefined}>
           {visibleItems.length
