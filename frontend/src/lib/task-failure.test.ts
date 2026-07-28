@@ -20,6 +20,26 @@ describe('taskFailureGuidance', () => {
     })
   })
 
+  it('uses the persisted restore recovery result instead of generic uncertainty', () => {
+    expect(taskFailureGuidance({
+      kind: 'instance.restore',
+      status: 'failed',
+      errorCode: 'health_check_failed',
+      result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running' },
+    })).toEqual({
+      causeKey: 'taskFailureCause_health_check_failed',
+      impactKey: 'taskFailureImpact_instance_restore_pre_restore_recovered',
+      recoveryKey: 'taskFailureRecovery_instance_restore_pre_restore_recovered',
+      inspectHost: false,
+    })
+    expect(taskFailureGuidance({
+      kind: 'instance_restore',
+      status: 'failed',
+      errorCode: 'task_failed',
+      result: { restoreOutcome: 'rollback_incomplete', instanceStatus: 'failed' },
+    }).impactKey).toBe('taskFailureImpact_instance_restore_rollback_incomplete')
+  })
+
   it('falls back safely for historical or unknown error codes', () => {
     expect(taskFailureGuidance({ kind: 'custom.task', errorCode: 'unrecognized_failure' })).toEqual({
       causeKey: 'taskFailureCause_task_failed',

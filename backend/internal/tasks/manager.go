@@ -136,7 +136,7 @@ func (m *Manager) run(parent context.Context, task domain.Task) {
 			code = "application_stopped"
 			message = applicationStoppedTaskMessage
 		}
-		m.finish(parent, runtime, task, status, nil, code, message, "error", message)
+		m.finish(parent, runtime, task, status, failureResult(err), code, message, "error", message)
 		m.logger.Warn("task finished with error", "taskId", task.ID, "kind", task.Kind, "status", status, "error", redact(err.Error()))
 		return
 	}

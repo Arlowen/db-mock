@@ -2185,13 +2185,27 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 			if canceled {
 				message = ""
 			}
-			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, message)
-			if snapshotReady {
+			if updateErr := s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, message); updateErr != nil {
+				recovered = false
+				err = errors.Join(err, fmt.Errorf("record restored pre-restore instance state: %w", updateErr))
+			} else if snapshotReady {
 				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance, operationID)
 			}
-		} else {
+		}
+		if !recovered {
 			_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, "Restore failed and automatic rollback did not complete")
 		}
+		outcome, status, desired := "pre_restore_recovered", stable.Status, stable.Desired
+		if !recovered {
+			outcome, status, desired = "rollback_incomplete", "failed", previousDesired
+		}
+		err = tasks.WithFailureResult(err, map[string]any{
+			"instanceId":     instance.ID,
+			"backupId":       backup.ID,
+			"restoreOutcome": outcome,
+			"instanceStatus": status,
+			"desiredState":   desired,
+		})
 	}()
 	if err = s.store.SetInstanceBackupStatus(ctx, backup.ID, "restoring", ""); err != nil {
 		return nil, err

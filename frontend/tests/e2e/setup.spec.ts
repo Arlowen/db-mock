@@ -353,7 +353,10 @@ test('initializes the platform and switches the embedded interface language', as
   let failRestartRequest = true
   let restartRequestCount = 0
   let instanceStatus = 'running'
+  let instanceStatusMessage = ''
   let relatedTasks: Array<Record<string, unknown>> = []
+  const restoreOutcomeTaskID = '67676767-6767-4767-8767-676767676767'
+  let restoreRetryCount = 0
   let submittedUpgradeBody: Record<string, unknown> | undefined
   let submittedRuntimeBody: Record<string, unknown> | undefined
   let submittedBackupBody: Record<string, unknown> | undefined
@@ -381,7 +384,7 @@ test('initializes the platform and switches the embedded interface language', as
     projectId: '77777777-7777-4777-8777-777777777777', environment: 'development', labels: { team: 'checkout' }, purpose: 'Orders release regression', owner: 'Orders QA', expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(), status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
     cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0',
     databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17',
-    configuration: { extraEnvironment: { TZ: 'UTC' } }, hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
+    configuration: { extraEnvironment: { TZ: 'UTC' } }, statusMessage: instanceStatusMessage, hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
   })
   await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [instanceResponse()] } }))
   await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: instanceResponse() }))
@@ -461,6 +464,14 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry', async (route) => {
     const retried = { ...relatedTasks[0], id: '88888888-8888-4888-8888-888888888888', status: 'queued', progress: 0, stage: 'queued', message: 'task_started' }
     relatedTasks = [retried]
+    await route.fulfill({ status: 202, json: retried })
+  })
+  await page.route(`**/api/v1/tasks/${restoreOutcomeTaskID}/retry`, async (route) => {
+    restoreRetryCount += 1
+    const retried = { ...relatedTasks[0], id: '68686868-6868-4868-8868-686868686868', status: 'queued', progress: 0, stage: 'queued', message: 'task_started', result: {}, errorCode: '', errorMessage: '' }
+    relatedTasks = [retried]
+    instanceStatus = 'restoring'
+    instanceStatusMessage = ''
     await route.fulfill({ status: 202, json: retried })
   })
   await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => failConnection
@@ -706,7 +717,65 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
   await expect(page.getByRole('button', { name: '重启' })).not.toBeVisible()
 
+  instanceStatus = 'running'
+  instanceStatusMessage = 'Restore failed; the pre-restore database state was recovered'
+  relatedTasks = [{
+    id: restoreOutcomeTaskID,
+    kind: 'instance.restore',
+    status: 'failed',
+    resourceType: 'instance',
+    resourceId: instanceID,
+    progress: 75,
+    stage: 'compose',
+    message: 'starting_restored_database_and_checking_health',
+    result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' },
+    errorCode: 'health_check_failed',
+    errorMessage: 'restored instance did not become healthy',
+    cancelable: false,
+    cancelAsked: false,
+    attempts: 1,
+    createdAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  }]
+  await page.reload()
+  const recoveredRestoreNotice = page.locator('.restore-outcome-alert')
+  await expect(recoveredRestoreNotice.getByText('恢复未生效，已恢复操作前数据')).toBeVisible()
+  await expect(recoveredRestoreNotice.getByText(/不要把当前实例误认为已经恢复到目标备份/)).toBeVisible()
+  await expect(recoveredRestoreNotice.getByText('未生效', { exact: true })).toBeVisible()
+  await expect(recoveredRestoreNotice.getByText('已恢复操作前数据', { exact: true })).toBeVisible()
+  await expect(recoveredRestoreNotice.getByText('核对数据版本后可交付')).toBeVisible()
+  await expect(page.getByText('恢复未生效，已恢复操作前的数据库状态')).toBeVisible()
+  await expect(recoveredRestoreNotice.getByRole('button', { name: '重试恢复' })).toBeVisible()
+  await expect(recoveredRestoreNotice.getByRole('button', { name: '查看任务' })).toBeVisible()
+  await expect(recoveredRestoreNotice.getByRole('button', { name: '查看实例日志' })).toBeVisible()
+  await recoveredRestoreNotice.getByRole('button', { name: '重试恢复' }).click()
+  await expect.poll(() => restoreRetryCount).toBe(1)
+  await expect(page.getByText('排队中', { exact: true })).toBeVisible()
+
+  instanceStatus = 'failed'
+  instanceStatusMessage = 'Restore failed and automatic rollback did not complete'
+  relatedTasks = [{
+    ...relatedTasks[0],
+    id: restoreOutcomeTaskID,
+    status: 'failed',
+    progress: 75,
+    stage: 'compose',
+    message: 'starting_restored_database_and_checking_health',
+    result: { restoreOutcome: 'rollback_incomplete', instanceStatus: 'failed', desiredState: 'running' },
+    errorCode: 'health_check_failed',
+    errorMessage: 'restore failed and rollback snapshot could not be applied',
+    finishedAt: new Date().toISOString(),
+  }]
+  await page.reload()
+  const incompleteRestoreNotice = page.locator('.restore-outcome-alert')
+  await expect(incompleteRestoreNotice.getByText('自动回滚未完成，数据状态不可确认')).toBeVisible()
+  await expect(incompleteRestoreNotice.getByText('是否生效不可确认')).toBeVisible()
+  await expect(incompleteRestoreNotice.getByText('状态不可确认', { exact: true })).toBeVisible()
+  await expect(incompleteRestoreNotice.getByText('禁止交付')).toBeVisible()
+  await expect(page.getByText('恢复失败，自动回滚未能完成')).toBeVisible()
+
   instanceStatus = 'degraded'
+  instanceStatusMessage = ''
   relatedTasks = [{ id: '77777777-7777-4777-8777-777777777778', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 30, stage: 'failed', message: 'preparing_database_image', errorCode: 'image_pull_failed', errorMessage: 'docker pull postgres:17 failed: unexpected EOF', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
   await page.reload()
   await expect(page.getByText('目标主机无法拉取所选数据库镜像。')).toBeVisible()
@@ -794,6 +863,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}/tasks`)
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/retry`)
   await page.unroute('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry')
+  await page.unroute(`**/api/v1/tasks/${restoreOutcomeTaskID}/retry`)
   await page.unroute('**/api/v1/templates')
   await page.unroute('**/api/v1/images')
   await page.unroute('**/api/v1/registries')
@@ -1181,8 +1251,9 @@ test('initializes the platform and switches the embedded interface language', as
 
   const failedTaskID = '33333333-3333-4333-8333-333333333333'
   const retriedTaskID = '33333333-3333-4333-8333-333333333334'
+  const healthFailureTaskID = '33333333-3333-4333-8333-333333333336'
   const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
-  const healthFailureTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333336', kind: 'instance_restore', resourceId: '77777777-7777-4777-8777-777777777777', progress: 90, stage: 'health', message: 'starting_restored_database_and_checking_health', errorCode: 'health_check_failed', errorMessage: 'database did not become healthy', createdAt: new Date(Date.now() - 480000).toISOString() }
+  const healthFailureTask = { ...failedTask, id: healthFailureTaskID, kind: 'instance_restore', resourceId: '77777777-7777-4777-8777-777777777777', progress: 90, stage: 'health', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'database did not become healthy', createdAt: new Date(Date.now() - 480000).toISOString() }
   let retriedTask: Record<string, unknown> = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
   const taskCenterBackupTask = { ...failedTask, id: backupDeleteTaskID, kind: 'instance.backup.delete', resourceType: 'backup', resourceId: backupID, progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'task_failed', errorMessage: 'remote command failed: permission denied while deleting archive', createdAt: new Date(Date.now() - 420000).toISOString() }
@@ -1205,6 +1276,8 @@ test('initializes the platform and switches the embedded interface language', as
   })
   await page.route(`**/api/v1/tasks/${failedTaskID}`, async (route) => route.fulfill({ json: failedTask }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
+  await page.route(`**/api/v1/tasks/${healthFailureTaskID}`, async (route) => route.fulfill({ json: healthFailureTask }))
+  await page.route(`**/api/v1/tasks/${healthFailureTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 2, level: 'error', message: 'database did not become healthy', createdAt: healthFailureTask.finishedAt }] } }))
   await page.route(`**/api/v1/tasks/${backupDeleteTaskID}`, async (route) => route.fulfill({ json: taskCenterBackupTask }))
   await page.route(`**/api/v1/tasks/${backupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/retry`, async (route) => {
@@ -1299,6 +1372,11 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
   await expect(page.getByRole('dialog', { name: 'E2E Host' }).getByText('主机已就绪，可以重试原任务')).toBeVisible()
   await page.getByRole('dialog', { name: 'E2E Host' }).getByRole('button', { name: '关闭', exact: true }).click()
+  await page.goto(`/tasks?task=${healthFailureTaskID}`)
+  const restoreFailureDrawer = page.getByRole('dialog', { name: /恢复数据库实例/ })
+  await expect(restoreFailureDrawer.getByText(/目标备份未生效；实例已恢复到本次操作前的数据和运行状态/)).toBeVisible()
+  await expect(restoreFailureDrawer.getByText(/修复健康检查或资源问题后重试恢复/)).toBeVisible()
+  await expect(restoreFailureDrawer.getByRole('button', { name: '重试任务' })).toBeVisible()
 
   const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
   const cleanupReadyID = '44444444-4444-4444-8444-444444444442'
@@ -1387,6 +1465,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/tasks/${retriedTaskID}`)
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}`)
+  await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}/logs`)
+  await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}/retry`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}`)
@@ -1590,15 +1670,27 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.unroute('**/api/v1/instances')
   const viewerFailedBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'Viewer cleanup backup', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   const viewerFailedBackupTask = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'failed', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
+  const viewerRestoreTask = { id: restoreOutcomeTaskID, kind: 'instance.restore', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 75, stage: 'compose', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'restored instance did not become healthy', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
+  let viewerInstanceTasks: Array<Record<string, unknown>> = [viewerRestoreTask]
+  let viewerInstanceStatusMessage = 'Restore failed; the pre-restore database state was recovered'
   await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [viewerFailedBackup] } }))
   await developerPage.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
-  await developerPage.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => route.fulfill({ json: { items: [viewerFailedBackupTask, { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }] } }))
-  await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: 'running' } }))
+  await developerPage.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => route.fulfill({ json: { items: viewerInstanceTasks } }))
+  await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: 'running', statusMessage: viewerInstanceStatusMessage } }))
   await developerPage.goto(`/instances/${instanceID}`)
+  const viewerRestoreNotice = developerPage.locator('.restore-outcome-alert')
+  await expect(viewerRestoreNotice.getByText('恢复未生效，已恢复操作前数据')).toBeVisible()
+  await expect(viewerRestoreNotice.getByRole('button', { name: '重试恢复' })).toHaveCount(0)
+  await expect(viewerRestoreNotice.getByRole('button', { name: '查看任务' })).toBeVisible()
+  await expect(viewerRestoreNotice.getByRole('button', { name: '查看实例日志' })).toBeVisible()
+  viewerInstanceStatusMessage = ''
+  viewerInstanceTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }]
+  await developerPage.reload()
   await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()
   await expect(developerPage.getByText('部署已完成，但当前账号无权查看数据库凭据。')).toBeVisible()
   await expect(developerPage.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
   await expect(developerPage.getByRole('button', { name: '查看部署记录' })).toBeVisible()
+  viewerInstanceTasks = [viewerFailedBackupTask, { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }]
   await developerPage.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
   const viewerCleanupContinuation = developerPage.locator('.cleanup-continuation-alert')
   await expect(viewerCleanupContinuation.getByText('当前账号可以查看阻断条件，但需要管理员或运维删除备份并继续清理。')).toBeVisible()

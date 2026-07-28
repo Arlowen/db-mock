@@ -4,7 +4,7 @@ import { taskFailureGuidance } from '../lib/task-failure'
 import type { Task } from '../lib/types'
 
 interface TaskFailureGuidanceProps {
-  task: Pick<Task, 'kind' | 'errorCode' | 'errorMessage'>
+  task: Pick<Task, 'kind' | 'status' | 'result' | 'errorCode' | 'errorMessage'>
   hostName?: string
 }
 

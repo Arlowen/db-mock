@@ -26,6 +26,7 @@ import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, i
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
+import { restoreOutcome } from '../lib/restore-outcome'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { isRecoverableInstanceStatus, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
@@ -933,16 +934,19 @@ export function InstanceDetailPage() {
   }
   const project = projects.find((candidate) => candidate.id === item.projectId)
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(instanceTasks, isRecoverableInstanceStatus(item.status))
+  const latestInstanceTask = instanceTasks[0]
+  const latestRestoreOutcome = restoreOutcome(latestInstanceTask, item)
+  const restoreOutcomeTask = latestRestoreOutcome ? latestInstanceTask : undefined
   const deploymentHandoff = selectDeploymentHandoff(instanceTasks, item.status)
   const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
   const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
   const lifecycleRequestCanRetry = lifecycleRequestFailure && !operationTask &&
     canRetryInstanceLifecycleAction(lifecycleRequestFailure.action, item.status, lifecycleRequestFailure.code)
-  const retryTask = async () => {
-    if (!failedTask) return
+  const retryTask = async (task = failedTask) => {
+    if (!task) return
     try {
       setActioning('retry-task')
-      const retried = await api<Task>(`/tasks/${failedTask.id}/retry`, { method: 'POST', body: {} })
+      const retried = await api<Task>(`/tasks/${task.id}/retry`, { method: 'POST', body: {} })
       setTasks((current) => [retried, ...current])
       notifyTask(retried)
       await load()
@@ -981,7 +985,7 @@ export function InstanceDetailPage() {
       <Button size="small" type="text" onClick={() => setLifecycleRequestFailure(undefined)}>{t('dismiss')}</Button>
     </Space>}
   />
-  const operationPanel = operationTask && <div className={`instance-operation is-${activeTask ? 'active' : 'failed'}`}>
+  const operationPanel = operationTask && !latestRestoreOutcome && <div className={`instance-operation is-${activeTask ? 'active' : 'failed'}`}>
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={operationTask.status} /><Typography.Text strong>{translateCode(t, operationTask.kind, 'taskKind')}</Typography.Text><Typography.Text type="secondary">· {translateCode(t, operationTask.stage, 'taskStage')}</Typography.Text></Space>
       {activeTask
@@ -995,7 +999,26 @@ export function InstanceDetailPage() {
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>
   </div>
-  const deploymentReadyPanel = !operationTask && activeTab === 'overview' && deploymentHandoff?.state === 'ready' && <div className="instance-operation is-ready">
+  const restoreOutcomePanel = latestRestoreOutcome && restoreOutcomeTask && <Alert
+    className="restore-outcome-alert"
+    type={latestRestoreOutcome.state === 'pre_restore_recovered' ? 'warning' : 'error'}
+    showIcon
+    message={t(`restoreOutcomeTitle_${latestRestoreOutcome.state}`)}
+    description={<div className="restore-outcome-body">
+      <Typography.Text>{t(`restoreOutcomeDescription_${latestRestoreOutcome.state}`)}</Typography.Text>
+      <div className="restore-outcome-facts">
+        <div><Typography.Text type="secondary">{t('restoreOutcomeTarget')}</Typography.Text><Typography.Text strong>{t(`restoreOutcomeTarget_${latestRestoreOutcome.state}`)}</Typography.Text></div>
+        <div><Typography.Text type="secondary">{t('restoreOutcomeData')}</Typography.Text><Typography.Text strong>{t(`restoreOutcomeData_${latestRestoreOutcome.state}`)}</Typography.Text></div>
+        <div><Typography.Text type="secondary">{t('restoreOutcomeHandoff')}</Typography.Text><Typography.Text strong>{t(latestRestoreOutcome.state === 'rollback_incomplete' ? 'restoreOutcomeHandoff_blocked' : latestRestoreOutcome.instanceStatus === 'running' ? 'restoreOutcomeHandoff_running' : latestRestoreOutcome.instanceStatus === 'stopped' ? 'restoreOutcomeHandoff_stopped' : 'restoreOutcomeHandoff_review')}</Typography.Text></div>
+      </div>
+      <Space wrap className="restore-outcome-actions">
+        {canOperate && <Button size="small" type={latestRestoreOutcome.state === 'pre_restore_recovered' ? 'primary' : 'default'} icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask(restoreOutcomeTask)}>{t('retryRestore')}</Button>}
+        <Button size="small" type={latestRestoreOutcome.state === 'rollback_incomplete' ? 'primary' : 'default'} onClick={() => navigate(`/tasks?task=${restoreOutcomeTask.id}`)}>{t('viewTask')}</Button>
+        <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>
+      </Space>
+    </div>}
+  />
+  const deploymentReadyPanel = !operationTask && !latestRestoreOutcome && activeTab === 'overview' && deploymentHandoff?.state === 'ready' && <div className="instance-operation is-ready">
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={deploymentHandoff.task.status} /><Typography.Text strong>{t('deploymentReadyTitle')}</Typography.Text></Space>
       <Typography.Paragraph type="secondary">{t(canReadCredentials ? 'deploymentReadyHint' : 'deploymentReadyRestrictedHint')}</Typography.Paragraph>
@@ -1179,7 +1202,7 @@ export function InstanceDetailPage() {
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{restoreOutcomePanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')} width={620}>
       <Form form={editForm} layout="vertical">
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} /></Form.Item>

@@ -172,6 +172,14 @@ button { font: inherit; }
 .instance-operation-next { display: block; }
 .instance-operation-progress { margin: 0; }
 .instance-operation-actions { justify-self: end; }
+.restore-outcome-alert { margin-bottom: 16px; border-radius: 12px; }
+.restore-outcome-alert .ant-alert-content { min-width: 0; width: 100%; }
+.restore-outcome-body { display: grid; gap: 12px; line-height: 1.5; }
+.restore-outcome-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.restore-outcome-facts > div { min-width: 0; padding: 10px 12px; border: 1px solid rgba(217, 119, 6, .22); border-radius: 9px; background: rgba(255, 255, 255, .68); display: flex; flex-direction: column; gap: 4px; }
+.restore-outcome-alert.ant-alert-error .restore-outcome-facts > div { border-color: rgba(207, 19, 34, .2); }
+.restore-outcome-facts .ant-typography-secondary { font-size: 12px; font-weight: 600; }
+.restore-outcome-actions { justify-content: flex-start; }
 .upgrade-field, .upgrade-source-panel { display: grid; gap: 10px; }
 .upgrade-field { margin-bottom: 18px; }
 .upgrade-source-panel { padding-top: 17px; border-top: 1px solid #edf0f4; }
@@ -696,6 +704,9 @@ button { font: inherit; }
   .connection-string { grid-template-columns: 1fr; gap: 6px; }
   .instance-operation, .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
   .instance-operation-actions { justify-self: start; }
+  .restore-outcome-facts { grid-template-columns: 1fr; }
+  .restore-outcome-actions { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .restore-outcome-actions .ant-btn { width: 100%; }
   .instance-action-request-alert { align-items: flex-start; }
   .instance-action-request-alert .ant-alert-action { width: 100%; margin: 12px 0 0; }
   .instance-action-request-actions { justify-content: flex-start; }

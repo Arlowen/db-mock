@@ -1,4 +1,5 @@
 import type { Task } from './types'
+import { restoreOutcome } from './restore-outcome'
 
 export interface TaskFailureGuidance {
   causeKey: string
@@ -51,8 +52,17 @@ function impactKey(kind: string) {
   return 'taskFailureImpact_generic'
 }
 
-export function taskFailureGuidance(task: Pick<Task, 'kind' | 'errorCode'>): TaskFailureGuidance {
+export function taskFailureGuidance(task: Pick<Task, 'kind' | 'errorCode'> & Partial<Pick<Task, 'status' | 'result'>>): TaskFailureGuidance {
   const code = task.errorCode && knownFailureCodes.has(task.errorCode) ? task.errorCode : 'task_failed'
+  const restore = restoreOutcome(task)
+  if (restore) {
+    return {
+      causeKey: `taskFailureCause_${code}`,
+      impactKey: `taskFailureImpact_instance_restore_${restore.state}`,
+      recoveryKey: `taskFailureRecovery_instance_restore_${restore.state}`,
+      inspectHost: false,
+    }
+  }
   return {
     causeKey: `taskFailureCause_${code}`,
     impactKey: impactKey(task.kind),

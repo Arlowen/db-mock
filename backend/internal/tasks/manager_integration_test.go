@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -135,6 +136,46 @@ func TestRunPreservesExplicitTaskCancellation(t *testing.T) {
 	if finished.Status != "canceled" || finished.ErrorCode != "canceled" ||
 		finished.FinishedAt == nil || finished.Cancelable {
 		t.Fatalf("explicitly canceled task = %#v", finished)
+	}
+}
+
+func TestRunPersistsStructuredFailureResult(t *testing.T) {
+	ctx, pool := openManagerTest(t)
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'failure-result-worker','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	queued, err := target.CreateTask(ctx, store.TaskInput{Kind: "failure.result.test", ResourceType: "test",
+		RequestedBy: userID, Payload: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := target.ClaimTask(ctx)
+	if err != nil || claimed.ID != queued.ID {
+		t.Fatalf("claimed task = %#v, err=%v", claimed, err)
+	}
+
+	manager := New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
+	manager.Register("failure.result.test", func(context.Context, *Runtime, domain.Task) (any, error) {
+		return nil, WithFailureResult(errors.New("restore health check failed"), map[string]any{
+			"restoreOutcome": "pre_restore_recovered",
+			"instanceStatus": "running",
+		})
+	})
+	manager.run(ctx, claimed)
+
+	finished, err := target.GetTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err = json.Unmarshal(finished.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "failed" || finished.ErrorCode != "health_check_failed" ||
+		result["restoreOutcome"] != "pre_restore_recovered" || result["instanceStatus"] != "running" {
+		t.Fatalf("structured failure task = %#v result=%#v", finished, result)
 	}
 }
 
