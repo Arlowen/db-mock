@@ -451,8 +451,8 @@ func (s *Service) action(ctx context.Context, userID uuid.UUID, instance domain.
 }
 
 func (s *Service) BatchAction(ctx context.Context, userID uuid.UUID, action string, instanceIDs []uuid.UUID) ([]BatchActionOutcome, error) {
-	if action != "start" && action != "stop" {
-		return nil, fmt.Errorf("%w: batch actions only support start or stop", domain.ErrInvalid)
+	if action != "start" && action != "stop" && action != "restart" {
+		return nil, fmt.Errorf("%w: batch actions only support start, stop, or restart", domain.ErrInvalid)
 	}
 	if len(instanceIDs) == 0 || len(instanceIDs) > 100 {
 		return nil, fmt.Errorf("%w: select between 1 and 100 instances", domain.ErrInvalid)
@@ -578,7 +578,7 @@ func validateBatchInstanceAction(status, action string) error {
 	if action == "start" && status == "stopped" {
 		return nil
 	}
-	if action == "stop" && (status == "running" || status == "degraded") {
+	if (action == "stop" || action == "restart") && (status == "running" || status == "degraded") {
 		return nil
 	}
 	return fmt.Errorf("%w: instance action is not allowed for the current status", domain.ErrConflict)

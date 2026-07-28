@@ -257,6 +257,44 @@ func TestListInstanceRelatedTasksIncludesBackupResourcesAndExcludesOtherInstance
 	}
 }
 
+func TestListTasksByIDsReturnsOnlyRequestedTasks(t *testing.T) {
+	ctx, pool := openInstanceStoreTest(t)
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,username,password_hash) VALUES($1,'task-batch-status','hash')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	target := store.New(pool)
+	first, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.restart", ResourceType: "instance",
+		RequestedBy: userID, Payload: map[string]any{"instanceId": uuid.New()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.stop", ResourceType: "instance",
+		RequestedBy: userID, Payload: map[string]any{"instanceId": uuid.New()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelated, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.start", ResourceType: "instance",
+		RequestedBy: userID, Payload: map[string]any{"instanceId": uuid.New()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE tasks SET created_at=CASE id
+		WHEN $1 THEN now()-interval '2 minutes'
+		WHEN $2 THEN now()-interval '1 minute'
+		ELSE now() END WHERE id IN ($1,$2,$3)`, first.ID, second.ID, unrelated.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := target.ListTasksByIDs(ctx, []uuid.UUID{first.ID, second.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID != second.ID || items[1].ID != first.ID {
+		t.Fatalf("tasks by IDs = %#v, want second then first", items)
+	}
+}
+
 func waitForAdvisoryWaiters(t *testing.T, ctx context.Context, pool *pgxpool.Pool, wanted int, timeout time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

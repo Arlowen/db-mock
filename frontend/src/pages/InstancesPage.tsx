@@ -22,7 +22,7 @@ import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
 import { hostCanAccept, hostCanReconfigure, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
-import { instanceBatchActionPlan, instanceQuickAction, type InstanceQuickAction } from '../lib/instance-actions'
+import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceQuickAction, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
@@ -44,11 +44,6 @@ interface CreateValues { name: string; projectId?: string; environment: string; 
 interface EditValues { name: string; projectId?: string; environment: string; purpose?: string; owner: string; expiresAt?: Dayjs; labels?: string }
 interface RuntimeValues { cpu: number; memoryGiB: number; diskGiB: number; extraEnvironment: string; autoRestart: boolean }
 interface BackupPolicyValues { enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; hour: number; minute: number; timezone: string; retentionCount: number }
-interface BatchActionAccepted { instanceId: string; instanceName: string; task: Task }
-interface BatchActionRejected { instanceId: string; instanceName?: string; code: string; message: string }
-interface BatchActionResponse { action: InstanceQuickAction; accepted: BatchActionAccepted[]; rejected: BatchActionRejected[] }
-interface BatchActionResult extends BatchActionResponse { skipped: Instance[] }
-
 function parseStringMap(value?: string): Record<string, string> | undefined {
   try {
     const parsed = JSON.parse(value?.trim() || '{}')
@@ -61,7 +56,7 @@ function sameStringMap(left: Record<string, string>, right: Record<string, strin
   return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key])
 }
 
-function batchActionErrorMessage(item: BatchActionRejected): string {
+function batchActionErrorMessage(item: InstanceBatchRejected): string {
   const status = item.code === 'not_found' ? 404
     : item.code === 'resource_conflict' ? 409
       : item.code === 'forbidden' ? 403
@@ -75,10 +70,13 @@ function batchActionErrorMessage(item: BatchActionRejected): string {
 export function InstancesPage() {
   const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createError, setCreateError] = useState(''); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const [actioning, setActioning] = useState(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
-  const [bulkAction, setBulkAction] = useState<InstanceQuickAction>()
+  const [bulkAction, setBulkAction] = useState<InstanceBatchAction>()
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
   const [bulkRequestError, setBulkRequestError] = useState('')
-  const [bulkResult, setBulkResult] = useState<BatchActionResult>()
+  const [bulkResult, setBulkResult] = useState<InstanceBatchActionResult>()
+  const [bulkTracking, setBulkTracking] = useState(false)
+  const [bulkTrackingError, setBulkTrackingError] = useState('')
+  const [bulkRetryingTaskID, setBulkRetryingTaskID] = useState('')
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const lifecycleDefaults = useMemo(() => ({ owner: user?.displayName?.trim() || user?.username || '', expiresAt: dayjs().add(7, 'day').endOf('day') }), [user?.displayName, user?.username])
@@ -295,20 +293,32 @@ export function InstancesPage() {
   }, [items, selectedInstanceIDs])
   const startBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'start'), [selectedInstances])
   const stopBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'stop'), [selectedInstances])
-  const activeBatchPlan = bulkAction === 'start' ? startBatchPlan : stopBatchPlan
-  const openBatchAction = (action: InstanceQuickAction) => {
+  const restartBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'restart'), [selectedInstances])
+  const activeBatchPlan = bulkAction === 'start' ? startBatchPlan : bulkAction === 'restart' ? restartBatchPlan : stopBatchPlan
+  const openBatchAction = (action: InstanceBatchAction) => {
     setBulkRequestError('')
     setBulkAction(action)
   }
-  const submitBatchAction = async (action: InstanceQuickAction, instanceIDs: string[], skipped: Instance[], keepConfirmationOpen: boolean) => {
+  const submitBatchAction = async (action: InstanceBatchAction, instanceIDs: string[], skipped: Instance[], keepConfirmationOpen: boolean) => {
     try {
       setBulkSubmitting(true)
       setBulkRequestError('')
-      const result = await api<BatchActionResponse>(`/instances/batch-actions/${action}`, {
+      setBulkTrackingError('')
+      const result = await api<InstanceBatchActionResponse>(`/instances/batch-actions/${action}`, {
         method: 'POST',
         body: { instanceIds: instanceIDs },
       })
-      setBulkResult({ ...result, skipped })
+      result.accepted.forEach((item) => notifyTask(item.task))
+      setBulkResult((current) => {
+        if (keepConfirmationOpen || !current) return { ...result, skipped }
+        const retried = new Set(instanceIDs)
+        return {
+          action: result.action,
+          accepted: [...current.accepted, ...result.accepted],
+          rejected: [...current.rejected.filter((item) => !retried.has(item.instanceId)), ...result.rejected],
+          skipped: current.skipped,
+        }
+      })
       setBulkAction(undefined)
       setSelectedInstanceIDs([])
       setLoading(true)
@@ -320,11 +330,57 @@ export function InstancesPage() {
       setBulkSubmitting(false)
     }
   }
+  const bulkTaskGroups = useMemo(() => instanceBatchTaskGroups(bulkResult?.accepted || []), [bulkResult?.accepted])
+  const trackedBatchTaskIDs = useMemo(() => (bulkResult?.accepted || []).map((item) => item.task.id).join(','), [bulkResult?.accepted])
+  const refreshTrackedBatchTasks = useCallback(async (showLoading = true) => {
+    if (!trackedBatchTaskIDs) return
+    try {
+      if (showLoading) setBulkTracking(true)
+      const response = await api<{ items: Task[] }>(`/tasks?ids=${encodeURIComponent(trackedBatchTaskIDs)}`)
+      const tasksByID = new Map(response.items.map((task) => [task.id, task]))
+      setBulkResult((current) => current ? {
+        ...current,
+        accepted: current.accepted.map((item) => tasksByID.has(item.task.id) ? { ...item, task: tasksByID.get(item.task.id)! } : item),
+      } : current)
+      setBulkTrackingError('')
+      if (response.items.length > 0 && response.items.every((task) => ['succeeded', 'failed', 'canceled', 'interrupted'].includes(task.status))) {
+        await load()
+      }
+    } catch (error) {
+      setBulkTrackingError(errorMessage(error))
+    } finally {
+      if (showLoading) setBulkTracking(false)
+    }
+  }, [load, trackedBatchTaskIDs])
+  useEffect(() => {
+    if (!trackedBatchTaskIDs || bulkTaskGroups.active.length === 0) return
+    void refreshTrackedBatchTasks(false)
+    const timer = window.setInterval(() => void refreshTrackedBatchTasks(false), 3000)
+    return () => window.clearInterval(timer)
+  }, [bulkTaskGroups.active.length, refreshTrackedBatchTasks, trackedBatchTaskIDs])
+  const retryBatchTask = async (item: InstanceBatchAccepted) => {
+    try {
+      setBulkRetryingTaskID(item.task.id)
+      setBulkTrackingError('')
+      const task = await api<Task>(`/tasks/${item.task.id}/retry`, { method: 'POST', body: {} })
+      notifyTask(task)
+      setBulkResult((current) => current ? {
+        ...current,
+        accepted: current.accepted.map((accepted) => accepted.task.id === item.task.id ? { ...accepted, task } : accepted),
+      } : current)
+      await load()
+    } catch (error) {
+      setBulkTrackingError(errorMessage(error))
+    } finally {
+      setBulkRetryingTaskID('')
+    }
+  }
   const retryableRejected = bulkResult?.rejected.filter((item) => ['internal_error', 'resource_unavailable'].includes(item.code)) || []
   const clearSelection = () => {
     setSelectedInstanceIDs([])
     setBulkAction(undefined)
     setBulkRequestError('')
+    setBulkTrackingError('')
   }
   const instanceActions = (item: Instance) => {
     const action = canOperate ? instanceQuickAction(item.status) : undefined
@@ -377,7 +433,6 @@ export function InstancesPage() {
   useEffect(() => {
     setSelectedInstanceIDs([])
     setBulkAction(undefined)
-    setBulkResult(undefined)
     setBulkRequestError('')
   }, [environmentFilter, hostFilter, projectFilter, search, statusFilter])
   const resetPage = () => setPage(1)
@@ -407,34 +462,71 @@ export function InstancesPage() {
   const bulkToolbar = canOperate && selectedInstances.length > 0 && <Card size="small" className="instance-bulk-toolbar">
     <div className="instance-bulk-toolbar-copy">
       <Typography.Text strong>{t('batchSelectionCount', { count: selectedInstances.length })}</Typography.Text>
-      <Typography.Text type="secondary">{t('batchSelectionSummary', { start: startBatchPlan.eligible.length, stop: stopBatchPlan.eligible.length })}</Typography.Text>
+      <Typography.Text type="secondary">{t('batchSelectionSummary', { start: startBatchPlan.eligible.length, stop: stopBatchPlan.eligible.length, restart: restartBatchPlan.eligible.length })}</Typography.Text>
     </div>
     <Space wrap className="instance-bulk-toolbar-actions">
       <Button type="primary" icon={<PlayCircleOutlined />} disabled={startBatchPlan.eligible.length === 0 || bulkSubmitting || !!actioning} onClick={() => openBatchAction('start')}>{t('batchStartCount', { count: startBatchPlan.eligible.length })}</Button>
       <Button danger icon={<PauseCircleOutlined />} disabled={stopBatchPlan.eligible.length === 0 || bulkSubmitting || !!actioning} onClick={() => openBatchAction('stop')}>{t('batchStopCount', { count: stopBatchPlan.eligible.length })}</Button>
+      <Button icon={<ReloadOutlined />} disabled={restartBatchPlan.eligible.length === 0 || bulkSubmitting || !!actioning} onClick={() => openBatchAction('restart')}>{t('batchRestartCount', { count: restartBatchPlan.eligible.length })}</Button>
       <Button disabled={bulkSubmitting} onClick={clearSelection}>{t('clearSelection')}</Button>
     </Space>
   </Card>
+  const trackedBatchTasks = [...bulkTaskGroups.failed, ...bulkTaskGroups.active, ...bulkTaskGroups.succeeded]
+  const bulkResultType = bulkTaskGroups.failed.length > 0 || (bulkResult?.rejected.length && !bulkResult.accepted.length)
+    ? 'error'
+    : bulkResult?.rejected.length || bulkTaskGroups.active.length > 0
+      ? 'warning'
+      : 'success'
   const bulkResultAlert = bulkResult && <Alert
     className="instance-bulk-result"
-    type={bulkResult.rejected.length ? bulkResult.accepted.length ? 'warning' : 'error' : 'success'}
+    type={bulkResultType}
     showIcon
-    message={bulkResult.rejected.length
-      ? bulkResult.accepted.length
-        ? t('batchActionPartialTitle', { accepted: bulkResult.accepted.length, rejected: bulkResult.rejected.length })
-        : t('batchActionFailedTitle', { count: bulkResult.rejected.length })
-      : t('batchActionQueuedTitle', { action: t(bulkResult.action), count: bulkResult.accepted.length })}
+    message={bulkTaskGroups.failed.length > 0
+      ? t('batchActionNeedsAttentionTitle', { count: bulkTaskGroups.failed.length })
+      : bulkTaskGroups.active.length > 0
+        ? t('batchActionInProgressTitle', { action: t(bulkResult.action), count: bulkTaskGroups.active.length })
+        : bulkResult.accepted.length > 0
+          ? t('batchActionCompletedTitle', { action: t(bulkResult.action), count: bulkTaskGroups.succeeded.length })
+          : t('batchActionFailedTitle', { count: bulkResult.rejected.length })}
     description={<div className="instance-bulk-result-details">
-      {bulkResult.accepted.length > 0 && <Typography.Text>{t('batchAcceptedSummary', { count: bulkResult.accepted.length })}</Typography.Text>}
+      {bulkResult.accepted.length > 0 && <Typography.Text className="instance-bulk-progress-summary">{t('batchProgressSummary', { active: bulkTaskGroups.active.length, succeeded: bulkTaskGroups.succeeded.length, failed: bulkTaskGroups.failed.length })}</Typography.Text>}
       {bulkResult.skipped.length > 0 && <Typography.Text type="secondary">{t('batchSkippedSummary', { count: bulkResult.skipped.length })}</Typography.Text>}
       {bulkResult.rejected.length > 0 && <ul>{bulkResult.rejected.slice(0, 5).map((item) => <li key={item.instanceId}><strong>{item.instanceName || item.instanceId.slice(0, 8)}</strong>: {batchActionErrorMessage(item)}</li>)}</ul>}
       {bulkResult.rejected.length > 5 && <Typography.Text type="secondary">{t('batchMoreFailures', { count: bulkResult.rejected.length - 5 })}</Typography.Text>}
+      {bulkTrackingError && <Alert type="warning" showIcon message={t('batchTrackingFailed')} description={bulkTrackingError} />}
+      {trackedBatchTasks.length > 0 && <div className="instance-bulk-task-list">
+        {trackedBatchTasks.slice(0, 6).map((item) => {
+          const failed = ['failed', 'canceled', 'interrupted'].includes(item.task.status)
+          const guidance = failed ? taskFailureGuidance(item.task) : undefined
+          const hostRecoveryPath = guidance?.inspectHost ? taskHostRecoveryPathForTask(item.task) : undefined
+          const hostName = hosts.find((host) => host.id === item.task.hostId)?.name
+          return <div key={item.task.id} className={`instance-bulk-task-item${failed ? ' is-failed' : ''}`}>
+            <div className="instance-bulk-task-header">
+              <div>
+                <Typography.Text strong>{item.instanceName || item.instanceId.slice(0, 8)}</Typography.Text>
+                <Space size={6} wrap>
+                  <StatusTag value={item.task.status} />
+                  {item.task.stage !== item.task.status && <Typography.Text type="secondary">{translateCode(t, item.task.stage, 'taskStage')}</Typography.Text>}
+                </Space>
+              </div>
+              <Space size={6} wrap className="instance-bulk-task-actions">
+                {hostRecoveryPath && <Button size="small" type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(hostRecoveryPath)}>{t('inspectFailedHost')}</Button>}
+                {failed && !hostRecoveryPath && <Button size="small" type="primary" icon={<ReloadOutlined />} loading={bulkRetryingTaskID === item.task.id} disabled={!!bulkRetryingTaskID && bulkRetryingTaskID !== item.task.id} onClick={() => void retryBatchTask(item)}>{t('retryTask')}</Button>}
+                <Button size="small" onClick={() => navigate(`/tasks?task=${item.task.id}`)}>{t('viewTask')}</Button>
+              </Space>
+            </div>
+            {!failed && <Progress percent={item.task.progress} status={item.task.status === 'succeeded' ? 'success' : 'active'} size="small" />}
+            {failed && <TaskFailureGuidance task={item.task} hostName={hostName} />}
+          </div>
+        })}
+        {trackedBatchTasks.length > 6 && <Typography.Text type="secondary">{t('batchMoreTrackedTasks', { count: trackedBatchTasks.length - 6 })}</Typography.Text>}
+      </div>}
     </div>}
     action={<Space wrap>
       {retryableRejected.length > 0 && <Button size="small" loading={bulkSubmitting} onClick={() => void submitBatchAction(bulkResult.action, retryableRejected.map((item) => item.instanceId), [], false)}>{t('retryUnqueuedCount', { count: retryableRejected.length })}</Button>}
-      {bulkResult.rejected.length > 0 && <Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('refreshStatus')}</Button>}
-      {bulkResult.accepted.length > 0 && <Button size="small" type="primary" onClick={() => navigate('/tasks')}>{t('viewBatchTasks')}</Button>}
-      <Button size="small" type="text" onClick={() => setBulkResult(undefined)}>{t('dismiss')}</Button>
+      {bulkResult.accepted.length > 0 && <Button size="small" icon={<ReloadOutlined />} loading={bulkTracking} onClick={() => void refreshTrackedBatchTasks()}>{t('refreshBatchProgress')}</Button>}
+      <Button size="small" onClick={() => navigate('/tasks')}>{t('viewBatchTasks')}</Button>
+      <Button size="small" type="text" onClick={() => { setBulkResult(undefined); setBulkTrackingError('') }}>{t('dismiss')}</Button>
     </Space>}
   />
   const rowSelection = canOperate ? {
@@ -444,7 +536,6 @@ export function InstancesPage() {
     getCheckboxProps: () => ({ disabled: bulkSubmitting || !!actioning }),
     onChange: (keys: Key[]) => {
       setSelectedInstanceIDs(keys.map(String))
-      setBulkResult(undefined)
     },
   } : undefined
   const createSteps = [{ title: t('template') }, { title: t('basicInfo') }, { title: t('resources') }, { title: t('options') }, { title: t('confirm') }]
@@ -463,11 +554,11 @@ export function InstancesPage() {
     {bulkResultAlert}
     {(items.length > 0 || !loadError) && <Card className="instance-table-card" title={!showFilters ? t('instances') : undefined} extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} rowSelection={rowSelection} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 1210 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
     <Modal
-      title={bulkAction ? t(bulkAction === 'stop' ? 'batchStopConfirmTitle' : 'batchStartConfirmTitle', { count: activeBatchPlan.eligible.length }) : ''}
+      title={bulkAction ? t(bulkAction === 'stop' ? 'batchStopConfirmTitle' : bulkAction === 'restart' ? 'batchRestartConfirmTitle' : 'batchStartConfirmTitle', { count: activeBatchPlan.eligible.length }) : ''}
       open={!!bulkAction}
       onCancel={() => { if (!bulkSubmitting) { setBulkAction(undefined); setBulkRequestError('') } }}
       onOk={() => bulkAction && void submitBatchAction(bulkAction, activeBatchPlan.eligible.map((item) => item.id), activeBatchPlan.skipped, true)}
-      okText={bulkAction ? t(bulkAction === 'stop' ? 'confirmBatchStop' : 'confirmBatchStart', { count: activeBatchPlan.eligible.length }) : t('confirm')}
+      okText={bulkAction ? t(bulkAction === 'stop' ? 'confirmBatchStop' : bulkAction === 'restart' ? 'confirmBatchRestart' : 'confirmBatchStart', { count: activeBatchPlan.eligible.length }) : t('confirm')}
       cancelText={t('cancel')}
       confirmLoading={bulkSubmitting}
       closable={!bulkSubmitting}
@@ -476,9 +567,9 @@ export function InstancesPage() {
     >
       <div className="instance-bulk-confirm">
         <Alert
-          type={bulkAction === 'stop' ? 'warning' : 'info'}
+          type={bulkAction === 'stop' || bulkAction === 'restart' ? 'warning' : 'info'}
           showIcon
-          message={bulkAction === 'stop' ? t('batchStopConfirmMessage') : t('batchStartConfirmMessage')}
+          message={bulkAction === 'stop' ? t('batchStopConfirmMessage') : bulkAction === 'restart' ? t('batchRestartConfirmMessage') : t('batchStartConfirmMessage')}
           description={t('batchConfirmImpact', { eligible: activeBatchPlan.eligible.length, skipped: activeBatchPlan.skipped.length })}
         />
         <div>

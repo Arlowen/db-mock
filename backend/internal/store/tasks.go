@@ -218,6 +218,27 @@ func (s *Store) ListTasks(ctx context.Context, status, resourceType string, reso
 	return items, rows.Err()
 }
 
+func (s *Store) ListTasksByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Task, error) {
+	if len(ids) == 0 {
+		return []domain.Task{}, nil
+	}
+	rows, err := s.pool.Query(ctx, "SELECT "+taskColumns+`
+        FROM tasks WHERE id=ANY($1::uuid[]) ORDER BY created_at DESC`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.Task, 0, len(ids))
+	for rows.Next() {
+		var item domain.Task
+		if err := rows.Scan(taskScan(&item)...); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) ListInstanceRelatedTasks(ctx context.Context, instanceID uuid.UUID, limit int) ([]domain.Task, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100

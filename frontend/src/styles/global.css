@@ -390,8 +390,20 @@ button { font: inherit; }
 .instance-bulk-toolbar-copy { min-width: 0; display: grid; gap: 2px; }
 .instance-bulk-toolbar-actions { flex: none; }
 .instance-bulk-result { margin-bottom: 12px; }
-.instance-bulk-result-details { min-width: 0; display: grid; gap: 5px; }
+.instance-bulk-result.ant-alert { align-items: flex-start; flex-wrap: wrap; }
+.instance-bulk-result .ant-alert-section { min-width: 0; }
+.instance-bulk-result .ant-alert-actions { min-width: 0; }
+.instance-bulk-result-details { min-width: 0; width: 100%; display: grid; gap: 5px; }
 .instance-bulk-result-details ul { margin: 2px 0 0; padding-inline-start: 20px; }
+.instance-bulk-progress-summary { font-variant-numeric: tabular-nums; }
+.instance-bulk-task-list { min-width: 0; margin-top: 5px; display: grid; gap: 8px; }
+.instance-bulk-task-item { min-width: 0; padding: 10px 12px; border: 1px solid #d9e2ef; border-radius: 9px; background: rgba(255, 255, 255, .76); display: grid; gap: 8px; }
+.instance-bulk-task-item.is-failed { border-color: #efc7cb; background: #fffafa; }
+.instance-bulk-task-header { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.instance-bulk-task-header > div:first-child { min-width: 0; display: grid; gap: 5px; }
+.instance-bulk-task-header > div:first-child > .ant-typography { overflow-wrap: anywhere; }
+.instance-bulk-task-actions { flex: none; justify-content: flex-end; }
+.instance-bulk-task-item .task-failure-guidance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .instance-bulk-confirm { display: grid; gap: 16px; }
 .instance-bulk-name-list { display: flex; margin-top: 8px; }
 .instance-bulk-name-list .ant-tag { margin-inline-end: 0; }
@@ -697,6 +709,8 @@ button { font: inherit; }
 @media (max-width: 1100px) {
   .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
   .instance-operation.is-failed .instance-operation-actions { justify-self: start; }
+  .instance-bulk-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
+  .instance-bulk-result .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 10px; }
 }
 
 @media (max-width: 1000px) {
@@ -869,8 +883,10 @@ button { font: inherit; }
   .instance-bulk-toolbar .ant-card-body { align-items: stretch; flex-direction: column; }
   .instance-bulk-toolbar-actions { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
   .instance-bulk-toolbar-actions .ant-btn { width: 100%; }
-  .instance-bulk-result.ant-alert { align-items: flex-start; }
-  .instance-bulk-result .ant-alert-action { margin-inline-start: 0; padding-top: 10px; }
+  .instance-bulk-task-header { flex-direction: column; }
+  .instance-bulk-task-actions { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .instance-bulk-task-actions .ant-btn { width: 100%; }
+  .instance-bulk-task-item .task-failure-guidance-grid { grid-template-columns: minmax(0, 1fr); }
   .instance-table-card .ant-table-cell { padding: 16px !important; }
   .instance-table-card .ant-pagination { margin-inline: 16px !important; }
   .instance-detail-tabs > .ant-tabs-nav { align-items: stretch; flex-direction: column; gap: 10px; }

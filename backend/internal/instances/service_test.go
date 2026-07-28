@@ -118,6 +118,8 @@ func TestValidateBatchInstanceActionKeepsFailedRecoveryIndividual(t *testing.T) 
 		{status: "stopped", action: "start"},
 		{status: "running", action: "stop"},
 		{status: "degraded", action: "stop"},
+		{status: "running", action: "restart"},
+		{status: "degraded", action: "restart"},
 	} {
 		if err := validateBatchInstanceAction(test.status, test.action); err != nil {
 			t.Fatalf("expected batch %s for %s to be valid, got %v", test.action, test.status, err)
@@ -128,6 +130,8 @@ func TestValidateBatchInstanceActionKeepsFailedRecoveryIndividual(t *testing.T) 
 		{status: "running", action: "start"},
 		{status: "stopped", action: "stop"},
 		{status: "provisioning", action: "stop"},
+		{status: "stopped", action: "restart"},
+		{status: "restarting", action: "restart"},
 	} {
 		if err := validateBatchInstanceAction(test.status, test.action); !errors.Is(err, domain.ErrConflict) {
 			t.Fatalf("expected batch %s for %s to conflict, got %v", test.action, test.status, err)

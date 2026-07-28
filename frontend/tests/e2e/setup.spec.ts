@@ -222,6 +222,8 @@ test('initializes the platform and switches the embedded interface language', as
   })
   const batchStopBodies: Array<{ instanceIds: string[] }> = []
   let batchStopAttempt = 0
+  let batchTaskPolls = 0
+  const acceptedBatchTask = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', kind: 'instance.stop', status: 'queued', resourceType: 'instance', resourceId: listInstances[0].id, hostId: listInstances[0].hostId, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
   await page.route('**/api/v1/instances/batch-actions/stop', async (route) => {
     batchStopAttempt += 1
     batchStopBodies.push(route.request().postDataJSON() as { instanceIds: string[] })
@@ -229,7 +231,23 @@ test('initializes the platform and switches the embedded interface language', as
       await route.fulfill({ status: 200, json: { action: 'stop', accepted: [], rejected: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' }] } })
       return
     }
-    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, task: { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', kind: 'instance.stop', status: 'queued', resourceType: 'instance', resourceId: listInstances[0].id, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } }], rejected: [] } })
+    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, task: acceptedBatchTask }], rejected: [] } })
+  })
+  await page.route('**/api/v1/tasks?ids=*', async (route) => {
+    batchTaskPolls += 1
+    const failed = batchTaskPolls >= 2
+    await route.fulfill({ json: { items: [{
+      ...acceptedBatchTask,
+      status: failed ? 'failed' : 'running',
+      progress: failed ? 45 : 25,
+      stage: failed ? 'ssh' : 'compose',
+      message: failed ? 'task_failed' : 'stopping_database_instance',
+      cancelable: !failed,
+      attempts: 1,
+      errorCode: failed ? 'ssh_unreachable' : undefined,
+      errorMessage: failed ? 'dial tcp 10.0.0.8:22: connect: connection timed out' : undefined,
+      finishedAt: failed ? new Date().toISOString() : undefined,
+    }] } })
   })
   await page.goto('/projects')
   const projectWithDefaultsCard = page.locator('.project-card').filter({ hasText: 'E2E Project' })
@@ -256,7 +274,12 @@ test('initializes the platform and switches the embedded interface language', as
   await ordersRow.getByRole('checkbox').check()
   await cacheRow.getByRole('checkbox').check()
   await expect(page.getByText('已选择 2 个实例')).toBeVisible()
-  await expect(page.getByText('1 个可启动，1 个可停止；其他状态会在确认时跳过。')).toBeVisible()
+  await expect(page.getByText('1 个可启动，1 个可停止，1 个可重启；其他状态会在确认时跳过。')).toBeVisible()
+  await page.getByRole('button', { name: '批量重启（1）' }).click()
+  const batchRestartDialog = page.getByRole('dialog', { name: '确认重启 1 个实例' })
+  await expect(batchRestartDialog.getByText('重启会中断现有数据库连接，并为每个实例创建独立任务')).toBeVisible()
+  await expect(batchRestartDialog.getByText('Orders DB')).toBeVisible()
+  await batchRestartDialog.getByRole('button', { name: /取\s*消/ }).click()
   await page.getByRole('button', { name: '批量停止（1）' }).click()
   const batchStopDialog = page.getByRole('dialog', { name: '确认停止 1 个实例' })
   await expect(batchStopDialog.getByText('停止后现有数据库连接会中断')).toBeVisible()
@@ -267,10 +290,16 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText(/暂时无法通过 SSH 连接实例主机/)).toBeVisible()
   expect(batchStopBodies).toEqual([{ instanceIds: [listInstances[0].id] }])
   await page.getByRole('button', { name: '重试未排队项（1）' }).click()
-  await expect(page.getByText('已为 1 个实例排队停止')).toBeVisible()
+  await expect(page.getByText(/停止进行中：1 个实例待完成/)).toBeVisible()
   expect(batchStopBodies).toEqual([{ instanceIds: [listInstances[0].id] }, { instanceIds: [listInstances[0].id] }])
-  await expect(page.getByRole('button', { name: '查看这批任务' })).toBeVisible()
+  await expect(page.getByText('批量操作需要处理：1 个实例失败')).toBeVisible({ timeout: 10_000 })
+  const failedBatchTask = page.locator('.instance-bulk-task-item').filter({ hasText: 'Orders DB' })
+  await expect(failedBatchTask.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
+  await expect(failedBatchTask.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(failedBatchTask.getByRole('button', { name: '查看任务' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '打开任务中心' })).toBeVisible()
   await page.getByRole('button', { name: '关闭提示' }).click()
+  await page.unroute('**/api/v1/tasks?ids=*')
   await page.getByRole('combobox', { name: '主机' }).click()
   await page.getByText('E2E Host', { exact: true }).last().click()
   await expect(page.getByText('筛选出 1 / 2 个实例')).toBeVisible()
@@ -1744,6 +1773,8 @@ test('initializes the platform and switches the embedded interface language', as
   expect(viewerProjectCreate.status()).toBe(403)
   const viewerBatchStop = await developerPage.request.post('/api/v1/instances/batch-actions/stop', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
   expect(viewerBatchStop.status()).toBe(403)
+  const viewerBatchRestart = await developerPage.request.post('/api/v1/instances/batch-actions/restart', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
+  expect(viewerBatchRestart.status()).toBe(403)
   const viewerCleanupDecision = await developerPage.request.post('/api/v1/instances/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/cleanup-decision', { data: { decision: 'extend', days: 7 } })
   expect(viewerCleanupDecision.status()).toBe(403)
   const viewerUsers = await developerPage.request.get('/api/v1/users')
@@ -1926,6 +1957,7 @@ test('initializes the platform and switches the embedded interface language', as
 
   await page.getByRole('button', { name: 'Chinese (Simplified)' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  await expect(page.getByRole('button', { name: 'English' })).toBeEnabled()
   await expect(page.getByText('主机', { exact: true }).first()).toBeVisible()
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')

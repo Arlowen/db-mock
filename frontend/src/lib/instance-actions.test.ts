@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Instance } from './types'
-import { canBatchInstanceAction, instanceBatchActionPlan, instanceQuickAction } from './instance-actions'
+import { canBatchInstanceAction, instanceBatchActionPlan, instanceBatchTaskGroups, instanceQuickAction } from './instance-actions'
 
 describe('instanceQuickAction', () => {
   it('offers only safe list-level lifecycle actions', () => {
@@ -30,5 +30,26 @@ describe('instanceBatchActionPlan', () => {
     const plan = instanceBatchActionPlan(instances, 'start')
     expect(plan.eligible.map((item) => item.id)).toEqual(['stopped'])
     expect(canBatchInstanceAction('failed', 'start')).toBe(false)
+  })
+
+  it('restarts only stable running instances', () => {
+    const plan = instanceBatchActionPlan(instances, 'restart')
+    expect(plan.eligible.map((item) => item.id)).toEqual(['running', 'degraded'])
+    expect(plan.skipped.map((item) => item.id)).toEqual(['stopped', 'failed'])
+  })
+})
+
+describe('instanceBatchTaskGroups', () => {
+  it('separates in-flight, successful, and actionable terminal tasks', () => {
+    const accepted = ['queued', 'running', 'succeeded', 'failed', 'interrupted', 'canceled'].map((status, index) => ({
+      instanceId: `instance-${index}`,
+      instanceName: `Instance ${index}`,
+      task: { id: `task-${index}`, kind: 'instance.restart', status },
+    })) as Parameters<typeof instanceBatchTaskGroups>[0]
+
+    const groups = instanceBatchTaskGroups(accepted)
+    expect(groups.active.map((item) => item.task.status)).toEqual(['queued', 'running'])
+    expect(groups.succeeded.map((item) => item.task.status)).toEqual(['succeeded'])
+    expect(groups.failed.map((item) => item.task.status)).toEqual(['failed', 'interrupted', 'canceled'])
   })
 })
