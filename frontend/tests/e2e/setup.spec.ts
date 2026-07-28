@@ -347,6 +347,7 @@ test('initializes the platform and switches the embedded interface language', as
   const upgradeRegistryID = '58585858-5858-4585-8585-585858585858'
   const backupID = '60606060-6060-4060-8060-606060606060'
   let failLogs = true
+  let failConnection = false
   let instanceStatus = 'running'
   let relatedTasks: Array<Record<string, unknown>> = []
   let submittedUpgradeBody: Record<string, unknown> | undefined
@@ -413,7 +414,9 @@ test('initializes the platform and switches the embedded interface language', as
     relatedTasks = [retried]
     await route.fulfill({ status: 202, json: retried })
   })
-  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
+  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => failConnection
+    ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: credential service could not read this instance secret' } } })
+    : route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
   await page.route(`**/api/v1/instances/${instanceID}/logs?**`, async (route) => failLogs
     ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' } } })
     : route.fulfill({ status: 200, contentType: 'text/plain', body: '' }))
@@ -603,7 +606,14 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('tab', { name: '连接信息' }).click()
   await expect(page.getByText('连接可用性受当前状态影响')).toHaveCount(0)
   await expect(page.getByText('连接信息受保护')).toBeVisible()
+  failConnection = true
   await page.getByRole('button', { name: '显示连接信息' }).click()
+  await expect(page.getByText('无法读取连接信息')).toBeVisible()
+  await expect(page.getByText('实例运行状态不受本次读取失败影响。请原地重试；如果持续失败，请让管理员检查控制服务日志、主密钥和该实例的凭据审计记录。')).toBeVisible()
+  await expect(page.getByText('e2e-secret', { exact: true })).toHaveCount(0)
+  failConnection = false
+  await page.getByRole('button', { name: /重\s*试/ }).click()
+  await expect(page.getByText('无法读取连接信息')).toHaveCount(0)
   await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '复制交付摘要' }).click()
   await expect(page.getByText('连接信息交付摘要已复制')).toBeVisible()

@@ -202,6 +202,10 @@ button { font: inherit; }
 .connection-gate-icon { width: 52px; height: 52px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 15px; color: #2563eb; background: #edf4ff; font-size: 23px; }
 .connection-gate h4.ant-typography { margin-bottom: 8px; }
 .connection-gate .ant-typography-secondary { margin-bottom: 20px; line-height: 1.6; }
+.connection-error-alert { margin: 4px 0 18px; text-align: left; }
+.connection-gate .connection-error-alert { margin-top: 4px; }
+.connection-error-description { display: grid; gap: 4px; line-height: 1.5; }
+.connection-error-hint { color: #667085; }
 .connection-toolbar { margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .connection-toolbar .ant-typography-secondary { max-width: 660px; margin: 4px 0 0; line-height: 1.5; }
 .connection-strings { margin-top: 18px; display: grid; gap: 10px; }
