@@ -87,11 +87,20 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 		return result, err
 	}
 	rows, err = s.pool.Query(ctx, `SELECT i.id,i.name,i.purpose,i.owner_name,i.expires_at,i.status,
-        i.environment,t.name,v.version,h.name
+        i.environment,t.name,v.version,h.name,
+        (SELECT count(*)::integer FROM instance_backups b WHERE b.instance_id=i.id),
+        active_task.id,active_task.kind,active_task.status,active_task.stage
         FROM instances i
         JOIN template_versions v ON v.id=i.template_version_id
         JOIN templates t ON t.id=v.template_id
         JOIN hosts h ON h.id=i.host_id
+        LEFT JOIN LATERAL (
+          SELECT id,kind,status,stage
+          FROM tasks
+          WHERE resource_type='instance' AND resource_id=i.id AND status IN ('queued','running')
+          ORDER BY created_at DESC,id DESC
+          LIMIT 1
+        ) active_task ON true
         WHERE i.status<>'deleted' AND i.expires_at IS NOT NULL
           AND i.expires_at <= now() + interval '7 days'
         ORDER BY i.expires_at ASC,i.name ASC
@@ -102,10 +111,20 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var item domain.DashboardInstance
+		var activeTaskID *uuid.UUID
+		var activeTaskKind, activeTaskStatus, activeTaskStage *string
 		if err = rows.Scan(&item.ID, &item.Name, &item.Purpose, &item.Owner, &item.ExpiresAt,
-			&item.Status, &item.Environment, &item.TemplateName, &item.TemplateVersion, &item.HostName); err != nil {
+			&item.Status, &item.Environment, &item.TemplateName, &item.TemplateVersion, &item.HostName,
+			&item.BackupCount, &activeTaskID, &activeTaskKind, &activeTaskStatus, &activeTaskStage); err != nil {
 			return result, err
 		}
+		if activeTaskID != nil {
+			item.ActiveTask = &domain.InstanceCleanupTask{
+				ID: *activeTaskID, Kind: *activeTaskKind, Status: *activeTaskStatus, Stage: *activeTaskStage,
+			}
+		}
+		item.Blockers = domain.InstanceCleanupBlockers(item.Status, item.BackupCount, item.ActiveTask != nil)
+		item.DeleteReady = len(item.Blockers) == 0
 		result.LifecycleInstances = append(result.LifecycleInstances, item)
 	}
 	return result, rows.Err()

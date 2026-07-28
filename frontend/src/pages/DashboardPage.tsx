@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Col, List, Row, Space, Statistic, Typography } from 'antd'
+import { Alert, Button, Card, Col, List, Row, Segmented, Space, Statistic, Tag, Typography } from 'antd'
 import { AlertOutlined, AuditOutlined, CloudServerOutlined, ContainerOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -9,6 +9,7 @@ import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
+import { cleanupCandidateCounts, cleanupCandidateMissingContext, filterCleanupCandidates, type CleanupCandidateFilter } from '../lib/cleanup-candidates'
 import { dashboardAttentionCanRetry, dashboardAttentionGuidance, dashboardAttentionResourcePath } from '../lib/dashboard-attention'
 import { lifecycleCounts } from '../lib/instance-lifecycle'
 import { formatDateTime, translateCode } from '../lib/localization'
@@ -34,6 +35,7 @@ export function DashboardPage() {
   const [attentionActionError, setAttentionActionError] = useState('')
   const [retryingTaskID, setRetryingTaskID] = useState('')
   const [cleanupInstance, setCleanupInstance] = useState<DashboardInstance>()
+  const [cleanupFilter, setCleanupFilter] = useState<CleanupCandidateFilter>('all')
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +54,11 @@ export function DashboardPage() {
   const hostCount = total(dashboard?.hosts || {})
   const instanceCount = total(dashboard?.instances || {})
   const dueCounts = useMemo(() => lifecycleCounts(dashboard?.lifecycleInstances || []), [dashboard?.lifecycleInstances])
+  const cleanupCounts = useMemo(() => cleanupCandidateCounts(dashboard?.lifecycleInstances || []), [dashboard?.lifecycleInstances])
+  const cleanupCandidates = useMemo(
+    () => filterCleanupCandidates(dashboard?.lifecycleInstances || [], cleanupFilter),
+    [cleanupFilter, dashboard?.lifecycleInstances],
+  )
   const onboarding = dashboard && hostCount === 0
     ? { title: t('workbenchNoHostTitle'), hint: t('workbenchNoHostHint'), action: t('addHost'), path: '/hosts?create=1' }
     : dashboard && instanceCount === 0
@@ -133,18 +140,53 @@ export function DashboardPage() {
       title={<Space wrap><span>{t('lifecycleQueue')}</span>{dueCounts.expired > 0 && <Typography.Text type="danger">{t('expiredCount', { count: dueCounts.expired })}</Typography.Text>}{dueCounts.dueSoon > 0 && <Typography.Text type="warning">{t('dueSoonCount', { count: dueCounts.dueSoon })}</Typography.Text>}</Space>}
       extra={canOperate ? <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/instances?create=1')}>{t('createInstance')}</Button> : undefined}
     >
-      {dashboard?.lifecycleInstances.length ? <List
-        dataSource={dashboard.lifecycleInstances}
-        renderItem={(item) => <List.Item className="workbench-lifecycle-item" actions={[
-          ...(canOperate ? [<Button key="cleanup" icon={<SafetyCertificateOutlined />} onClick={() => setCleanupInstance(item)}>{t('reviewCleanup')}</Button>] : []),
-          <Button key="details" type="link" onClick={() => navigate(`/instances/${item.id}`)}>{t('details')}</Button>,
-        ]}>
-          <List.Item.Meta
-            title={<Space wrap><Button type="link" className="workbench-instance-link" onClick={() => navigate(`/instances/${item.id}`)}>{item.name}</Button><StatusTag value={item.status} /><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space>}
-            description={<div className="workbench-lifecycle-details"><span>{item.purpose || t('purposeMissing')}</span><span>{item.owner || t('ownerMissing')}</span><span>{item.templateName} {item.templateVersion} · {item.hostName} · {translateCode(t, item.environment)}</span><strong>{formatDateTime(item.expiresAt, i18n.language, timezone)}</strong></div>}
-          />
-        </List.Item>}
-      /> : !loadError && <EmptyState compact description={t('lifecycleQueueEmpty')} />}
+      {dashboard?.lifecycleInstances.length ? <>
+        <div className="cleanup-candidate-toolbar">
+          <div className="cleanup-candidate-intro">
+            <Typography.Text strong>{t('cleanupCandidateOverview')}</Typography.Text>
+            <Typography.Text type="secondary">{t('cleanupCandidateOverviewHint')}</Typography.Text>
+          </div>
+          <div className="cleanup-candidate-controls">
+            {cleanupCounts.missingContext > 0 && <Typography.Text type="warning">{t('cleanupCandidateMissingContextCount', { count: cleanupCounts.missingContext })}</Typography.Text>}
+            <Segmented
+              className="cleanup-candidate-filter"
+              aria-label={t('cleanupCandidateFilter')}
+              value={cleanupFilter}
+              onChange={(value) => setCleanupFilter(value as CleanupCandidateFilter)}
+              options={[
+                { label: t('cleanupCandidateFilterAll', { count: cleanupCounts.all }), value: 'all' },
+                { label: t('cleanupCandidateFilterReady', { count: cleanupCounts.ready }), value: 'ready' },
+                { label: t('cleanupCandidateFilterBlocked', { count: cleanupCounts.blocked }), value: 'blocked' },
+              ]}
+            />
+          </div>
+        </div>
+        {cleanupCandidates.length ? <List
+          dataSource={cleanupCandidates}
+          renderItem={(item) => <List.Item className="workbench-lifecycle-item" actions={[
+            ...(canOperate ? [<Button key="cleanup" icon={<SafetyCertificateOutlined />} onClick={() => setCleanupInstance(item)}>{t('reviewCleanup')}</Button>] : []),
+            <Button key="details" type="link" onClick={() => navigate(`/instances/${item.id}`)}>{t('details')}</Button>,
+          ]}>
+            <List.Item.Meta
+              title={<Space wrap><Button type="link" className="workbench-instance-link" onClick={() => navigate(`/instances/${item.id}`)}>{item.name}</Button><StatusTag value={item.status} /><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space>}
+              description={<>
+                <div className="workbench-lifecycle-details"><span>{item.purpose || t('purposeMissing')}</span><span>{item.owner || t('ownerMissing')}</span><span>{item.templateName} {item.templateVersion} · {item.hostName} · {translateCode(t, item.environment)}</span><strong>{formatDateTime(item.expiresAt, i18n.language, timezone)}</strong></div>
+                <div className="cleanup-candidate-evidence">
+                  <Tag color={item.deleteReady ? 'success' : 'warning'}>{t(item.deleteReady ? 'cleanupCandidateReady' : 'cleanupCandidateBlocked')}</Tag>
+                  {cleanupCandidateMissingContext(item) && <Tag color="error">{t('cleanupCandidateMissingContext')}</Tag>}
+                  {item.backupCount > 0
+                    ? <Button type="link" size="small" className="cleanup-evidence-link" onClick={() => navigate(`/instances/${item.id}?tab=backups&cleanup=review`)}>{t('cleanupCandidateBackupCount', { count: item.backupCount })}</Button>
+                    : <Typography.Text type="secondary">{t('cleanupCandidateNoBackups')}</Typography.Text>}
+                  {item.activeTask
+                    ? <Button type="link" size="small" className="cleanup-evidence-link" onClick={() => navigate(`/tasks?task=${item.activeTask!.id}`)}>{t('cleanupCandidateActiveTask', { task: translateCode(t, item.activeTask.kind, 'taskKind') })}</Button>
+                    : <Typography.Text type="secondary">{t('cleanupCandidateNoActiveTask')}</Typography.Text>}
+                  {item.blockers.includes('status_not_deletable') && <Typography.Text type="warning">{t('cleanupCandidateStatusBlocked', { status: translateCode(t, item.status) })}</Typography.Text>}
+                </div>
+              </>}
+            />
+          </List.Item>}
+        /> : <EmptyState compact description={t('cleanupCandidateFilteredEmpty')} />}
+      </> : !loadError && <EmptyState compact description={t('lifecycleQueueEmpty')} />}
     </Card>
     {cleanupInstance && <InstanceCleanupReviewModal
       instanceId={cleanupInstance.id}

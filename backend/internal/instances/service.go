@@ -77,24 +77,17 @@ type BatchActionOutcome struct {
 	Err          error
 }
 
-type CleanupReviewTask struct {
-	ID     uuid.UUID `json:"id"`
-	Kind   string    `json:"kind"`
-	Status string    `json:"status"`
-	Stage  string    `json:"stage"`
-}
-
 type CleanupReview struct {
-	InstanceID   uuid.UUID          `json:"instanceId"`
-	InstanceName string             `json:"instanceName"`
-	Status       string             `json:"status"`
-	Purpose      string             `json:"purpose"`
-	Owner        string             `json:"owner"`
-	ExpiresAt    *time.Time         `json:"expiresAt,omitempty"`
-	BackupCount  int                `json:"backupCount"`
-	ActiveTask   *CleanupReviewTask `json:"activeTask,omitempty"`
-	DeleteReady  bool               `json:"deleteReady"`
-	Blockers     []string           `json:"blockers"`
+	InstanceID   uuid.UUID                   `json:"instanceId"`
+	InstanceName string                      `json:"instanceName"`
+	Status       string                      `json:"status"`
+	Purpose      string                      `json:"purpose"`
+	Owner        string                      `json:"owner"`
+	ExpiresAt    *time.Time                  `json:"expiresAt,omitempty"`
+	BackupCount  int                         `json:"backupCount"`
+	ActiveTask   *domain.InstanceCleanupTask `json:"activeTask,omitempty"`
+	DeleteReady  bool                        `json:"deleteReady"`
+	Blockers     []string                    `json:"blockers"`
 }
 
 type ActionPayload struct {
@@ -518,21 +511,15 @@ func buildCleanupReview(instance domain.Instance, backups []domain.InstanceBacku
 	review := CleanupReview{
 		InstanceID: instance.ID, InstanceName: instance.Name, Status: instance.Status,
 		Purpose: instance.Purpose, Owner: instance.Owner, ExpiresAt: instance.ExpiresAt,
-		BackupCount: len(backups), Blockers: []string{},
+		BackupCount: len(backups),
 	}
 	for _, task := range tasks {
 		if task.Status == "queued" || task.Status == "running" {
-			review.ActiveTask = &CleanupReviewTask{ID: task.ID, Kind: task.Kind, Status: task.Status, Stage: task.Stage}
-			review.Blockers = append(review.Blockers, "active_operation")
+			review.ActiveTask = &domain.InstanceCleanupTask{ID: task.ID, Kind: task.Kind, Status: task.Status, Stage: task.Stage}
 			break
 		}
 	}
-	if len(backups) > 0 {
-		review.Blockers = append(review.Blockers, "backups_present")
-	}
-	if err := validateInstanceAction(instance.Status, "delete", nil); err != nil {
-		review.Blockers = append(review.Blockers, "status_not_deletable")
-	}
+	review.Blockers = domain.InstanceCleanupBlockers(instance.Status, review.BackupCount, review.ActiveTask != nil)
 	review.DeleteReady = len(review.Blockers) == 0
 	return review
 }
@@ -957,11 +944,16 @@ func currentOrPreviousInstanceState(payload ActionPayload, instance domain.Insta
 }
 
 func validateInstanceAction(status, action string, newVersion *uuid.UUID) error {
+	if action == "delete" {
+		if !domain.InstanceStatusAllowsDelete(status) {
+			return fmt.Errorf("%w: instance action is not allowed for the current status", domain.ErrConflict)
+		}
+		return nil
+	}
 	allowedStatuses := map[string]map[string]bool{
 		"start":       {"stopped": true, "failed": true},
 		"stop":        {"running": true, "degraded": true},
 		"restart":     {"running": true, "degraded": true},
-		"delete":      {"running": true, "stopped": true, "degraded": true, "failed": true},
 		"upgrade":     {"running": true, "stopped": true, "degraded": true},
 		"reconfigure": {"running": true, "stopped": true, "degraded": true},
 	}

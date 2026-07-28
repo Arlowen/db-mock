@@ -111,13 +111,25 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 		instance.ExpiresAt == nil || !instance.ExpiresAt.Equal(expiresAt) {
 		t.Fatalf("instance lifecycle metadata = %#v", instance)
 	}
+	backupID := uuid.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO instance_backups(id,instance_id,host_id,template_version_id,
+        name,status,remote_path,created_by) VALUES($1,$2,$3,$4,'release baseline','ready',$5,$6)`,
+		backupID, instanceID, hostID, versionID, "/opt/dbmock/backups/"+backupID.String(), userID); err != nil {
+		t.Fatal(err)
+	}
 	dashboard, err := target.Dashboard(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(dashboard.LifecycleInstances) != 1 || dashboard.LifecycleInstances[0].ID != instanceID ||
 		dashboard.LifecycleInstances[0].Purpose != atomicInput.Purpose ||
-		dashboard.LifecycleInstances[0].Owner != atomicInput.Owner {
+		dashboard.LifecycleInstances[0].Owner != atomicInput.Owner ||
+		dashboard.LifecycleInstances[0].BackupCount != 1 ||
+		dashboard.LifecycleInstances[0].ActiveTask == nil ||
+		dashboard.LifecycleInstances[0].ActiveTask.ID != task.ID ||
+		dashboard.LifecycleInstances[0].DeleteReady ||
+		strings.Join(dashboard.LifecycleInstances[0].Blockers, ",") !=
+			"active_operation,backups_present,status_not_deletable" {
 		t.Fatalf("dashboard lifecycle queue = %#v", dashboard.LifecycleInstances)
 	}
 	if _, err = target.GetInstance(ctx, instanceID); err != nil {

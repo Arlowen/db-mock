@@ -201,6 +201,42 @@ type Instance struct {
 	LastHealthyAt     *time.Time      `json:"lastHealthyAt,omitempty"`
 }
 
+type InstanceCleanupTask struct {
+	ID     uuid.UUID `json:"id"`
+	Kind   string    `json:"kind"`
+	Status string    `json:"status"`
+	Stage  string    `json:"stage"`
+}
+
+const (
+	CleanupBlockerActiveOperation    = "active_operation"
+	CleanupBlockerBackupsPresent     = "backups_present"
+	CleanupBlockerStatusNotDeletable = "status_not_deletable"
+)
+
+func InstanceStatusAllowsDelete(status string) bool {
+	switch status {
+	case "running", "stopped", "degraded", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func InstanceCleanupBlockers(status string, backupCount int, activeOperation bool) []string {
+	blockers := make([]string, 0, 3)
+	if activeOperation {
+		blockers = append(blockers, CleanupBlockerActiveOperation)
+	}
+	if backupCount > 0 {
+		blockers = append(blockers, CleanupBlockerBackupsPresent)
+	}
+	if !InstanceStatusAllowsDelete(status) {
+		blockers = append(blockers, CleanupBlockerStatusNotDeletable)
+	}
+	return blockers
+}
+
 type InstanceConnection struct {
 	Address  string `json:"address"`
 	Port     int    `json:"port"`
@@ -417,14 +453,18 @@ type DashboardAttentionItem struct {
 }
 
 type DashboardInstance struct {
-	ID              uuid.UUID `json:"id"`
-	Name            string    `json:"name"`
-	Purpose         string    `json:"purpose"`
-	Owner           string    `json:"owner"`
-	ExpiresAt       time.Time `json:"expiresAt"`
-	Status          string    `json:"status"`
-	Environment     string    `json:"environment"`
-	TemplateName    string    `json:"templateName"`
-	TemplateVersion string    `json:"templateVersion"`
-	HostName        string    `json:"hostName"`
+	ID              uuid.UUID            `json:"id"`
+	Name            string               `json:"name"`
+	Purpose         string               `json:"purpose"`
+	Owner           string               `json:"owner"`
+	ExpiresAt       time.Time            `json:"expiresAt"`
+	Status          string               `json:"status"`
+	Environment     string               `json:"environment"`
+	TemplateName    string               `json:"templateName"`
+	TemplateVersion string               `json:"templateVersion"`
+	HostName        string               `json:"hostName"`
+	BackupCount     int                  `json:"backupCount"`
+	ActiveTask      *InstanceCleanupTask `json:"activeTask,omitempty"`
+	DeleteReady     bool                 `json:"deleteReady"`
+	Blockers        []string             `json:"blockers"`
 }

@@ -78,6 +78,16 @@ button { font: inherit; }
 .workbench-lifecycle-details { min-width: 0; display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(110px, .7fr) minmax(220px, 1.5fr) auto; align-items: center; gap: 8px 18px; color: #667085; font-size: 12px; }
 .workbench-lifecycle-details span, .workbench-lifecycle-details strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-lifecycle-details strong { color: #344054; font-weight: 600; }
+.cleanup-candidate-toolbar { min-width: 0; padding: 2px 0 14px; border-bottom: 1px solid #edf0f4; display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.cleanup-candidate-intro { min-width: 240px; flex: 1 1 360px; display: grid; gap: 3px; }
+.cleanup-candidate-intro .ant-typography-secondary { font-size: 12px; line-height: 1.5; }
+.cleanup-candidate-controls { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 10px 14px; flex-wrap: wrap; }
+.cleanup-candidate-controls > .ant-typography { font-size: 12px; }
+.cleanup-candidate-filter .ant-segmented-item-label { min-width: 82px; }
+.cleanup-candidate-evidence { min-width: 0; margin-top: 8px; display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; font-size: 12px; }
+.cleanup-candidate-evidence .ant-tag { margin-inline-end: 0; }
+.cleanup-candidate-evidence > .ant-typography { font-size: 12px; }
+.cleanup-evidence-link.ant-btn { height: auto; padding: 0 2px; font-size: 12px; }
 .cleanup-review, .cleanup-delete-confirm { display: grid; gap: 16px; }
 .cleanup-review-loading { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .cleanup-blockers ul { margin: 0 0 12px; padding-inline-start: 20px; }
@@ -759,6 +769,7 @@ button { font: inherit; }
   .host-recovery-context > .ant-tag { justify-self: start; }
   .create-review-grid { grid-template-columns: 1fr; }
   .workbench-lifecycle-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cleanup-candidate-controls { width: 100%; justify-content: space-between; }
   .monitoring-alert-grid { grid-template-columns: 1fr; }
 }
 
@@ -787,6 +798,10 @@ button { font: inherit; }
   .workbench-lifecycle-item .ant-list-item-action { margin-inline-start: 0; }
   .workbench-lifecycle-details { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .workbench-lifecycle-details span, .workbench-lifecycle-details strong { white-space: normal; overflow-wrap: anywhere; }
+  .cleanup-candidate-controls { align-items: stretch; flex-direction: column; }
+  .cleanup-candidate-filter { width: 100%; }
+  .cleanup-candidate-filter .ant-segmented-group { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cleanup-candidate-filter .ant-segmented-item-label { min-width: 0; padding-inline: 6px; }
   .cleanup-review-footer { flex-direction: column-reverse; align-items: stretch; }
   .cleanup-review-decision-actions { width: 100%; display: grid; }
   .cleanup-review-footer > .ant-btn, .cleanup-review-decision-actions .ant-btn { width: 100%; }

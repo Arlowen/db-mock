@@ -1505,8 +1505,8 @@ test('initializes the platform and switches the embedded interface language', as
   const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
   const cleanupReadyID = '44444444-4444-4444-8444-444444444442'
   const cleanupDeleteTaskID = '44444444-4444-4444-8444-444444444443'
-  const cleanupBlocked = { id: cleanupBlockedID, name: '订单回归 PostgreSQL', purpose: '订单 4.2 发布回归', owner: '支付 QA', expiresAt: new Date(Date.now() - 172800000).toISOString(), status: 'running', environment: 'testing', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host' }
-  const cleanupReady = { ...cleanupBlocked, id: cleanupReadyID, name: '缓存兼容 Redis', purpose: '缓存客户端兼容验证', owner: '基础架构 QA', expiresAt: new Date(Date.now() + 259200000).toISOString(), status: 'stopped', templateName: 'Redis', templateVersion: '7.4' }
+  const cleanupBlocked = { id: cleanupBlockedID, name: '订单回归 PostgreSQL', purpose: '订单 4.2 发布回归', owner: '支付 QA', expiresAt: new Date(Date.now() - 172800000).toISOString(), status: 'running', environment: 'testing', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', backupCount: 2, deleteReady: false, blockers: ['backups_present'] }
+  const cleanupReady = { ...cleanupBlocked, id: cleanupReadyID, name: '缓存兼容 Redis', purpose: '缓存客户端兼容验证', owner: '基础架构 QA', expiresAt: new Date(Date.now() + 259200000).toISOString(), status: 'stopped', templateName: 'Redis', templateVersion: '7.4', backupCount: 0, deleteReady: true, blockers: [] }
   attentionItems = []
   lifecycleItems = [cleanupBlocked]
   let cleanupReviewAttempts = 0
@@ -1546,6 +1546,12 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
 
   await page.goto('/')
+  await expect(page.getByText('集中审查清理候选')).toBeVisible()
+  await expect(page.getByText('需先处理阻断')).toBeVisible()
+  await expect(page.getByRole('button', { name: '2 个备份需处理' })).toBeVisible()
+  await page.getByText('可复核 0', { exact: true }).click()
+  await expect(page.getByText('当前筛选下没有清理候选。')).toBeVisible()
+  await page.getByText('全部 1', { exact: true }).click()
   await page.getByRole('button', { name: '审查清理' }).click()
   let cleanupDialog = page.getByRole('dialog', { name: /审查清理.*订单回归 PostgreSQL/ })
   await expect(cleanupDialog.getByText('无法检查清理条件')).toBeVisible()
@@ -1563,6 +1569,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('已从当前到期日或今天（取较晚者）延期 7 天')).toBeVisible()
   expect(cleanupDecisionBody).toEqual({ decision: 'extend', days: 7 })
   await expect(page.getByText(cleanupReady.name, { exact: true })).toBeVisible()
+  await expect(page.getByText('可进入删除复核')).toBeVisible()
 
   await page.getByRole('button', { name: '审查清理' }).click()
   cleanupDialog = page.getByRole('dialog', { name: /审查清理.*缓存兼容 Redis/ })
