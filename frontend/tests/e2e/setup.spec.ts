@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type ConsoleMessage } from '@playwright/test'
 
 const templatePackages = {
   v1: 'UEsDBBQAAAAIAAAAIVx8gL0BVAEAAOwBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw9UbFOwzAQ3fMVVmeaNqlpK4+lRWJAYkAMIAbXviZW7cTYTtV+AeIXkBjYEAM7Ez8DFZ/BuUnZfO8937t3x626AedVXTEil6YW61TVg03GtS15lqxVJRmZ88CX3MM1GKt5gMRA4BJBlhDidVMwAjn0lTENCjUgWnEDjCzyBbk4omQ+64jbsqV+H99/Pp6/P5/2b6/7ly9kJXjhlA2HeaLkvycJnTlZqW1oXDQRWBa12zEkfVBVgZgS7dfEWxBxvs0xXi9Lh+mwFzWGFzgdbDm2hFRVG66VHGCGgVyygwxV3IlSBRDRzDNyx40c0xOEzZjeR/fa2NrDudLYS+LmwPU7LN0ZfUiz4o0OV7ULjGSndJQjaFR1Zhus2/clGEww24XokQ0nownNpjltybny647KMzqh09GYTpFqPLh2w+3Nold3I0a4tfEsooQowHFCgQEedPIHUEsDBBQAAAAIAAAAIVz/7PNOkAAAANIAAAASAAAAZG9ja2VyLWNvbXBvc2UueW1sPYy7DsIwDEX3foWVGSrxWrIBHdoBiR0xOIlFo75QbFiq/jsJhW73+p5jpvD2llhnAA4FDTKlDOA7fJAGNY6QVynDNKnv0qKhlmcqWqYbbJP7ngV7uxi/WhWL9hyCLNZ6xk6+d0fnAjFHTqdTObBcI5r65rDfbWe7JmyltjXZ5v9DiEXDTZ0vhVqBkvAidc8+UEsBAhQDFAAAAAgAAAAhXHyAvQFUAQAA7AEAABQAAAAAAAAAAAAAAIABAAAAAGRibW9jay10ZW1wbGF0ZS55YW1sUEsBAhQDFAAAAAgAAAAhXP/s806QAAAA0gAAABIAAAAAAAAAAAAAAIABhgEAAGRvY2tlci1jb21wb3NlLnltbFBLBQYAAAAAAgACAIIAAABGAgAAAAA=',
@@ -6,7 +6,7 @@ const templatePackages = {
   builtinCollision: 'UEsDBBQAAAAIAAAAIVxIaPFUXAEAAOgBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw1Ub1OwzAY3PsUFjOkTWr64xFaJipAIAYQg+t8TazaibGd0DwB4hWQGNgQAzsTLwMVj8HnJmz+7s6+O3/cyGuwTpYFI+lSl2IdybJfx1yZnMe9tSxSRmbc8yV3cAXaKO6hp8HzFEHWI8SpKmNEN+5e4VRwDYyc1WAfrPQeCrJoLi9OO+YmZ2SezMnv4/vPx/P359P27XX78oVsCk5YafwuSJBIrSt0VUB850pWcuMrC6gWOGalbRiSzssiQ0yK9mrPGRAhWP3fa286nUaDaLAXVJpnGBA2HB+FSBY1VzLtQwL9XQWGWpRxK3LpQQQ/x8gt1+mI7iOsR/QuBCi1KR2cSIWPpfhrYA86LGq02hVa8Ur589J6RuJDOkwQ1LI4NhXO7XkBGkscNT54xIPxcEzjSUJbcibduqOSmI7pZDiiE6QqB7b95XZfwavbDyPcmLASkUMQYByfYQHczB9QSwMEFAAAAAgAAAAhXP/s806QAAAA0gAAABIAAABkb2NrZXItY29tcG9zZS55bWw9jLsOwjAMRfd+hZUZKvFasgEd2gGJHTE4iUWjvlBsWKr+OwmFbvf6nmOm8PaWWGcADgUNMqUM4Dt8kAY1jpBXKcM0qe/SoqGWZypaphtsk/ueBXu7GL9aFYv2HIIs1nrGTr53R+cCMUdOp1M5sFwjmvrmsN9tZ7smbKW2Ndnm/0OIRcNNnS+FWoGS8CJ1zz5QSwECFAMUAAAACAAAACFcSGjxVFwBAADoAQAAFAAAAAAAAAAAAAAAgAEAAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWxQSwECFAMUAAAACAAAACFc/+zzTpAAAADSAAAAEgAAAAAAAAAAAAAAgAGOAQAAZG9ja2VyLWNvbXBvc2UueW1sUEsFBgAAAAACAAIAggAAAE4CAAAAAA=',
 }
 
-test('initializes the platform and switches the embedded interface language', async ({ page, browser }) => {
+test('initializes the platform and switches the embedded interface language', async ({ page, browser }, testInfo) => {
   test.setTimeout(240_000)
   await page.goto('/')
   await page.locator('#username').fill('e2e-admin')
@@ -894,24 +894,56 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('dialog', { name: '接入主机' }).getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('button', { name: '返回数据库目录' }).click()
   await expect(page).toHaveURL(/\/catalog$/)
+  const continuationConsoleErrors: string[] = []
+  const captureContinuationConsoleError = (entry: ConsoleMessage) => {
+    if (entry.type() === 'error') continuationConsoleErrors.push(entry.text())
+  }
+  page.on('console', captureContinuationConsoleError)
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
   await page.goto(`/hosts?returnTo=${encodeURIComponent(preservedReturn || '')}`)
   await expect(page.getByText('主机已就绪，可以继续创建数据库')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '主机', exact: true })).toHaveCount(1)
   await expect(page.getByText('已有 1 台在线可调度主机。继续后会保留刚才的模板和创建上下文；只有一台可用时会自动选中。')).toBeVisible()
   await expect(page.getByRole('button', { name: '接入其他主机' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440)
+  await testInfo.attach('host-continuation-list-1440', { body: await page.screenshot(), contentType: 'image/png' })
   await page.getByRole('button', { name: '继续创建数据库' }).click()
   await expect(page).toHaveURL(/\/instances\?create=1&template=.+&host=11111111/)
   const resumedCreateDrawer = page.getByRole('dialog', { name: '创建数据库' })
   await expect(resumedCreateDrawer).toBeVisible()
+  await expect(resumedCreateDrawer.getByText('创建数据库', { exact: true })).toHaveCount(1)
   await expect(resumedCreateDrawer.getByText('已选中刚接入的主机 E2E Host')).toBeVisible()
   await expect(resumedCreateDrawer.getByText(/E2E Host · amd64 · 8 CPU/)).toBeVisible()
+  await expect(resumedCreateDrawer.getByRole('button', { name: '下一步' })).toBeVisible()
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440)
+  const resumedDrawerBounds = await resumedCreateDrawer.boundingBox()
+  expect(resumedDrawerBounds).not.toBeNull()
+  expect((resumedDrawerBounds?.x || 0) + (resumedDrawerBounds?.width || 0)).toBeLessThanOrEqual(1440)
+  await testInfo.attach('host-continuation-drawer-1440', { body: await page.screenshot(), contentType: 'image/png' })
   await resumedCreateDrawer.getByRole('button', { name: '关闭', exact: true }).click()
   continuationHosts = [...continuationHosts, { ...continuationHosts[0], id: '22222222-2222-4222-8222-222222222222', name: 'Offline continuation host', status: 'offline' }]
+  await page.setViewportSize({ width: 1024, height: 768 })
   await page.goto(`${preservedReturn}&host=22222222-2222-4222-8222-222222222222`)
   const unavailableHostDrawer = page.getByRole('dialog', { name: '创建数据库' })
   await expect(unavailableHostDrawer.getByText('刚接入的主机暂不可用于当前部署')).toBeVisible()
+  await expect(unavailableHostDrawer.getByText('创建数据库', { exact: true })).toHaveCount(1)
   await expect(unavailableHostDrawer.getByText('该主机可能已离线、进入维护模式或与模板架构不兼容。请选择其他兼容主机，或接入新的主机。')).toBeVisible()
+  await expect(unavailableHostDrawer.getByRole('button', { name: '接入主机' })).toBeVisible()
+  await expect(unavailableHostDrawer.getByRole('button', { name: '下一步' })).toBeVisible()
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1024)
+  const unavailableDrawerBounds = await unavailableHostDrawer.boundingBox()
+  expect(unavailableDrawerBounds).not.toBeNull()
+  expect((unavailableDrawerBounds?.x || 0) + (unavailableDrawerBounds?.width || 0)).toBeLessThanOrEqual(1024)
+  const unavailableDrawerOverflow = await unavailableHostDrawer.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
+  expect(unavailableDrawerOverflow.scrollWidth).toBeLessThanOrEqual(unavailableDrawerOverflow.clientWidth)
+  await testInfo.attach('host-continuation-unavailable-1024', { body: await page.screenshot(), contentType: 'image/png' })
+  expect(continuationConsoleErrors).toEqual([])
+  page.off('console', captureContinuationConsoleError)
   await unavailableHostDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 720 })
   await page.unroute('**/api/v1/hosts')
   await page.goto('/catalog')
 
