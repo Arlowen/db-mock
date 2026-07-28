@@ -7,6 +7,7 @@ import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
+import { deploymentReturnPathForHost, safeCreateReturnPath } from '../lib/deployment-continuation'
 import { reservationForHost } from '../lib/host-capacity'
 import { dockerManagementReady, hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
 import { formatDateTime, translateCode } from '../lib/localization'
@@ -35,7 +36,6 @@ type VerificationReason = '' | 'connection' | 'docker_policy'
 const verificationFields = new Set(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot', 'portStart', 'portEnd'])
 const hostDraftFields: Array<keyof HostForm> = ['name', 'projectId', 'sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'connectionAddress', 'dataRoot', 'portStart', 'portEnd', 'manageDocker', 'maintenance', 'autoRestartDefault', 'proxyHttp', 'proxyHttps', 'proxyNoProxy']
 const hostStatuses = ['pending', 'online', 'offline', 'degraded', 'needs_docker', 'unsupported']
-const safeCreateReturnPath = (value: string | null) => value?.startsWith('/instances?create=1') ? value : ''
 
 function sameHostField(values: HostForm, baseline: HostForm, key: keyof HostForm) {
   const current = values[key]
@@ -172,9 +172,15 @@ export function HostsPage() {
       if ('task' in result) {
         notifyTask(result.task)
         setOpen(false)
-        if (returnTo) { navigate(`/tasks?task=${result.task.id}&continue=${encodeURIComponent(returnTo)}`); return }
+        const continueTo = deploymentReturnPathForHost(returnTo, result.host.id)
+        if (continueTo) { navigate(`/tasks?task=${result.task.id}&continue=${encodeURIComponent(continueTo)}`); return }
       } else {
         message.success(t('saved'))
+        if (returnTo && result.status === 'online' && !result.maintenance) {
+          setOpen(false)
+          navigate(deploymentReturnPathForHost(returnTo, result.id))
+          return
+        }
       }
       setOpen(false)
       await load()
@@ -262,6 +268,9 @@ export function HostsPage() {
     }
   }
   const relatedInstances = detail ? instances.filter((instance) => instance.hostId === detail.id) : []
+  const readyHosts = items.filter((item) => item.status === 'online' && !item.maintenance)
+  const continuationHost = readyHosts.length === 1 ? readyHosts[0] : undefined
+  const continuationPath = deploymentReturnPathForHost(returnTo, continuationHost?.id)
   const detailReservation = detail ? reservationForHost(instances, detail.id) : { cpu: 0, memory: 0, disk: 0, ports: [] }
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(hostTasks, Boolean(detail && ['offline', 'needs_docker', 'unsupported'].includes(detail.status)))
   const retryTask = async () => {
@@ -299,9 +308,9 @@ export function HostsPage() {
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space className="instance-operation-actions">{canOperate && failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}<Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button></Space>
   </div>
-  const creationProgress = <div className="host-continuation-copy"><Typography.Paragraph type="secondary">{t('databaseCreationHostHint')}</Typography.Paragraph><Steps className="host-continuation-steps" current={0} size="small" responsive={false} items={[{ title: t('hostSetupStepConnect') }, { title: t('hostSetupStepVerify') }, { title: t('hostSetupStepCreate') }]} /></div>
+  const creationProgress = <div className="host-continuation-copy"><Typography.Paragraph type="secondary">{t(readyHosts.length ? 'databaseCreationReadyHostHint' : 'databaseCreationHostHint', { count: readyHosts.length })}</Typography.Paragraph><Steps className="host-continuation-steps" current={readyHosts.length ? 2 : 0} size="small" responsive={false} items={[{ title: t('hostSetupStepConnect') }, { title: t('hostSetupStepVerify') }, { title: t('hostSetupStepCreate') }]} /></div>
   return <><PageHeader title={t('hosts')} description={t('hostsDescription')} />
-    {canOperate && returnTo && <Alert className="host-continuation-banner" type="info" showIcon icon={<DatabaseOutlined />} message={t('databaseCreationPending')} description={creationProgress} action={<Space direction="vertical" size={4}><Button type="primary" size="small" onClick={() => show()}>{t('continueAddHost')}</Button><Button type="link" size="small" onClick={cancelDatabaseCreation}>{t('returnToCatalog')}</Button></Space>} />}
+    {canOperate && returnTo && <Alert className="host-continuation-banner" type={readyHosts.length ? 'success' : 'info'} showIcon icon={<DatabaseOutlined />} message={t(readyHosts.length ? 'databaseCreationReadyHost' : 'databaseCreationPending')} description={creationProgress} action={<Space direction="vertical" size={4}>{readyHosts.length > 0 && <Button type="primary" size="small" onClick={() => navigate(continuationPath)}>{t('continueCreateDatabase')}</Button>}<Button type={readyHosts.length ? 'default' : 'primary'} size="small" onClick={() => show()}>{t(readyHosts.length ? 'continueAddAnotherHost' : 'continueAddHost')}</Button><Button type="link" size="small" onClick={cancelDatabaseCreation}>{t('returnToCatalog')}</Button></Space>} />}
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('hostListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('hostSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {(items.length > 0 || !loadError) && <Card className="host-table-card"><div className="embedded-toolbar host-toolbar"><div className="host-list-heading"><Typography.Text strong>{t('hosts')}</Typography.Text><Typography.Text type="secondary">{t(hasHostFilters ? 'hostFilteredResultCount' : 'hostResultCount', { filtered: filteredItems.length, total: items.length, count: items.length })}</Typography.Text></div><Space wrap className="host-filter-controls"><Input allowClear className="host-search" aria-label={t('hostSearchLabel')} placeholder={t('hostSearchPlaceholder')} prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} /><Select className="host-project-filter" aria-label={t('project')} value={projectFilter} onChange={setProjectFilter} options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select className="host-status-filter" aria-label={t('status')} value={statusFilter} onChange={setStatusFilter} options={[{ value: '', label: t('allStatuses') }, ...hostStatuses.map((status) => ({ value: status, label: translateCode(t, status) }))]} /><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && items.length > 0 && <Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('addHost')}</Button>}</Space></div><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} pagination={false} tableLayout="fixed" scroll={{ x: 989 }} locale={{ emptyText: <EmptyState compact action={hasHostFilters ? clearHostFilters : canOperate ? () => show() : undefined} actionLabel={hasHostFilters ? t('clearFilters') : canOperate ? t('addHost') : undefined} description={t(hasHostFilters ? 'hostsFilteredEmptyDescription' : 'noHostsDescription')} /> }} /></Card>}

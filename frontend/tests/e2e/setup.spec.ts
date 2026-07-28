@@ -701,7 +701,8 @@ test('initializes the platform and switches the embedded interface language', as
     unusedImageDeleted = true
     await route.fulfill({ json: { deletedCount: 1, skippedCount: 0, failedCount: 0, freedBytes: unusedImage.sizeBytes } })
   })
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000, maintenance: false }] } }))
+  let continuationHosts = [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', sshAddress: '10.0.0.8', connectionAddress: '10.0.0.8', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000, maintenance: false }]
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
   await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: registryID, name: registryName, url: 'https://harbor.example.test', username: 'robot$dbmock', hasPassword: true, hasCaCertificate: true, status: registryStatus, statusMessage: registryStatusMessage, statusCode: registryStatusCode, lastTestedAt: registryLastTestedAt, createdAt: registryUpdatedAt, updatedAt: registryUpdatedAt }] } }))
   await page.route(`**/api/v1/registries/${registryID}/test`, async (route) => {
     registryStatus = 'online'
@@ -848,7 +849,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(templateDetails.getByText('3306')).toBeVisible()
   await expect(templateDetails.getByText('最低资源')).toBeVisible()
   await expect(templateDetails.getByRole('button', { name: '创建数据库' })).toBeVisible()
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000, maintenance: false }] } }))
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
   await templateDetails.getByRole('button', { name: '创建数据库' }).click()
   const preselectedCreateDrawer = page.getByRole('dialog', { name: '创建数据库' })
   await expect(preselectedCreateDrawer).toBeVisible()
@@ -893,6 +894,26 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('dialog', { name: '接入主机' }).getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('button', { name: '返回数据库目录' }).click()
   await expect(page).toHaveURL(/\/catalog$/)
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
+  await page.goto(`/hosts?returnTo=${encodeURIComponent(preservedReturn || '')}`)
+  await expect(page.getByText('主机已就绪，可以继续创建数据库')).toBeVisible()
+  await expect(page.getByText('已有 1 台在线可调度主机。继续后会保留刚才的模板和创建上下文；只有一台可用时会自动选中。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '接入其他主机' })).toBeVisible()
+  await page.getByRole('button', { name: '继续创建数据库' }).click()
+  await expect(page).toHaveURL(/\/instances\?create=1&template=.+&host=11111111/)
+  const resumedCreateDrawer = page.getByRole('dialog', { name: '创建数据库' })
+  await expect(resumedCreateDrawer).toBeVisible()
+  await expect(resumedCreateDrawer.getByText('已选中刚接入的主机 E2E Host')).toBeVisible()
+  await expect(resumedCreateDrawer.getByText(/E2E Host · amd64 · 8 CPU/)).toBeVisible()
+  await resumedCreateDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+  continuationHosts = [...continuationHosts, { ...continuationHosts[0], id: '22222222-2222-4222-8222-222222222222', name: 'Offline continuation host', status: 'offline' }]
+  await page.goto(`${preservedReturn}&host=22222222-2222-4222-8222-222222222222`)
+  const unavailableHostDrawer = page.getByRole('dialog', { name: '创建数据库' })
+  await expect(unavailableHostDrawer.getByText('刚接入的主机暂不可用于当前部署')).toBeVisible()
+  await expect(unavailableHostDrawer.getByText('该主机可能已离线、进入维护模式或与模板架构不兼容。请选择其他兼容主机，或接入新的主机。')).toBeVisible()
+  await unavailableHostDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.unroute('**/api/v1/hosts')
+  await page.goto('/catalog')
 
   const taskID = '22222222-2222-4222-8222-222222222222'
   const hostUpdatedAt = new Date().toISOString()

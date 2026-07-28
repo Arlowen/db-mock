@@ -15,6 +15,7 @@ import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import appI18n from '../i18n'
 import { ApiError, api, errorMessage } from '../lib/api'
 import { connectionHandoffSummary } from '../lib/connection-handoff'
+import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
 import { hostCanAccept, hostCanReconfigure, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
@@ -122,6 +123,7 @@ export function InstancesPage() {
   const requestedCopyID = params.get('copy')
   const requestedTemplateID = params.get('template')
   const requestedImageID = params.get('image')
+  const requestedHostID = params.get('host')
   const requestedProjectFilter = params.get('project') || ''
   const requestedCopySource = requestedCopyID ? items.find((item) => item.id === requestedCopyID) : undefined
   const requestedCopyTemplateAvailable = !!requestedCopySource && templates.some((template) => template.versions.some((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false))
@@ -129,12 +131,18 @@ export function InstancesPage() {
   const requestedCopyTemplateUnavailable = !!requestedCopySource && !requestedCopyTemplateAvailable
   const requestedTemplateAvailable = !!requestedTemplateID && templates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
   const requestedVersion = templates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
+  const requestedCopyVersion = requestedCopySource ? templates.flatMap((template) => template.versions).find((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false) : undefined
+  const requestedCreationVersion = requestedCopyTemplateAvailable ? requestedCopyVersion : requestedVersion
   const requestedImage = images.find((image) => image.id === requestedImageID)
   const requestedImageAvailable = !!requestedVersion && !!requestedImage && requestedImage.status === 'ready' && imageArtifactMatchesTemplate(requestedImage.imageRefs, requestedVersion) && imageArtifactSupportsAnyArchitecture(requestedImage.architectures, requestedVersion.architectures)
-  const requestedImageHostAvailable = requestedImageAvailable && hosts.some((host) => host.status === 'online' && !host.maintenance && requestedVersion.architectures.includes(host.architecture || '') && imageArtifactSupportsAnyArchitecture(requestedImage.architectures, [host.architecture || '']))
+  const requestedCompatibleHosts = hosts.filter((host) => host.status === 'online' && !host.maintenance && (!requestedCreationVersion || requestedCreationVersion.architectures.includes(host.architecture || '')) && (!requestedImageAvailable || imageArtifactSupportsAnyArchitecture(requestedImage.architectures, [host.architecture || ''])))
+  const requestedImageHostAvailable = requestedImageAvailable && requestedCompatibleHosts.length > 0
+  const requestedHost = requestedHostID ? hosts.find((host) => host.id === requestedHostID) : undefined
+  const requestedHostReady = !!requestedHost && requestedCompatibleHosts.some((host) => host.id === requestedHost.id)
   const createIntent = useCallback(() => {
-    return `/instances?create=1${requestedCopyID ? `&copy=${encodeURIComponent(requestedCopyID)}` : requestedTemplateID ? `&template=${encodeURIComponent(requestedTemplateID)}` : ''}${!requestedCopyID && requestedImageID ? `&image=${encodeURIComponent(requestedImageID)}` : ''}${requestedProjectFilter ? `&project=${encodeURIComponent(requestedProjectFilter)}` : ''}`
-  }, [requestedCopyID, requestedImageID, requestedProjectFilter, requestedTemplateID])
+    const path = `/instances?create=1${requestedCopyID ? `&copy=${encodeURIComponent(requestedCopyID)}` : requestedTemplateID ? `&template=${encodeURIComponent(requestedTemplateID)}` : ''}${!requestedCopyID && requestedImageID ? `&image=${encodeURIComponent(requestedImageID)}` : ''}${requestedProjectFilter ? `&project=${encodeURIComponent(requestedProjectFilter)}` : ''}`
+    return deploymentReturnPathForHost(path, requestedHostID)
+  }, [requestedCopyID, requestedHostID, requestedImageID, requestedProjectFilter, requestedTemplateID])
   const addRequiredHost = useCallback(() => navigate(`/hosts?create=1&returnTo=${encodeURIComponent(createIntent())}`), [createIntent, navigate])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
@@ -145,7 +153,7 @@ export function InstancesPage() {
   useEffect(() => {
     if (loading || loadError || !creationDataReady || !createRequested) return
     if (!canOperate) { setParams({}, { replace: true }); return }
-    if (!requestedCopySourceUnavailable && !requestedCopyTemplateUnavailable && !hasOnlineHost) { addRequiredHost(); return }
+    if (!requestedCopySourceUnavailable && !requestedCopyTemplateUnavailable && (requestedCreationVersion ? requestedCompatibleHosts.length === 0 : !hasOnlineHost)) { addRequiredHost(); return }
     if (requestedImageAvailable && !requestedImageHostAvailable) { addRequiredHost(); return }
     const source = requestedCopyTemplateAvailable ? requestedCopySource : undefined
     copyPrefillApplied.current = false
@@ -156,11 +164,11 @@ export function InstancesPage() {
     form.resetFields()
     const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
     form.setFieldsValue(source
-      ? { ...deploymentCopyDraft(source, projects.map((project) => project.id)), ...lifecycleDefaults }
-      : { bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined, projectId: requestedProjectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(requestedProject) })
+      ? { ...deploymentCopyDraft(source, projects.map((project) => project.id)), ...lifecycleDefaults, hostId: requestedHostReady ? requestedHostID || undefined : undefined }
+      : { bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined, projectId: requestedProjectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(requestedProject), hostId: requestedHostReady ? requestedHostID || undefined : undefined })
     setAppliedProjectDefaultsID(source ? '' : requestedProject?.id || '')
     setDrawer(true)
-  }, [addRequiredHost, canOperate, createRequested, creationDataReady, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProjectFilter, requestedTemplateAvailable, requestedTemplateID, setParams])
+  }, [addRequiredHost, canOperate, createRequested, creationDataReady, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProjectFilter, requestedTemplateAvailable, requestedTemplateID, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
   const selectedProjectID = Form.useWatch('projectId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
@@ -487,6 +495,8 @@ export function InstancesPage() {
         {hasProjectDeploymentDefaults(selectedProject) && (copySource && appliedProjectDefaultsID !== selectedProject?.id
           ? <Alert className="project-defaults-banner" type="info" showIcon message={t('projectDefaultsAvailableForCopy', { name: selectedProject?.name })} description={t('projectDefaultsAvailableForCopyHint')} action={<Button size="small" onClick={() => applyProjectDefaults(selectedProject?.id)}>{t('applyProjectDefaults')}</Button>} />
           : <Alert className="project-defaults-banner" type="success" showIcon message={t('projectDefaultsApplied', { name: selectedProject?.name })} description={t('projectDefaultsAppliedHint')} />)}
+        {requestedHostID && requestedHostReady && selectedHostID === requestedHostID && <Alert className="host-continuation-selection" type="success" showIcon message={t('continuationHostSelected', { name: requestedHost?.name })} description={t('continuationHostSelectedHint')} />}
+        {requestedHostID && !requestedHostReady && !selectedHostID && <Alert className="host-continuation-selection" type="warning" showIcon message={t('continuationHostUnavailable')} description={t('continuationHostUnavailableHint')} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input size="large" autoFocus maxLength={120} /></Form.Item>
         <Form.Item name="purpose" label={t('purpose')} extra={t('purposeHint')} rules={[{ max: 500 }]}><Input.TextArea rows={2} maxLength={500} showCount placeholder={t('purposePlaceholder')} /></Form.Item>
         <div className="form-grid"><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(value) => { setAppliedProjectDefaultsID(''); if (!copySource) applyProjectDefaults(value) }} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((v) => ({ value: v, label: translateCode(t, v) }))} /></Form.Item></div>

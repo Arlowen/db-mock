@@ -8,6 +8,7 @@ import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
+import { safeCreateReturnPath } from '../lib/deployment-continuation'
 import { formatCompactDateTime, formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { taskFailureGuidance } from '../lib/task-failure'
@@ -17,7 +18,6 @@ import type { Host, Instance, Task } from '../lib/types'
 
 interface TaskLog { id: number; level: string; message: string; createdAt: string }
 interface ResourceLink { label: string; path?: string; icon?: ReactNode }
-const safeCreateReturnPath = (value: string | null) => value?.startsWith('/instances?create=1') ? value : ''
 
 export function TasksPage() {
   const { t, i18n } = useTranslation()
