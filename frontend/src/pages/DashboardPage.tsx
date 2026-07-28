@@ -13,6 +13,7 @@ import { dashboardAttentionCanRetry, dashboardAttentionGuidance, dashboardAttent
 import { lifecycleCounts } from '../lib/instance-lifecycle'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
+import { taskHostRecoveryPath } from '../lib/task-recovery'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Dashboard, DashboardAttentionItem, DashboardInstance, Task } from '../lib/types'
 
@@ -98,6 +99,7 @@ export function DashboardPage() {
         renderItem={(item) => {
           const guidance = dashboardAttentionGuidance(item)
           const resourcePath = dashboardAttentionResourcePath(item)
+          const recoveryHostPath = guidance.inspectHost ? taskHostRecoveryPath(item.hostId, item.taskId) : undefined
           const displayedStatus = item.taskStatus || item.resourceStatus
           return <List.Item className="workbench-attention-item">
             <div className="workbench-attention-content">
@@ -115,9 +117,10 @@ export function DashboardPage() {
               <Typography.Text className="workbench-attention-recovery" type="secondary">{t('attentionNextStep')}: {t(guidance.recoveryKey, { host: item.hostName || t('targetHost') })}</Typography.Text>
               {item.hostName && <Typography.Text className="workbench-attention-host" type="secondary">{t('targetHost')}: {item.hostName}</Typography.Text>}
               <Space className="workbench-attention-actions" wrap>
+                {recoveryHostPath && <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(recoveryHostPath)}>{t('inspectFailedHost')}</Button>}
                 {item.taskId && <Button onClick={() => navigate(`/tasks?task=${item.taskId}`)}>{t('viewTask')}</Button>}
                 {resourcePath && <Button onClick={() => navigate(resourcePath)}>{t('viewResource')}</Button>}
-                {canOperate && dashboardAttentionCanRetry(item) && <Button type="primary" icon={<RedoOutlined />} loading={retryingTaskID === item.taskId} onClick={() => void retryAttention(item)}>{t('retryTask')}</Button>}
+                {canOperate && !recoveryHostPath && dashboardAttentionCanRetry(item) && <Button type="primary" icon={<RedoOutlined />} loading={retryingTaskID === item.taskId} onClick={() => void retryAttention(item)}>{t('retryTask')}</Button>}
               </Space>
             </div>
           </List.Item>

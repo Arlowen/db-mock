@@ -626,6 +626,18 @@ button { font: inherit; }
 .host-detail { display: grid; gap: 16px; }
 .host-detail .ant-card { box-shadow: none; }
 .host-detail .ant-card-head-title { font-size: 13px; }
+.host-recovery-alert.ant-alert { align-items: flex-start; border-radius: 12px; }
+.host-recovery-alert .ant-alert-content, .host-recovery-content { min-width: 0; width: 100%; }
+.host-recovery-content { display: grid; gap: 10px; }
+.host-recovery-context { min-width: 0; padding: 10px 12px; border: 1px solid rgb(102 112 133 / 14%); border-radius: 9px; background: rgb(255 255 255 / 62%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.host-recovery-context > div { min-width: 0; display: grid; gap: 2px; }
+.host-recovery-context > div .ant-typography-secondary { font-size: 11px; }
+.host-recovery-context > div .ant-typography:last-child { overflow-wrap: anywhere; }
+.host-recovery-context > .ant-tag { margin: 0; justify-self: end; }
+.host-recovery-hint.ant-typography { margin: 0; line-height: 1.55; }
+.host-recovery-error { display: block; overflow-wrap: anywhere; }
+.host-recovery-action-error { padding: 10px 12px; border: 1px solid rgb(192 44 58 / 20%); border-radius: 9px; background: rgb(255 255 255 / 58%); display: grid; gap: 3px; }
+.host-recovery-actions { margin-top: 2px; }
 .host-operation { margin: 0; }
 .host-health-banner { padding: 18px; border: 1px solid #cce9dc; border-radius: 12px; background: linear-gradient(135deg, #f6fcf9, #fbfefd); }
 .host-health-banner.is-warning { border-color: #f0d8b2; background: linear-gradient(135deg, #fffbf3, #fffdf9); }
@@ -694,6 +706,8 @@ button { font: inherit; }
   .host-capacity-grid { grid-template-columns: 1fr; }
   .host-health-facts { grid-template-columns: 1fr; }
   .host-health-guidance { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .host-recovery-context { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .host-recovery-context > .ant-tag { justify-self: start; }
   .create-review-grid { grid-template-columns: 1fr; }
   .workbench-lifecycle-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .monitoring-alert-grid { grid-template-columns: 1fr; }
@@ -809,6 +823,8 @@ button { font: inherit; }
   .host-editor-modal .workflow-modal-footer > .ant-btn { width: 100%; }
   .host-editor-modal .workflow-modal-footer > .ant-space { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .host-editor-modal .workflow-modal-footer > .ant-space .ant-btn { width: 100%; }
+  .host-recovery-actions { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .host-recovery-actions .ant-btn { width: 100%; }
   .instance-filter-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .instance-filter-search { width: 100%; min-width: 0; grid-column: 1 / -1; }
   .instance-filter-project, .instance-filter-host, .instance-filter-environment, .instance-filter-status { width: 100%; min-width: 0; }

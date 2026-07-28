@@ -25,6 +25,7 @@ import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from
 import { permissionsFor } from '../lib/permissions'
 import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { taskFailureGuidance } from '../lib/task-failure'
+import { taskHostRecoveryPath } from '../lib/task-recovery'
 import { isRecoverableInstanceStatus, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
@@ -894,6 +895,7 @@ export function InstanceDetailPage() {
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(tasks, isRecoverableInstanceStatus(item.status))
   const deploymentHandoff = selectDeploymentHandoff(tasks, item.status)
   const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
+  const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
   const lifecycleRequestCanRetry = lifecycleRequestFailure && !operationTask &&
     canRetryInstanceLifecycleAction(lifecycleRequestFailure.action, item.status, lifecycleRequestFailure.code)
   const retryTask = async () => {
@@ -932,8 +934,8 @@ export function InstanceDetailPage() {
     </div>
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space wrap className="instance-operation-actions">
-      {failedGuidance?.inspectHost && <Button icon={<CloudServerOutlined />} onClick={() => navigate(`/hosts?host=${item.hostId}`)}>{t('inspectFailedHost')}</Button>}
-      {canOperate && failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
+      {failedHostRecoveryPath && <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(failedHostRecoveryPath)}>{t('inspectFailedHost')}</Button>}
+      {canOperate && failedTask && !activeTask && !failedHostRecoveryPath && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>
   </div>

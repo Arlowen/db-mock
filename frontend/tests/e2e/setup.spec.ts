@@ -591,14 +591,13 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText(/数据库尚未就绪/)).toBeVisible()
   await expect(page.getByText(/重新检测成功后重试/)).toBeVisible()
   await expect(page.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '重试任务' })).toHaveCount(0)
   await page.getByRole('button', { name: '技术详情' }).click()
   await expect(page.getByText(/dial SSH 10.0.0.8/)).toBeVisible()
   await page.getByRole('tab', { name: '连接信息' }).click()
   await expect(page.getByText('连接可用性受当前状态影响')).toBeVisible()
   await expect(page.getByText('实例当前为“失败”。连接信息仍可查看或复制，但请等待实例恢复为运行中后再尝试连接。')).toBeVisible()
   await page.getByRole('tab', { name: '详情' }).click()
-  await page.getByRole('button', { name: '重试任务' }).click()
-  await expect(page.getByText('排队中', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
   await expect(page.getByRole('button', { name: '重启' })).not.toBeVisible()
 
@@ -608,7 +607,8 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('目标主机无法拉取所选数据库镜像。')).toBeVisible()
   await page.getByRole('button', { name: '技术详情' }).click()
   await expect(page.getByText('docker pull postgres:17 failed: unexpected EOF')).toBeVisible()
-  await expect(page.getByRole('button', { name: '重试任务' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '重试任务' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '停止' })).not.toBeVisible()
   await expect(page.getByRole('button', { name: '重启' })).not.toBeVisible()
 
@@ -1026,9 +1026,10 @@ test('initializes the platform and switches the embedded interface language', as
 
   const taskID = '22222222-2222-4222-8222-222222222222'
   const hostUpdatedAt = new Date().toISOString()
+  let recoveryHostStatus = 'online'
   let hostTaskStatus = 'running'
   let hostTaskCancelAsked = false
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: true, os: 'linux', distro: 'Ubuntu 24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true, consecutiveFailures: 0, labels: { team: 'platform' }, lastCheckedAt: hostUpdatedAt, lastSeenAt: hostUpdatedAt, createdAt: hostUpdatedAt, updatedAt: hostUpdatedAt }] } }))
+  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: recoveryHostStatus, sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: true, os: 'linux', distro: 'Ubuntu 24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true, consecutiveFailures: recoveryHostStatus === 'online' ? 0 : 2, labels: { team: 'platform' }, lastCheckedAt: hostUpdatedAt, lastSeenAt: hostUpdatedAt, createdAt: hostUpdatedAt, updatedAt: hostUpdatedAt }] } }))
   await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
   await page.route('**/api/v1/instances?hostId=**', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
   await page.route('**/api/v1/tasks?resourceType=host&resourceId=**', async (route) => route.fulfill({ json: { items: [{ id: taskID, kind: 'host_probe', status: hostTaskStatus, resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: hostTaskStatus === 'running' ? 35 : 100, stage: hostTaskStatus === 'running' ? 'probe' : 'completed', message: hostTaskStatus === 'running' ? 'checking_host_and_template' : 'completed', cancelable: hostTaskStatus === 'running', cancelAsked: hostTaskCancelAsked, attempts: 1, createdAt: hostUpdatedAt }] } }))
@@ -1074,8 +1075,16 @@ test('initializes the platform and switches the embedded interface language', as
   const failedTaskID = '33333333-3333-4333-8333-333333333333'
   const retriedTaskID = '33333333-3333-4333-8333-333333333334'
   const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
-  const retriedTask = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
+  let retriedTask: Record<string, unknown> = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
+  recoveryHostStatus = 'offline'
+  let recoveryHostTasks: Record<string, unknown>[] = []
+  await page.route('**/api/v1/tasks?resourceType=host&resourceId=**', async (route) => route.fulfill({ json: { items: recoveryHostTasks } }))
+  await page.route('**/api/v1/hosts/11111111-1111-4111-8111-111111111111/actions/probe', async (route) => {
+    recoveryHostStatus = 'online'
+    recoveryHostTasks = [completedHostTask]
+    await route.fulfill({ status: 202, json: completedHostTask })
+  })
   let attentionItems: Record<string, unknown>[] = [{ resourceType: 'instance', resourceId: instanceID, resourceName: 'Orders DB', resourceStatus: 'failed', hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', taskId: failedTaskID, taskKind: 'instance_create', taskStatus: 'failed', taskStage: 'compose', errorCode: 'ssh_unreachable', updatedAt: failedTask.finishedAt }]
   let lifecycleItems: Record<string, unknown>[] = []
   await page.route('**/api/v1/dashboard', async (route) => route.fulfill({ json: { hosts: { online: 1 }, instances: { failed: 1 }, activeTasks: attentionItems[0]?.taskStatus === 'queued' ? 1 : 0, openAlerts: 0, users: 1, projects: 0, attentionItems, lifecycleInstances: lifecycleItems } }))
@@ -1096,10 +1105,25 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
   await expect(page.getByText(/在主机页重新检测成功后重试/)).toBeVisible()
   const attentionRetryButton = page.locator('.workbench-attention-actions').getByRole('button', { name: /重试任务/ })
-  await attentionRetryButton.click()
-  await expect(page.getByText('任务已进入队列')).toBeVisible()
-  await expect(page.getByText('实例仍处于失败状态，尚未恢复到可交付状态。')).toBeVisible()
   await expect(attentionRetryButton).toHaveCount(0)
+  await page.locator('.workbench-attention-actions').getByRole('button', { name: '检查故障主机' }).click()
+  await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
+  let recoveryHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
+  await expect(recoveryHostDialog.getByText('先恢复主机，再重试原任务')).toBeVisible()
+  await expect(recoveryHostDialog.getByText('Orders DB', { exact: true }).first()).toBeVisible()
+  await expect(recoveryHostDialog.getByRole('button', { name: '重新检测' })).toHaveCount(1)
+  await recoveryHostDialog.getByRole('button', { name: '重新检测' }).click()
+  await expect(recoveryHostDialog.getByText('主机已就绪，可以重试原任务')).toBeVisible()
+  await recoveryHostDialog.getByRole('button', { name: '重试原任务' }).click()
+  await expect(page).toHaveURL(new RegExp(`recoveryTask=${retriedTaskID}`))
+  await expect(recoveryHostDialog.getByText('重试任务正在执行')).toBeVisible()
+  retriedTask = { ...retriedTask, status: 'succeeded', progress: 100, stage: 'health', message: 'task_completed', finishedAt: new Date().toISOString() }
+  await page.reload()
+  recoveryHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
+  await expect(recoveryHostDialog.getByText('重试已完成，请确认实例状态')).toBeVisible()
+  await recoveryHostDialog.getByRole('button', { name: '返回实例确认状态' }).click()
+  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}`))
+  retriedTask = { ...retriedTask, status: 'queued', progress: 0, stage: 'queued', message: '', finishedAt: undefined }
   expect(workbenchBrowserErrors).toEqual([])
   await page.goto('/tasks')
   await expect(page.getByText('共 2 个任务')).toBeVisible()
@@ -1114,19 +1138,14 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(taskDrawer.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
   await expect(taskDrawer.getByText(/数据库尚未就绪/)).toBeVisible()
   await expect(taskDrawer.getByText(/重新检测成功后重试/)).toBeVisible()
+  await expect(taskDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
   await expect(taskDrawer.getByRole('button', { name: '查看对应资源' })).toBeVisible()
   await taskDrawer.getByRole('button', { name: '技术详情' }).click()
   await expect(taskDrawer.getByText(/Connection timed out/)).toBeVisible()
   await taskDrawer.getByRole('button', { name: '检查故障主机' }).click()
-  await expect(page).toHaveURL(/\/hosts\?host=11111111/)
-  await expect(page.getByRole('dialog', { name: 'E2E Host' })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
+  await expect(page.getByRole('dialog', { name: 'E2E Host' }).getByText('主机已就绪，可以重试原任务')).toBeVisible()
   await page.getByRole('dialog', { name: 'E2E Host' }).getByRole('button', { name: '关闭', exact: true }).click()
-  await page.goto(`/tasks?task=${failedTaskID}`)
-  taskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*33333333/ })
-  await taskDrawer.getByRole('button', { name: '重试任务' }).click()
-  await expect(page).toHaveURL(new RegExp(`task=${retriedTaskID}`))
-  await expect(page.getByRole('dialog', { name: /创建数据库实例.*33333333/ }).getByText('排队中')).toBeVisible()
-  await page.getByRole('dialog', { name: /创建数据库实例.*33333333/ }).getByRole('button', { name: '关闭', exact: true }).click()
 
   const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
   const cleanupReadyID = '44444444-4444-4444-8444-444444444442'

@@ -20,6 +20,7 @@ describe('dashboard attention helpers', () => {
     expect(dashboardAttentionGuidance(item)).toEqual({
       causeKey: 'taskFailureCause_ssh_unreachable',
       recoveryKey: 'taskFailureRecovery_ssh_unreachable',
+      inspectHost: true,
     })
     expect(dashboardAttentionResourcePath(item)).toBe('/instances/instance-id')
     expect(dashboardAttentionCanRetry(item)).toBe(true)
@@ -29,6 +30,7 @@ describe('dashboard attention helpers', () => {
     expect(dashboardAttentionGuidance({ ...item, taskId: undefined, taskKind: undefined, taskStatus: undefined, resourceStatus: 'degraded' })).toEqual({
       causeKey: 'attentionInstanceCause_degraded',
       recoveryKey: 'attentionInstanceRecovery_degraded',
+      inspectHost: false,
     })
   })
 

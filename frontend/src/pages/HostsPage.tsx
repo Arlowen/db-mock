@@ -1,4 +1,4 @@
-import { CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined, CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, MoreOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Card, Collapse, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Select, Space, Steps, Switch, Table, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -12,6 +12,7 @@ import { reservationForHost } from '../lib/host-capacity'
 import { dockerManagementReady, hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
+import { hostTaskRecoveryPhase, taskRecoveryResourcePath } from '../lib/task-recovery'
 import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Task } from '../lib/types'
@@ -53,7 +54,7 @@ function percent(used: number, limit: number): number {
 }
 
 export function HostsPage() {
-  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const projectFilter = params.get('project') || ''; const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleting, setDeleting] = useState(false); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
+  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const projectFilter = params.get('project') || ''; const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const [recoveryActionError, setRecoveryActionError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const screens = Grid.useBreakpoint()
   const hostConnectionValues = Form.useWatch([], { form, preserve: true })
@@ -109,6 +110,7 @@ export function HostsPage() {
     if (value) next.set('project', value)
     else next.delete('project')
     next.delete('host')
+    next.delete('recoveryTask')
     setParams(next, { replace: true })
     setDetail(null)
   }
@@ -127,6 +129,30 @@ export function HostsPage() {
     } catch (error) { setDetailError(errorMessage(error)) }
   }, [])
   useEffect(() => { if (!detail?.id) { setHostTasks([]); setDetailError(''); return }; void loadHostContext(detail.id); const timer = window.setInterval(() => void loadHostContext(detail.id), 5000); return () => clearInterval(timer) }, [detail?.id, loadHostContext])
+  const loadRecoveryTask = useCallback(async (id: string, foreground = false) => {
+    if (foreground) setRecoveryTaskLoading(true)
+    try {
+      setRecoveryTask(await api<Task>(`/tasks/${encodeURIComponent(id)}`))
+      setRecoveryTaskError('')
+    } catch (error) {
+      setRecoveryTaskError(errorMessage(error))
+    } finally {
+      if (foreground) setRecoveryTaskLoading(false)
+    }
+  }, [])
+  useEffect(() => {
+    setRecoveryActionError('')
+    if (!recoveryTaskID) {
+      setRecoveryTask(undefined)
+      setRecoveryTaskError('')
+      setRecoveryTaskLoading(false)
+      return
+    }
+    setRecoveryTask(undefined)
+    void loadRecoveryTask(recoveryTaskID, true)
+    const timer = window.setInterval(() => void loadRecoveryTask(recoveryTaskID), 3000)
+    return () => window.clearInterval(timer)
+  }, [loadRecoveryTask, recoveryTaskID])
   const show = (item?: Host) => {
     const values = (item
       ? { ...item, credential: '', passphrase: '' }
@@ -243,8 +269,8 @@ export function HostsPage() {
     const reason = verificationReason === 'docker_policy' && credentialOnly ? 'docker_policy' : connectionChanged ? 'connection' : 'docker_policy'
     setFingerprint(''); setVerificationToken(''); setProbe(null); setVerificationDirty(true); setVerificationReason(reason)
   }
-  const openDetail = (item: Host) => { const next = new URLSearchParams(params); next.set('host', item.id); setParams(next, { replace: true }); setDetail(item) }
-  const closeDetail = () => { setDetail(null); if (hostID) { const next = new URLSearchParams(params); next.delete('host'); setParams(next, { replace: true }) } }
+  const openDetail = (item: Host) => { const next = new URLSearchParams(params); next.set('host', item.id); if (item.id !== hostID) next.delete('recoveryTask'); setParams(next, { replace: true }); setDetail(item) }
+  const closeDetail = () => { setDetail(null); if (hostID || recoveryTaskID) { const next = new URLSearchParams(params); next.delete('host'); next.delete('recoveryTask'); setParams(next, { replace: true }) } }
   const finishCloseEditor = () => { setOpen(false); setEditorDirty(false); setVerificationError(''); setSaveError(''); hostBaseline.current = null; if (editing && hostID) setDetail(items.find((item) => item.id === hostID) ?? editing) }
   const closeEditor = () => {
     if (saving || testing) return
@@ -326,6 +352,25 @@ export function HostsPage() {
       await Promise.all([load(), loadHostContext(detail.id)])
     } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
   }
+  const retryRecoveryTask = async () => {
+    if (!recoveryTask || !detail) return
+    try {
+      setActioning('retry-recovery-task')
+      setRecoveryActionError('')
+      const retried = await api<Task>(`/tasks/${encodeURIComponent(recoveryTask.id)}/retry`, { method: 'POST', body: {} })
+      setRecoveryTask(retried)
+      notifyTask(retried)
+      const next = new URLSearchParams(params)
+      next.set('host', detail.id)
+      next.set('recoveryTask', retried.id)
+      setParams(next, { replace: true })
+      await Promise.all([load(), loadHostContext(detail.id)])
+    } catch (error) {
+      setRecoveryActionError(errorMessage(error))
+    } finally {
+      setActioning('')
+    }
+  }
   const columns = useMemo(() => [
     { title: t('name'), dataIndex: 'name', width: 190, render: (value: string, item: Host) => <div className="host-name-cell"><Button type="link" onClick={() => openDetail(item)}><CloudServerOutlined /> {value}</Button><Typography.Text type="secondary">{projects.find((project) => project.id === item.projectId)?.name || t('noProject')}</Typography.Text></div> },
     { title: t('status'), dataIndex: 'status', width: 110, render: (value: string, item: Host) => <div className="host-status-cell"><StatusTag value={value} />{item.maintenance && <Tag>{t('maintenance')}</Tag>}</div> },
@@ -349,8 +394,72 @@ export function HostsPage() {
   const operationPanel = operationTask && <div className={`instance-operation host-operation is-${activeTask ? 'active' : 'failed'}`}>
     <div className="instance-operation-copy"><Space wrap><StatusTag value={operationTask.status} /><Typography.Text strong>{translateCode(t, operationTask.kind, 'taskKind')}</Typography.Text><Typography.Text type="secondary">· {translateCode(t, operationTask.stage, 'taskStage')}</Typography.Text></Space><Typography.Paragraph type={activeTask ? 'secondary' : 'danger'}>{activeTask ? translateCode(t, operationTask.message, 'taskMessage') : operationTask.errorCode && operationTask.errorCode !== 'task_failed' ? translateCode(t, operationTask.errorCode, 'taskError') : operationTask.errorMessage || translateCode(t, operationTask.message, 'taskMessage')}</Typography.Paragraph></div>
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
-    <Space className="instance-operation-actions">{canOperate && failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}<Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button></Space>
+    <Space className="instance-operation-actions">{recoveryTaskID
+      ? <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewHostCheckTask')}</Button>
+      : <>{canOperate && failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}<Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button></>}</Space>
   </div>
+  const recoveryPhase = detail && recoveryTask ? hostTaskRecoveryPhase(recoveryTask, detail, Boolean(activeTask)) : undefined
+  const recoveryResourcePath = taskRecoveryResourcePath(recoveryTask)
+  const recoveryResourceName = recoveryTask?.resourceType === 'instance'
+    ? instances.find((instance) => instance.id === recoveryTask.resourceId)?.name || recoveryTask.resourceId
+    : recoveryTask?.resourceId
+  const recoveryTitleKey = recoveryTaskLoading && !recoveryTask
+    ? 'hostRecoveryLoadingTitle'
+    : recoveryTaskError && !recoveryTask
+      ? 'hostRecoveryLoadFailedTitle'
+      : recoveryPhase
+        ? `hostRecoveryTitle_${recoveryPhase}`
+        : 'hostRecoveryUnavailableTitle'
+  const recoveryHintKey = recoveryTaskLoading && !recoveryTask
+    ? 'hostRecoveryLoadingHint'
+    : recoveryTaskError && !recoveryTask
+      ? 'hostRecoveryLoadFailedHint'
+      : recoveryPhase === 'needs_host' && activeTask
+        ? 'hostRecoveryProbeActiveHint'
+        : recoveryPhase === 'ready' && !canOperate
+          ? 'hostRecoveryReadyReadOnlyHint'
+          : recoveryPhase
+            ? `hostRecoveryHint_${recoveryPhase}`
+            : 'hostRecoveryUnavailableHint'
+  const recoveryPanelType = recoveryActionError
+    ? 'error'
+    : recoveryPhase === 'ready' || recoveryPhase === 'succeeded'
+      ? 'success'
+      : recoveryPhase === 'active' || (recoveryTaskLoading && !recoveryTask)
+        ? 'info'
+        : 'warning'
+  const recoveryTaskTarget = recoveryTask?.id || recoveryTaskID
+  const recoveryPanel = recoveryTaskID && detail && <Alert
+    className="host-recovery-alert"
+    type={recoveryPanelType}
+    showIcon
+    message={t(recoveryTitleKey)}
+    description={<div className="host-recovery-content" data-recovery-phase={recoveryPhase || 'loading'}>
+      {recoveryTask && <div className="host-recovery-context">
+        <div>
+          <Typography.Text type="secondary">{t('hostRecoveryOriginalOperation')}</Typography.Text>
+          <Typography.Text strong>{translateCode(t, recoveryTask.kind, 'taskKind')}</Typography.Text>
+        </div>
+        <div>
+          <Typography.Text type="secondary">{t('resource')}</Typography.Text>
+          <Typography.Text strong>{recoveryResourceName || t('resourceUnavailable')}</Typography.Text>
+        </div>
+        <StatusTag value={recoveryTask.status} />
+      </div>}
+      <Typography.Paragraph className="host-recovery-hint" type="secondary">{t(recoveryHintKey)}</Typography.Paragraph>
+      {recoveryTask && ['failed', 'canceled', 'interrupted'].includes(recoveryTask.status) && <Typography.Text className="host-recovery-error" type="danger">{t('hostRecoveryLastFailure')}: {recoveryTask.errorCode ? translateCode(t, recoveryTask.errorCode, 'taskError') : recoveryTask.errorMessage || translateCode(t, recoveryTask.message, 'taskMessage')}</Typography.Text>}
+      {recoveryTaskError && recoveryTask && <Typography.Text className="host-recovery-error" type="danger" role="alert">{t('hostRecoveryRefreshFailed')}: {recoveryTaskError}</Typography.Text>}
+      {recoveryActionError && <div className="host-recovery-action-error" role="alert"><Typography.Text strong type="danger">{t('hostRecoveryRetryFailed')}</Typography.Text><Typography.Text type="danger">{recoveryActionError}</Typography.Text><Typography.Text type="secondary">{t('hostRecoveryRetryFailedHint')}</Typography.Text></div>}
+      <Space className="host-recovery-actions" wrap>
+        {canOperate && recoveryPhase === 'needs_host' && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button>}
+        {canOperate && recoveryPhase === 'ready' && <Button type="primary" icon={<RedoOutlined />} loading={actioning === 'retry-recovery-task'} disabled={!!actioning && actioning !== 'retry-recovery-task'} onClick={() => void retryRecoveryTask()}>{t('retryOriginalTask')}</Button>}
+        {recoveryPhase === 'succeeded' && recoveryResourcePath && <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => navigate(recoveryResourcePath)}>{t('returnToConfirmStatus')}</Button>}
+        {recoveryTaskTarget && <Button onClick={() => navigate(`/tasks?task=${encodeURIComponent(recoveryTaskTarget)}`)}>{t('viewTask')}</Button>}
+        {recoveryResourcePath && recoveryPhase !== 'succeeded' && <Button icon={<ArrowRightOutlined />} onClick={() => navigate(recoveryResourcePath)}>{t('returnToFailedResource')}</Button>}
+        {recoveryTaskError && <Button loading={recoveryTaskLoading} onClick={() => void loadRecoveryTask(recoveryTaskID, true)}>{t('retry')}</Button>}
+      </Space>
+    </div>}
+  />
   const continuationMessageKey = continuationState === 'loading'
     ? 'databaseCreationRequirementsLoading'
     : continuationState === 'unavailable'
@@ -389,9 +498,10 @@ export function HostsPage() {
         {verificationRequired && <div ref={verificationSection} className="verification-section"><Typography.Text className="form-section-label">{t('connectionVerification')}</Typography.Text>{verificationError ? <Alert type="error" showIcon message={t('hostConnectionTestFailed')} description={<Space direction="vertical" size={2}><Typography.Text>{verificationError}</Typography.Text><Typography.Text type="secondary">{t('hostConnectionFailureHint')}</Typography.Text></Space>} /> : probe ? <><Alert type="success" showIcon message={t('connectionVerified')} description={<><Descriptions size="small" column={2} items={[{ key: 'system', label: t('testResultSystem'), children: `${probe.os}/${probe.architecture}` },{ key: 'docker', label: t('testResultDocker'), children: probe.dockerVersion ? `${probe.dockerVersion} / ${probe.composeVersion || '—'}` : t('dockerNotInstalled') },{ key: 'sudo', label: t('passwordlessSudo'), children: probe.passwordlessSudo ? t('available') : t('unavailable') },{ key: 'resources', label: t('testResultResources'), children: `${probe.cpuCount} CPU · ${bytes(probe.memoryBytes)} · ${bytes(probe.diskFreeBytes)}` },{ key: 'root', label: t('testResultDataRoot'), children: probe.dataRootWritable ? t('writable') : t('unavailable') },{ key: 'port', label: t('testResultPortPool'), children: probe.portProbeAvailable ? probe.firstAvailablePort ? t('firstAvailablePort', { port: probe.firstAvailablePort }) : t('portPoolExhausted') : t('unavailable') }]} /><Typography.Text code copyable className="fingerprint-value">{fingerprint.split(' ')[0]}</Typography.Text></>} />{probeIncompatible && <Alert type="warning" showIcon message={t('deploymentHostArchitectureMismatch', { architecture: probe.architecture, architectures: continuationArchitectures })} description={t('deploymentHostArchitectureMismatchHint', { database: continuationTemplateName, version: continuationRequirement.status === 'resolved' ? continuationRequirement.templateVersion : '', architecture: probe.architecture, architectures: continuationArchitectures })} />}{probe.portProbeAvailable && !probe.firstAvailablePort && <Alert type="warning" showIcon message={t('portPoolExhausted')} description={t('portPoolExhaustedHint')} />}{manageDocker && !probe.passwordlessSudo && <Alert type="warning" showIcon message={t('dockerSudoRequired')} description={t('dockerSudoRequiredHint')} />}</> : <Alert type={verificationDirty ? 'warning' : 'info'} showIcon message={verificationDirty ? t(verificationReason === 'docker_policy' ? 'dockerPolicyVerificationRequired' : 'connectionChanged') : t(portPoolInvalid ? 'portPoolRangeInvalid' : connectionTestReady ? 'connectionVerificationHint' : 'connectionDetailsIncomplete')} />}</div>}
       </Form>
     </Modal>
-    <Drawer className="host-detail-drawer" title={detail ? <div className="host-detail-title"><div><CloudServerOutlined /><Typography.Text strong>{detail.name}</Typography.Text></div><StatusTag value={detail.status} /></div> : t('hostDetails')} open={!!detail} onClose={closeDetail} width={780} destroyOnHidden footer={canOperate && detail ? <div className="workflow-drawer-footer"><Button danger icon={<DeleteOutlined />} disabled={relatedInstances.length > 0 || !!activeTask || !!actioning} title={relatedInstances.length ? t('hostDeleteBlocked') : activeTask ? t('hostOperationInProgress') : t('delete')} onClick={() => showDelete(detail)}>{t('delete')}</Button><Space wrap><Button icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button><Button icon={<EditOutlined />} disabled={!!activeTask || !!actioning} onClick={() => show(detail)}>{t('edit')}</Button><Dropdown trigger={['click']} menu={{ items: [{ key: 'install', icon: <ToolOutlined />, label: t('installDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status === 'offline' || !!actioning },{ key: 'upgrade', label: t('upgradeDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || !!actioning },{ key: 'proxy', label: t('applyDockerProxy'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || detail.os === 'darwin' || !!actioning }], onClick: ({ key }) => void action(detail, key === 'install' ? 'install_docker' : key === 'upgrade' ? 'upgrade_docker' : 'configure_proxy') }}><Button icon={<MoreOutlined />} disabled={!!activeTask || !!actioning} title={activeTask ? t('hostOperationInProgress') : t('moreActions')}>{t('moreActions')}</Button></Dropdown></Space></div> : undefined}>
+    <Drawer className="host-detail-drawer" title={detail ? <div className="host-detail-title"><div><CloudServerOutlined /><Typography.Text strong>{detail.name}</Typography.Text></div><StatusTag value={detail.status} /></div> : t('hostDetails')} open={!!detail} onClose={closeDetail} width={780} destroyOnHidden footer={canOperate && detail ? <div className="workflow-drawer-footer"><Button danger icon={<DeleteOutlined />} disabled={relatedInstances.length > 0 || !!activeTask || !!actioning} title={relatedInstances.length ? t('hostDeleteBlocked') : activeTask ? t('hostOperationInProgress') : t('delete')} onClick={() => showDelete(detail)}>{t('delete')}</Button><Space wrap>{!recoveryTaskID && <Button icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button>}<Button icon={<EditOutlined />} disabled={!!activeTask || !!actioning} onClick={() => show(detail)}>{t('edit')}</Button><Dropdown trigger={['click']} menu={{ items: [{ key: 'install', icon: <ToolOutlined />, label: t('installDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status === 'offline' || !!actioning },{ key: 'upgrade', label: t('upgradeDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || !!actioning },{ key: 'proxy', label: t('applyDockerProxy'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || detail.os === 'darwin' || !!actioning }], onClick: ({ key }) => void action(detail, key === 'install' ? 'install_docker' : key === 'upgrade' ? 'upgrade_docker' : 'configure_proxy') }}><Button icon={<MoreOutlined />} disabled={!!activeTask || !!actioning} title={activeTask ? t('hostOperationInProgress') : t('moreActions')}>{t('moreActions')}</Button></Dropdown></Space></div> : undefined}>
       {detail && <div className="host-detail">
         {detailError && <Alert type="warning" showIcon message={t('hostContextLoadFailed')} description={detailError} action={<Button size="small" onClick={() => void loadHostContext(detail.id)}>{t('retry')}</Button>} />}
+        {recoveryPanel}
         {operationPanel}
         <div className={`host-health-banner is-${detail.status === 'online' ? 'success' : detail.status === 'needs_docker' ? 'warning' : 'error'}`}>
           <div><StatusTag value={detail.status} /><Typography.Text strong>{t('currentHostState')}</Typography.Text></div>
