@@ -359,6 +359,8 @@ test('initializes the platform and switches the embedded interface language', as
   let submittedRestoreBody: Record<string, unknown> | undefined
   let submittedBackupDeleteBody: Record<string, unknown> | undefined
   let instanceBackups: Array<Record<string, unknown>> = []
+  let failBackupInventory = false
+  let failTaskInventory = false
   let instanceBackupPolicy: Record<string, unknown> | null = null
   let sourceVersionSelectable = true
   await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
@@ -379,7 +381,24 @@ test('initializes the platform and switches the embedded interface language', as
   })
   await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [instanceResponse()] } }))
   await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: instanceResponse() }))
-  await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: relatedTasks } }))
+  await page.route(`**/api/v1/instances/${instanceID}/cleanup-review`, async (route) => {
+    const backupCount = instanceBackups.length
+    await route.fulfill({ json: {
+      instanceId: instanceID,
+      instanceName: 'Orders DB',
+      status: instanceStatus,
+      purpose: 'Orders release regression',
+      owner: 'Orders QA',
+      expiresAt: instanceResponse().expiresAt,
+      backupCount,
+      deleteReady: backupCount === 0 && ['running', 'stopped', 'failed', 'degraded'].includes(instanceStatus),
+      blockers: backupCount > 0 ? ['backups_present'] : [],
+    } })
+  })
+  await page.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => {
+    if (failTaskInventory) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task inventory outage' } } })
+    await route.fulfill({ json: { items: relatedTasks } })
+  })
   await page.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ json: { policy: instanceBackupPolicy } })
     submittedBackupPolicyBody = route.request().postDataJSON()
@@ -387,7 +406,10 @@ test('initializes the platform and switches the embedded interface language', as
     await route.fulfill({ json: { policy: instanceBackupPolicy } })
   })
   await page.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: { items: instanceBackups } })
+    if (route.request().method() === 'GET') {
+      if (failBackupInventory) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary backup inventory outage' } } })
+      return route.fulfill({ json: { items: instanceBackups } })
+    }
     submittedBackupBody = route.request().postDataJSON()
     const backup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: String(submittedBackupBody?.name || 'Generated backup'), creationType: 'manual', status: 'creating', sizeBytes: 0, createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     instanceBackups = [backup]
@@ -399,7 +421,8 @@ test('initializes the platform and switches the embedded interface language', as
   })
   await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
     submittedBackupDeleteBody = route.request().postDataJSON()
-    await route.fulfill({ status: 202, json: { backup: { ...instanceBackups[0], status: 'deleting' }, task: { id: '63636363-6363-4363-8363-636363636363', kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
+    instanceBackups = [{ ...instanceBackups[0], status: 'deleting' }]
+    await route.fulfill({ status: 202, json: { backup: instanceBackups[0], task: { id: '63636363-6363-4363-8363-636363636363', kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
   })
   await page.route(`**/api/v1/instances/${instanceID}/actions/upgrade`, async (route) => {
     submittedUpgradeBody = route.request().postDataJSON()
@@ -548,6 +571,16 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
   const backupRow = page.getByRole('row').filter({ hasText: '\u53d1\u5e03\u524d\u5907\u4efd' })
   await expect(backupRow.getByText('1 MiB')).toBeVisible()
+  await page.getByRole('button', { name: '更多操作' }).click()
+  await page.getByRole('menuitem', { name: '审查清理' }).click()
+  let detailCleanupDialog = page.getByRole('dialog', { name: /审查清理.*Orders DB/ })
+  await expect(detailCleanupDialog.getByText('仍有 1 个托管备份；请先逐个确认并删除。')).toBeVisible()
+  await detailCleanupDialog.getByRole('button', { name: '查看备份' }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups&cleanup=review$`))
+  const cleanupContinuation = page.locator('.cleanup-continuation-alert')
+  await expect(cleanupContinuation.getByText('处理备份后继续清理')).toBeVisible()
+  await expect(cleanupContinuation.getByText('仍有 1 个托管备份。请在下方逐个确认删除；任务完成后留在本页继续清理。')).toBeVisible()
+  await expect(cleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
   await backupRow.getByRole('button', { name: '\u6062\u590d' }).click()
   const restoreBackupDialog = page.getByRole('dialog', { name: '\u6062\u590d\u5907\u4efd' })
   await expect(restoreBackupDialog.getByText('\u6062\u590d\u4f1a\u8986\u76d6\u5f53\u524d\u6570\u636e')).toBeVisible()
@@ -561,6 +594,38 @@ test('initializes the platform and switches the embedded interface language', as
   await deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664').fill('\u53d1\u5e03\u524d\u5907\u4efd')
   await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
   await expect.poll(() => submittedBackupDeleteBody).toEqual({ confirmName: '\u53d1\u5e03\u524d\u5907\u4efd' })
+  await expect(cleanupContinuation.getByText('备份或实例操作仍在执行；完成后本页会自动重新检查清理条件。')).toBeVisible()
+  instanceBackups = []
+  await cleanupContinuation.getByRole('button', { name: '刷新状态' }).click()
+  await expect(cleanupContinuation.getByText('托管备份已清空，且没有进行中的操作。请重新执行一次服务端清理审查，然后进入名称确认。')).toBeVisible()
+  await cleanupContinuation.getByRole('button', { name: '继续清理审查' }).click()
+  detailCleanupDialog = page.getByRole('dialog', { name: /审查清理.*Orders DB/ })
+  await expect(detailCleanupDialog.getByText('已具备永久删除条件')).toBeVisible()
+  await detailCleanupDialog.getByRole('button', { name: /取\s*消/ }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups$`))
+
+  failBackupInventory = true
+  await page.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
+  const unavailableCleanupContinuation = page.locator('.cleanup-continuation-alert')
+  await expect(page.getByRole('tab', { name: '备份 (—)' })).toBeVisible()
+  await expect(unavailableCleanupContinuation.getByText(/暂时无法确认备份是否已清空或是否仍有进行中的操作/)).toBeVisible()
+  await expect(unavailableCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
+  failBackupInventory = false
+  await unavailableCleanupContinuation.getByRole('button', { name: '重试' }).click()
+  await expect(unavailableCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toBeVisible()
+  await unavailableCleanupContinuation.getByRole('button', { name: '退出清理引导' }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups$`))
+
+  failTaskInventory = true
+  await page.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
+  const unavailableTaskContinuation = page.locator('.cleanup-continuation-alert')
+  await expect(unavailableTaskContinuation.getByText(/资源暂时不可用/)).toBeVisible()
+  await expect(unavailableTaskContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
+  failTaskInventory = false
+  await unavailableTaskContinuation.getByRole('button', { name: '重试' }).click()
+  await expect(unavailableTaskContinuation.getByRole('button', { name: '继续清理审查' })).toBeVisible()
+  await unavailableTaskContinuation.getByRole('button', { name: '退出清理引导' }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups$`))
   await page.getByRole('tab', { name: '\u8be6\u60c5' }).click()
 
   instanceStatus = 'provisioning'
@@ -678,6 +743,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}/metrics?**`)
   await page.unroute(`**/api/v1/instances/${instanceID}/logs?**`)
   await page.unroute(`**/api/v1/instances/${instanceID}/connection`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/cleanup-review`)
   await page.unroute(`**/api/v1/instances/${instanceID}`)
   await page.unroute(`**/api/v1/instances/${instanceID}/actions/upgrade`)
   await page.unroute(`**/api/v1/instances/${instanceID}/actions/restart`)
@@ -1451,6 +1517,11 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(developerPage.getByText('部署已完成，但当前账号无权查看数据库凭据。')).toBeVisible()
   await expect(developerPage.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
   await expect(developerPage.getByRole('button', { name: '查看部署记录' })).toBeVisible()
+  await developerPage.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
+  const viewerCleanupContinuation = developerPage.locator('.cleanup-continuation-alert')
+  await expect(viewerCleanupContinuation.getByText('当前账号可以查看阻断条件，但需要管理员或运维删除备份并继续清理。')).toBeVisible()
+  await expect(viewerCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
+  await expect(developerPage.getByRole('button', { name: '创建备份' })).toHaveCount(0)
   await developerPage.goto('/')
   await developerPage.getByRole('button', { name: '账号菜单' }).click()
   await developerPage.getByRole('menuitem', { name: '个人账号' }).click()

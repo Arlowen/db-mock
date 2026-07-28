@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import appI18n from '../i18n'
 import { ApiError, api, errorMessage } from '../lib/api'
+import { cleanupContinuationPhase, cleanupEvidenceState, hasActiveBackupOperation, type CleanupEvidenceState } from '../lib/cleanup-continuation'
 import { connectionHandoffSummary } from '../lib/connection-handoff'
 import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
 import { hostCanAccept, hostCanReconfigure, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
@@ -647,8 +648,12 @@ export function InstanceDetailPage() {
   const [images, setImages] = useState<ImageArtifact[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
   const [backups, setBackups] = useState<InstanceBackup[]>([])
+  const [backupInventoryState, setBackupInventoryState] = useState<CleanupEvidenceState>('loading')
+  const [backupInventoryError, setBackupInventoryError] = useState('')
   const [backupPolicy, setBackupPolicy] = useState<InstanceBackupPolicy | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [taskInventoryState, setTaskInventoryState] = useState<CleanupEvidenceState>('loading')
+  const [taskInventoryError, setTaskInventoryError] = useState('')
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [upgradeVersion, setUpgradeVersion] = useState<string>()
@@ -698,19 +703,50 @@ export function InstanceDetailPage() {
       if (instanceList.status === 'fulfilled') { setAllInstances(instanceList.value.items); setInstanceInventoryReady(true) } else setInstanceInventoryReady(false)
       if (imageList.status === 'fulfilled') setImages(imageList.value.items)
       if (registryList.status === 'fulfilled') setRegistries(registryList.value.items)
-      if (backupList.status === 'fulfilled') setBackups(backupList.value.items)
+      if (backupList.status === 'fulfilled') {
+        setBackups(backupList.value.items)
+        setBackupInventoryState('ready')
+        setBackupInventoryError('')
+      } else {
+        setBackupInventoryState('error')
+        setBackupInventoryError(errorMessage(backupList.reason))
+      }
       if (policyResult.status === 'fulfilled') setBackupPolicy(policyResult.value.policy)
-      if (taskList.status === 'fulfilled') setTasks(taskList.value.items)
+      if (taskList.status === 'fulfilled') {
+        setTasks(taskList.value.items)
+        setTaskInventoryState('ready')
+        setTaskInventoryError('')
+      } else {
+        setTaskInventoryState('error')
+        setTaskInventoryError(errorMessage(taskList.reason))
+      }
       const failedRequest = [catalog, projectList, hostList, instanceList, imageList, registryList, backupList, policyResult, taskList].find((result) => result.status === 'rejected')
       setPageError(failedRequest?.status === 'rejected' ? errorMessage(failedRequest.reason) : '')
     } catch (error) { setPageError(errorMessage(error)) } finally { setPageLoading(false) }
   }, [id])
-  const hasActiveOperation = tasks.some((task) => ['queued', 'running', 'retrying'].includes(task.status))
-  useEffect(() => { setItem(null); setPageLoading(true); void load() }, [load])
+  const activeCleanupTask = tasks.find((task) => ['queued', 'running', 'retrying'].includes(task.status))
+  const hasActiveTask = !!activeCleanupTask
+  const hasActiveOperation = hasActiveTask || hasActiveBackupOperation(backups.map((backup) => backup.status))
+  useEffect(() => {
+    setItem(null)
+    setPageLoading(true)
+    setBackupInventoryState('loading')
+    setBackupInventoryError('')
+    setTaskInventoryState('loading')
+    setTaskInventoryError('')
+    void load()
+  }, [load])
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
   useEffect(() => { if (hasActiveOperation) setLifecycleRequestFailure(undefined) }, [hasActiveOperation])
   useEffect(() => { if (requestedTab && ['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab)) setActiveTab(requestedTab) }, [requestedTab])
-  const changeTab = (tab: string) => { const next = new URLSearchParams(detailParams); if (tab === 'overview') next.delete('tab'); else next.set('tab', tab); setActiveTab(tab); setDetailParams(next, { replace: true }) }
+  const changeTab = (tab: string) => {
+    const next = new URLSearchParams(detailParams)
+    if (tab === 'overview') next.delete('tab')
+    else next.set('tab', tab)
+    if (tab !== 'backups') next.delete('cleanup')
+    setActiveTab(tab)
+    setDetailParams(next, { replace: true })
+  }
   const run = async (action: string, body: Record<string, unknown> = {}) => {
     const lifecycleAction = isInstanceLifecycleAction(action) ? action : undefined
     try {
@@ -998,6 +1034,54 @@ export function InstanceDetailPage() {
       : t('backupScheduleDailySummary', { time: backupScheduleTime, timezone: backupPolicy.timezone })
     : t('backupScheduleDisabled')
   const backupScheduleWaiting = !!backupPolicy?.enabled && !!backupPolicy.nextRunAt && new Date(backupPolicy.nextRunAt).getTime() <= Date.now()
+  const cleanupContinuationRequested = detailParams.get('cleanup') === 'review' && activeTab === 'backups'
+  const cleanupEvidence = cleanupEvidenceState(backupInventoryState, taskInventoryState)
+  const cleanupPhase = cleanupContinuationPhase({
+    evidenceState: cleanupEvidence,
+    backupStatuses: backups.map((backup) => backup.status),
+    hasActiveTask,
+  })
+  const cleanupContinuationTone: 'info' | 'error' | 'warning' | 'success' = cleanupPhase === 'unavailable'
+    ? 'error'
+    : cleanupPhase === 'blocked'
+      ? 'warning'
+      : cleanupPhase === 'ready'
+        ? 'success'
+        : 'info'
+  const cleanupContinuationDescription = cleanupPhase === 'loading'
+    ? t('cleanupBackupContinuationLoading')
+    : cleanupPhase === 'unavailable'
+      ? t('cleanupBackupContinuationUnavailable', { error: backupInventoryError || taskInventoryError })
+      : cleanupPhase === 'processing'
+        ? t('cleanupBackupContinuationProcessing')
+        : cleanupPhase === 'blocked'
+          ? t('cleanupBackupContinuationBlocked', { count: backups.length })
+          : t('cleanupBackupContinuationReady')
+  const clearCleanupContinuation = () => {
+    const next = new URLSearchParams(detailParams)
+    next.delete('cleanup')
+    setDetailParams(next, { replace: true })
+  }
+  const closeCleanupReview = () => {
+    setCleanupOpen(false)
+    if (detailParams.get('cleanup') === 'review') clearCleanupContinuation()
+  }
+  const cleanupContinuationPanel = cleanupContinuationRequested && <Alert
+    className="cleanup-continuation-alert"
+    type={cleanupContinuationTone}
+    showIcon
+    message={t('cleanupBackupContinuationTitle')}
+    description={<div className="cleanup-continuation-body">
+      <Typography.Text>{cleanupContinuationDescription}</Typography.Text>
+      {!canOperate && <Typography.Text type="secondary">{t('cleanupBackupContinuationReadOnly')}</Typography.Text>}
+      <Space wrap className="cleanup-continuation-actions">
+        {cleanupPhase === 'ready' && canOperate && <Button size="small" type="primary" icon={<SafetyCertificateOutlined />} disabled={!!actioning} onClick={() => setCleanupOpen(true)}>{t('continueCleanupReview')}</Button>}
+        {cleanupPhase === 'processing' && activeCleanupTask && <Button size="small" onClick={() => navigate(`/tasks?task=${activeCleanupTask.id}`)}>{t('viewTask')}</Button>}
+        {cleanupPhase !== 'loading' && <Button size="small" icon={<ReloadOutlined />} onClick={() => void load()}>{t(cleanupPhase === 'unavailable' ? 'retry' : 'refreshStatus')}</Button>}
+        <Button size="small" type="text" onClick={clearCleanupContinuation}>{t('exitCleanupGuide')}</Button>
+      </Space>
+    </div>}
+  />
   const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'cleanup', icon: <SafetyCertificateOutlined />, label: t('reviewCleanup'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
   const backupColumns = [
     { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => <><Typography.Text strong>{value}</Typography.Text>{backup.errorMessage && <><br /><Typography.Text type="danger">{translateCode(t, backup.errorMessage, 'statusMessage')}</Typography.Text></>}</> },
@@ -1011,6 +1095,7 @@ export function InstanceDetailPage() {
     { title: '', width: 180, align: 'right' as const, render: (_: unknown, backup: InstanceBackup) => canOperate ? <Space><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !!operationTask || backup.status !== 'ready' || backup.templateVersionId !== item.templateVersionId} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'restore', backup }) }}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'delete', backup }) }}>{t('delete')}</Button></Space> : null },
   ]
   const backupsTab = <Card title={t('backups')} extra={canOperate ? <Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={() => { setBackupName(''); setBackupCreateOpen(true) }}>{t('createBackup')}</Button> : undefined}>
+    {cleanupContinuationPanel}
     <Alert className="backup-storage-alert" type="info" showIcon message={t('coldBackupNotice')} description={t('coldBackupNoticeHint')} />
     <Card size="small" className="backup-policy-card">
       <div className="backup-policy-summary">
@@ -1033,7 +1118,7 @@ export function InstanceDetailPage() {
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backups.length})`, children: backupsTab }]} />
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')} width={620}>
       <Form form={editForm} layout="vertical">
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} /></Form.Item>
@@ -1066,7 +1151,7 @@ export function InstanceDetailPage() {
       instanceId={item.id}
       instanceName={item.name}
       open={cleanupOpen}
-      onClose={() => setCleanupOpen(false)}
+      onClose={closeCleanupReview}
       onChanged={load}
       onDeleteQueued={() => navigate('/instances')}
     />

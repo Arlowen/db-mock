@@ -177,7 +177,7 @@ export function InstanceCleanupReviewModal({
                   {review.blockers.includes('status_not_deletable') && <li>{t('cleanupStatusBlocker', { status: translateCode(t, review.status) })}</li>}
                 </ul>
                 <Space wrap>
-                  {review.blockers.includes('backups_present') && <Button size="small" onClick={() => goTo(`/instances/${review.instanceId}?tab=backups`)}>{t('reviewBackups')}</Button>}
+                  {review.blockers.includes('backups_present') && <Button size="small" onClick={() => goTo(`/instances/${review.instanceId}?tab=backups&cleanup=review`)}>{t('reviewBackups')}</Button>}
                   {review.activeTask && <Button size="small" onClick={() => goTo(`/tasks?task=${review.activeTask!.id}`)}>{t('viewTask')}</Button>}
                   <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => void loadReview()}>{t('refreshStatus')}</Button>
                 </Space>
