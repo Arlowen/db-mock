@@ -348,6 +348,8 @@ test('initializes the platform and switches the embedded interface language', as
   const backupID = '60606060-6060-4060-8060-606060606060'
   let failLogs = true
   let failConnection = false
+  let failRestartRequest = true
+  let restartRequestCount = 0
   let instanceStatus = 'running'
   let relatedTasks: Array<Record<string, unknown>> = []
   let submittedUpgradeBody: Record<string, unknown> | undefined
@@ -408,6 +410,17 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/instances/${instanceID}/actions/reconfigure`, async (route) => {
     submittedRuntimeBody = route.request().postDataJSON()
     await route.fulfill({ status: 202, json: { id: '64646464-6464-4464-8464-646464646464', kind: 'instance.reconfigure', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
+  })
+  await page.route(`**/api/v1/instances/${instanceID}/actions/restart`, async (route) => {
+    restartRequestCount += 1
+    if (failRestartRequest) {
+      instanceStatus = 'restarting'
+      return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: instance action is not allowed for the current status' } } })
+    }
+    const task = { id: '65656565-6565-4565-8565-656565656565', kind: 'instance.restart', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
+    instanceStatus = 'restarting'
+    relatedTasks = [task]
+    await route.fulfill({ status: 202, json: task })
   })
   await page.route('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry', async (route) => {
     const retried = { ...relatedTasks[0], id: '88888888-8888-4888-8888-888888888888', status: 'queued', progress: 0, stage: 'queued', message: 'task_started' }
@@ -603,6 +616,32 @@ test('initializes the platform and switches the embedded interface language', as
   relatedTasks = []
   await page.reload()
 
+  await page.getByRole('button', { name: '重启' }).click()
+  await expect(page.getByText('重启请求未创建任务')).toBeVisible()
+  await expect(page.getByText('本次请求没有创建任务，也不会通过这次请求改变数据库运行状态。')).toBeVisible()
+  await expect(page.getByText(/页面已刷新；确认当前状态/)).toBeVisible()
+  await expect(page.getByText('重启中', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: '重试重启' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '刷新状态' })).toBeVisible()
+  await page.waitForTimeout(3200)
+  await expect(page.getByText('重启请求未创建任务')).toBeVisible()
+  await page.getByRole('button', { name: '查看实例日志' }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=logs$`))
+  await expect(page.getByText('无法加载实例日志')).toBeVisible()
+  await page.getByRole('tab', { name: '详情' }).click()
+  instanceStatus = 'running'
+  await page.getByRole('button', { name: '刷新状态' }).click()
+  await expect(page.getByRole('button', { name: '重试重启' })).toBeVisible()
+  failRestartRequest = false
+  await page.getByRole('button', { name: '重试重启' }).click()
+  await expect.poll(() => restartRequestCount).toBe(2)
+  await expect(page.getByText('重启请求未创建任务')).toHaveCount(0)
+  await expect(page.getByText('排队中', { exact: true })).toBeVisible()
+
+  instanceStatus = 'running'
+  relatedTasks = []
+  await page.reload()
+
   await page.getByRole('tab', { name: '连接信息' }).click()
   await expect(page.getByText('连接可用性受当前状态影响')).toHaveCount(0)
   await expect(page.getByText('连接信息受保护')).toBeVisible()
@@ -641,6 +680,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/instances/${instanceID}/connection`)
   await page.unroute(`**/api/v1/instances/${instanceID}`)
   await page.unroute(`**/api/v1/instances/${instanceID}/actions/upgrade`)
+  await page.unroute(`**/api/v1/instances/${instanceID}/actions/restart`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backup-policy`)
   await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`)

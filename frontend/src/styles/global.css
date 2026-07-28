@@ -155,6 +155,11 @@ button { font: inherit; }
 .fingerprint-value { display: inline-block; max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
 .workflow-modal-footer, .workflow-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .instance-page-alert { margin-bottom: 16px; }
+.instance-action-request-alert .ant-alert-content { min-width: 0; }
+.instance-action-request-alert .ant-alert-action { align-self: center; }
+.instance-action-request-description { display: grid; gap: 5px; line-height: 1.5; }
+.instance-action-request-description > div { min-width: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+.instance-action-request-actions { justify-content: flex-end; }
 .instance-lifecycle-cell { min-width: 0; display: grid; justify-items: start; gap: 4px; }
 .instance-lifecycle-cell .ant-tag { margin: 0; }
 .instance-lifecycle-cell .ant-typography { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
@@ -671,6 +676,9 @@ button { font: inherit; }
   .connection-string { grid-template-columns: 1fr; gap: 6px; }
   .instance-operation, .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
   .instance-operation-actions { justify-self: start; }
+  .instance-action-request-alert { align-items: flex-start; }
+  .instance-action-request-alert .ant-alert-action { width: 100%; margin: 12px 0 0; }
+  .instance-action-request-actions { justify-content: flex-start; }
   .task-failure-guidance-grid { grid-template-columns: 1fr; }
   .backup-policy-summary { align-items: flex-start; flex-wrap: wrap; }
   .backup-policy-copy { min-width: calc(100% - 56px); }
@@ -695,6 +703,8 @@ button { font: inherit; }
   .app-header { padding-inline: 16px !important; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
   .app-header-tools { justify-self: start; }
   .app-content { padding: 16px; }
+  .instance-action-request-description > div { grid-template-columns: 1fr; gap: 2px; }
+  .instance-action-request-actions { width: 100%; }
   .workbench-stats > .ant-col { flex: 0 0 100%; max-width: 100%; }
   .workbench-stat-card .ant-card-body { min-height: 96px; }
   .workbench-attention-card .ant-card-head-wrapper, .workbench-lifecycle-card .ant-card-head-wrapper { align-items: flex-start; flex-direction: column; }
