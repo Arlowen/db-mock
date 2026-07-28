@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, taskHostRecoveryPath, taskRecoveryResourcePath } from './task-recovery'
+import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryHostID, taskRecoveryResourcePath } from './task-recovery'
 import type { Host, Task } from './types'
 
 const host = { id: 'host-id', status: 'online', maintenance: false } as Host
@@ -16,6 +16,13 @@ describe('task recovery helpers', () => {
   it('builds a host path that preserves the failed task context', () => {
     expect(taskHostRecoveryPath('host id', 'task/id')).toBe('/hosts?host=host+id&recoveryTask=task%2Fid')
     expect(taskHostRecoveryPath('', 'task-id')).toBeUndefined()
+    expect(taskHostRecoveryPathForTask(task)).toBe('/hosts?host=host-id&recoveryTask=task-id')
+  })
+
+  it('derives the recovery host from either the task host or a host resource', () => {
+    expect(taskRecoveryHostID(task)).toBe('host-id')
+    expect(taskRecoveryHostID({ ...task, hostId: undefined, resourceType: 'host', resourceId: 'host-resource-id' })).toBe('host-resource-id')
+    expect(taskHostRecoveryPathForTask({ ...task, hostId: undefined, resourceType: 'instance' })).toBeUndefined()
   })
 
   it('derives only known resource destinations', () => {

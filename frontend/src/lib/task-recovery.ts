@@ -11,6 +11,15 @@ export function taskHostRecoveryPath(hostID?: string, taskID?: string): string |
   return `/hosts?${params.toString()}`
 }
 
+export function taskRecoveryHostID(task?: Pick<Task, 'hostId' | 'resourceType' | 'resourceId'>): string | undefined {
+  const hostID = task?.hostId || (task?.resourceType === 'host' ? task.resourceId : undefined)
+  return hostID?.trim() || undefined
+}
+
+export function taskHostRecoveryPathForTask(task?: Pick<Task, 'id' | 'hostId' | 'resourceType' | 'resourceId'>): string | undefined {
+  return taskHostRecoveryPath(taskRecoveryHostID(task), task?.id)
+}
+
 export function taskRecoveryResourcePath(task?: Task): string | undefined {
   if (!task?.resourceId) return undefined
   if (task.resourceType === 'instance') return `/instances/${encodeURIComponent(task.resourceId)}`

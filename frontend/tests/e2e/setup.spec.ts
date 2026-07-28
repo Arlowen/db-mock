@@ -1075,6 +1075,7 @@ test('initializes the platform and switches the embedded interface language', as
   const failedTaskID = '33333333-3333-4333-8333-333333333333'
   const retriedTaskID = '33333333-3333-4333-8333-333333333334'
   const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
+  const healthFailureTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333336', kind: 'instance_restore', resourceId: '77777777-7777-4777-8777-777777777777', progress: 90, stage: 'health', message: 'starting_restored_database_and_checking_health', errorCode: 'health_check_failed', errorMessage: 'database did not become healthy', createdAt: new Date(Date.now() - 480000).toISOString() }
   let retriedTask: Record<string, unknown> = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
   recoveryHostStatus = 'offline'
@@ -1088,7 +1089,7 @@ test('initializes the platform and switches the embedded interface language', as
   let attentionItems: Record<string, unknown>[] = [{ resourceType: 'instance', resourceId: instanceID, resourceName: 'Orders DB', resourceStatus: 'failed', hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', taskId: failedTaskID, taskKind: 'instance_create', taskStatus: 'failed', taskStage: 'compose', errorCode: 'ssh_unreachable', updatedAt: failedTask.finishedAt }]
   let lifecycleItems: Record<string, unknown>[] = []
   await page.route('**/api/v1/dashboard', async (route) => route.fulfill({ json: { hosts: { online: 1 }, instances: { failed: 1 }, activeTasks: attentionItems[0]?.taskStatus === 'queued' ? 1 : 0, openAlerts: 0, users: 1, projects: 0, attentionItems, lifecycleInstances: lifecycleItems } }))
-  await page.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, completedHostTask] } }))
+  await page.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, healthFailureTask, completedHostTask] } }))
   await page.route(`**/api/v1/tasks/${failedTaskID}`, async (route) => route.fulfill({ json: failedTask }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/retry`, async (route) => {
@@ -1126,12 +1127,27 @@ test('initializes the platform and switches the embedded interface language', as
   retriedTask = { ...retriedTask, status: 'queued', progress: 0, stage: 'queued', message: '', finishedAt: undefined }
   expect(workbenchBrowserErrors).toEqual([])
   await page.goto('/tasks')
-  await expect(page.getByText('共 2 个任务')).toBeVisible()
+  await expect(page.getByText('共 3 个任务')).toBeVisible()
+  const hostFailureRow = page.getByRole('row').filter({ hasText: '创建数据库实例' })
+  await expect(hostFailureRow.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(hostFailureRow.getByRole('button', { name: /重试/ })).toHaveCount(0)
+  const healthFailureRow = page.getByRole('row').filter({ hasText: '恢复数据库实例' })
+  await expect(healthFailureRow.getByRole('button', { name: /重试/ })).toBeVisible()
+  await expect(healthFailureRow.getByRole('button', { name: '检查故障主机' })).toHaveCount(0)
   await page.getByRole('searchbox', { name: '搜索任务' }).fill('Orders DB')
-  await expect(page.getByText('筛选出 1 / 2 个任务')).toBeVisible()
+  await expect(page.getByText('筛选出 1 / 3 个任务')).toBeVisible()
   await expect(page.getByRole('button', { name: '创建数据库实例' })).toBeVisible()
   await expect(page.getByRole('button', { name: '检测主机' })).toHaveCount(0)
   await page.getByRole('searchbox', { name: '搜索任务' }).fill('')
+  await page.setViewportSize({ width: 760, height: 900 })
+  const mobileHostFailure = page.locator('.task-mobile-item').filter({ hasText: '创建数据库实例' })
+  await expect(mobileHostFailure.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(mobileHostFailure.getByRole('button', { name: /重试/ })).toHaveCount(0)
+  await mobileHostFailure.getByRole('button', { name: '检查故障主机' }).click()
+  await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
+  await expect(page.getByRole('dialog', { name: 'E2E Host' }).getByText('主机已就绪，可以重试原任务')).toBeVisible()
+  await page.getByRole('dialog', { name: 'E2E Host' }).getByRole('button', { name: '关闭', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto(`/tasks?task=${failedTaskID}`)
   taskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*33333333/ })
   await expect(taskDrawer.getByText('在「应用 Compose」阶段失败')).toBeVisible()
@@ -1416,6 +1432,16 @@ test('initializes the platform and switches the embedded interface language', as
   expect(viewerCleanupDecision.status()).toBe(403)
   const viewerUsers = await developerPage.request.get('/api/v1/users')
   expect(viewerUsers.status()).toBe(403)
+  await developerPage.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask] } }))
+  await developerPage.route('**/api/v1/hosts', async (route) => route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary host list outage' } } }))
+  await developerPage.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [] } }))
+  await developerPage.goto('/tasks')
+  const viewerHostFailureRow = developerPage.getByRole('row').filter({ hasText: '创建数据库实例' })
+  await expect(viewerHostFailureRow.getByRole('button', { name: '检查故障主机' })).toBeVisible()
+  await expect(viewerHostFailureRow.getByRole('button', { name: /重试/ })).toHaveCount(0)
+  await developerPage.unroute('**/api/v1/tasks')
+  await developerPage.unroute('**/api/v1/hosts')
+  await developerPage.unroute('**/api/v1/instances')
   await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [] } }))
   await developerPage.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
   await developerPage.route('**/api/v1/tasks?resourceType=instance&resourceId=**', async (route) => route.fulfill({ json: { items: [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }] } }))
