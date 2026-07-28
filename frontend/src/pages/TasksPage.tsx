@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { RestoreVerificationFacts } from '../components/RestoreVerificationFacts'
 import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
@@ -14,6 +15,7 @@ import { permissionsFor } from '../lib/permissions'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask, taskRecoveryHostID } from '../lib/task-recovery'
 import { taskResourceReference } from '../lib/task-resource'
+import { restoreVerification } from '../lib/restore-verification'
 import { isTaskCancellationPending } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Host, Instance, Task } from '../lib/types'
@@ -174,11 +176,13 @@ export function TasksPage() {
     return t('durationHours', { count: Math.round(seconds / 360) / 10 })
   }
   const compactTime = (value: string) => formatCompactDateTime(value, i18n.language, timezone)
-  const taskSummary = (task: Task) => task.status === 'failed'
-    ? t(taskFailureGuidance(task).causeKey)
-    : task.errorCode
-      ? t(`taskError_${task.errorCode}`, { defaultValue: i18n.language.startsWith('zh') ? t('taskError_task_failed') : task.errorMessage || task.errorCode })
-      : task.errorMessage || translateCode(t, task.message, 'taskMessage')
+  const taskSummary = (task: Task) => restoreVerification(task)
+    ? t('restoreTaskVerifiedSummary')
+    : task.status === 'failed'
+      ? t(taskFailureGuidance(task).causeKey)
+      : task.errorCode
+        ? t(`taskError_${task.errorCode}`, { defaultValue: i18n.language.startsWith('zh') ? t('taskError_task_failed') : task.errorMessage || task.errorCode })
+        : task.errorMessage || translateCode(t, task.message, 'taskMessage')
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLowerCase()
     if (!needle) return items
@@ -222,6 +226,7 @@ export function TasksPage() {
   const selectedRecoveryHostID = selected && taskFailureGuidance(selected).inspectHost ? taskRecoveryHostID(selected) : undefined
   const selectedRecoveryHost = selectedRecoveryHostID ? hosts.find((host) => host.id === selectedRecoveryHostID) : undefined
   const selectedRecoveryPath = selected && selectedRecoveryHostID ? taskHostRecoveryPathForTask(selected) : undefined
+  const selectedRestoreVerification = selected ? restoreVerification(selected) : undefined
   const inspectRecoveryHost = () => {
     if (!selectedRecoveryPath) return
     closeDetail()
@@ -260,6 +265,7 @@ export function TasksPage() {
         <div className={`task-detail-summary is-${selected.status}`}><div><Space><StatusTag value={selected.status} /><Typography.Text strong>{translateCode(t, selected.message, 'taskMessage')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('taskSummaryDescription', { operation: translateCode(t, selected.kind, 'taskKind'), resource: selectedResource?.label || '—' })}</Typography.Paragraph></div><Progress percent={selected.progress} status={selected.status === 'failed' ? 'exception' : selected.status === 'succeeded' ? 'success' : undefined} /></div>
         {canOperate && continueTo && <Alert className="task-detail-alert" type={selected.status === 'succeeded' ? 'success' : selected.status === 'failed' ? 'warning' : 'info'} showIcon message={selected.status === 'succeeded' ? t('hostReadyContinue') : selected.status === 'failed' ? t('hostSetupFailedContinue') : t('hostSetupInProgress')} description={selected.status === 'succeeded' ? t('hostReadyContinueHint') : selected.status === 'failed' ? t('hostSetupFailedContinueHint') : t('hostSetupInProgressHint')} action={selected.status === 'succeeded' ? <Button size="small" type="primary" onClick={continueCreation}>{t('continueCreateDatabase')}</Button> : undefined} />}
         {isTaskCancellationPending(selected) && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
+        {selectedRestoreVerification && <Alert className="task-detail-alert restore-task-verification-alert" type="success" showIcon message={t('restoreTaskVerifiedTitle')} description={<div className="restore-verification-body"><Typography.Text>{t('restoreTaskVerifiedDescription')}</Typography.Text><RestoreVerificationFacts verification={selectedRestoreVerification} /></div>} />}
         {(selected.status === 'failed' || selected.errorMessage) && <Alert className="task-detail-alert" type={selected.status === 'failed' ? 'error' : selected.status === 'canceled' ? 'info' : 'warning'} showIcon message={selected.status === 'failed' ? t('taskFailureTitle', { stage: translateCode(t, selected.stage, 'taskStage') }) : translateCode(t, selected.status)} description={selected.status === 'failed' ? <TaskFailureGuidance task={selected} hostName={selectedRecoveryHost?.name} /> : taskSummary(selected)} action={selectedRecoveryPath ? <Button type="primary" size="small" icon={<CloudServerOutlined />} onClick={inspectRecoveryHost}>{t('inspectFailedHost')}</Button> : undefined} />}
         <Descriptions className="task-detail-meta" bordered size="small" column={screens.sm ? 2 : 1} items={[
           { key: 'resource', label: t('resource'), children: selectedResource?.path ? <Button type="link" icon={selectedResource.icon} onClick={() => goToResource(selected)}>{selectedResource.label}</Button> : selectedResource?.label || '—' },

@@ -2254,6 +2254,7 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 	if state != "running" {
 		return nil, fmt.Errorf("restored instance did not become healthy: state=%s", state)
 	}
+	healthVerifiedAt := time.Now().UTC()
 	if stable.Status == "stopped" {
 		if err = runtime.Stage(ctx, 90, "compose", "Restoring the requested stopped state", false); err != nil {
 			return nil, err
@@ -2271,7 +2272,22 @@ func (s *Service) handleBackupRestore(ctx context.Context, runtime *tasks.Runtim
 	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance, operationID); cleanupErr != nil {
 		_ = runtime.Log(ctx, "warning", "Restore succeeded, but the rollback snapshot could not be removed")
 	}
-	return map[string]any{"instanceId": instance.ID, "backupId": backup.ID, "status": stable.Status}, nil
+	return successfulRestoreResult(instance.ID, backup, stable.Status, stable.Desired, healthVerifiedAt), nil
+}
+
+func successfulRestoreResult(instanceID uuid.UUID, backup domain.InstanceBackup, status, desired string, healthVerifiedAt time.Time) map[string]any {
+	return map[string]any{
+		"instanceId":       instanceID,
+		"backupId":         backup.ID,
+		"backupName":       backup.Name,
+		"backupCreatedAt":  backup.CreatedAt,
+		"backupSha256":     backup.SHA256,
+		"restoreOutcome":   "target_backup_applied",
+		"healthVerifiedAt": healthVerifiedAt,
+		"instanceStatus":   status,
+		"desiredState":     desired,
+		"status":           status,
+	}
 }
 
 func (s *Service) handleBackupDelete(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {

@@ -4,6 +4,9 @@ export interface ConnectionHandoffDetails {
   templateVersion: string
   environment: string
   status: string
+  dataVersion?: string
+  backupCreatedAt?: string
+  restoreVerifiedAt?: string
   address: string
   port: number
   username: string
@@ -19,6 +22,9 @@ export interface ConnectionHandoffLabels {
   template: string
   environment: string
   status: string
+  dataVersion: string
+  backupCreatedAt: string
+  restoreVerifiedAt: string
   address: string
   port: string
   username: string
@@ -35,13 +41,18 @@ export function connectionHandoffSummary(details: ConnectionHandoffDetails, labe
     `${labels.template}: ${details.templateName} ${details.templateVersion}`,
     `${labels.environment}: ${details.environment}`,
     `${labels.status}: ${details.status}`,
+  ]
+  if (details.dataVersion) lines.push(`${labels.dataVersion}: ${details.dataVersion}`)
+  if (details.backupCreatedAt) lines.push(`${labels.backupCreatedAt}: ${details.backupCreatedAt}`)
+  if (details.restoreVerifiedAt) lines.push(`${labels.restoreVerifiedAt}: ${details.restoreVerifiedAt}`)
+  lines.push(
     `${labels.address}: ${details.address}`,
     `${labels.port}: ${details.port}`,
     `${labels.username}: ${details.username}`,
     `${labels.password}: ${details.password}`,
     `${labels.database}: ${details.database}`,
     `${labels.uri}: ${details.uri}`,
-  ]
+  )
   if (details.jdbc) lines.push(`${labels.jdbc}: ${details.jdbc}`)
   return lines.join('\n')
 }

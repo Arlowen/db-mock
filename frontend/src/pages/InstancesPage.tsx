@@ -8,6 +8,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { DatabaseIcon } from '../components/DatabaseIcon'
 import { InstanceCleanupReviewModal } from '../components/InstanceCleanupReview'
+import { RestoreVerificationFacts } from '../components/RestoreVerificationFacts'
 import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
 import { useAuth } from '../contexts/AuthContext'
@@ -27,6 +28,7 @@ import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from
 import { permissionsFor } from '../lib/permissions'
 import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { restoreOutcome } from '../lib/restore-outcome'
+import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { isRecoverableInstanceStatus, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
@@ -934,9 +936,10 @@ export function InstanceDetailPage() {
   }
   const project = projects.find((candidate) => candidate.id === item.projectId)
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(instanceTasks, isRecoverableInstanceStatus(item.status))
-  const latestInstanceTask = instanceTasks[0]
-  const latestRestoreOutcome = restoreOutcome(latestInstanceTask, item)
-  const restoreOutcomeTask = latestRestoreOutcome ? latestInstanceTask : undefined
+  const mostRecentRestoreTask = latestRestoreTask(instanceTasks)
+  const latestRestoreOutcome = restoreOutcome(mostRecentRestoreTask, item)
+  const latestRestoreVerification = restoreVerification(mostRecentRestoreTask, backups, item)
+  const restoreOutcomeTask = latestRestoreOutcome ? mostRecentRestoreTask : undefined
   const deploymentHandoff = selectDeploymentHandoff(instanceTasks, item.status)
   const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
   const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
@@ -985,7 +988,7 @@ export function InstanceDetailPage() {
       <Button size="small" type="text" onClick={() => setLifecycleRequestFailure(undefined)}>{t('dismiss')}</Button>
     </Space>}
   />
-  const operationPanel = operationTask && !latestRestoreOutcome && <div className={`instance-operation is-${activeTask ? 'active' : 'failed'}`}>
+  const operationPanel = operationTask && (!latestRestoreOutcome || activeTask || operationTask.id !== restoreOutcomeTask?.id) && <div className={`instance-operation is-${activeTask ? 'active' : 'failed'}`}>
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={operationTask.status} /><Typography.Text strong>{translateCode(t, operationTask.kind, 'taskKind')}</Typography.Text><Typography.Text type="secondary">· {translateCode(t, operationTask.stage, 'taskStage')}</Typography.Text></Space>
       {activeTask
@@ -999,7 +1002,7 @@ export function InstanceDetailPage() {
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>
   </div>
-  const restoreOutcomePanel = latestRestoreOutcome && restoreOutcomeTask && <Alert
+  const restoreOutcomePanel = latestRestoreOutcome && restoreOutcomeTask && !activeTask && <Alert
     className="restore-outcome-alert"
     type={latestRestoreOutcome.state === 'pre_restore_recovered' ? 'warning' : 'error'}
     showIcon
@@ -1018,7 +1021,23 @@ export function InstanceDetailPage() {
       </Space>
     </div>}
   />
-  const deploymentReadyPanel = !operationTask && !latestRestoreOutcome && activeTab === 'overview' && deploymentHandoff?.state === 'ready' && <div className="instance-operation is-ready">
+  const restoreVerificationPanel = latestRestoreVerification && !operationTask && activeTab === 'overview' && <Alert
+    className="restore-verification-alert"
+    type={item.status === 'running' ? 'success' : 'warning'}
+    showIcon
+    message={t('restoreVerificationTitle')}
+    description={<div className="restore-verification-body">
+      <Typography.Text>{t(item.status === 'running' ? 'restoreVerificationDescription_running' : item.status === 'stopped' ? 'restoreVerificationDescription_stopped' : 'restoreVerificationDescription_unavailable', { status: translateCode(t, item.status) })}</Typography.Text>
+      {!canReadCredentials && <Typography.Text type="secondary">{t('restoreVerificationRestricted')}</Typography.Text>}
+      <RestoreVerificationFacts verification={latestRestoreVerification} />
+      <Space wrap className="restore-verification-actions">
+        {canReadCredentials && item.status === 'running' && <Button type="primary" size="small" icon={<CopyOutlined />} loading={connectionLoading} onClick={showConnectionHandoff}>{t('showConnectionHandoff')}</Button>}
+        <Button size="small" onClick={() => navigate(`/tasks?task=${latestRestoreVerification.task.id}`)}>{t('viewRestoreTask')}</Button>
+        <Button size="small" onClick={() => changeTab('backups')}>{t('viewRestoredBackup')}</Button>
+      </Space>
+    </div>}
+  />
+  const deploymentReadyPanel = !operationTask && !latestRestoreOutcome && !latestRestoreVerification && activeTab === 'overview' && deploymentHandoff?.state === 'ready' && <div className="instance-operation is-ready">
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={deploymentHandoff.task.status} /><Typography.Text strong>{t('deploymentReadyTitle')}</Typography.Text></Space>
       <Typography.Paragraph type="secondary">{t(canReadCredentials ? 'deploymentReadyHint' : 'deploymentReadyRestrictedHint')}</Typography.Paragraph>
@@ -1044,7 +1063,15 @@ export function InstanceDetailPage() {
     setConnection(null)
     setConnectionError('')
   }
+  const restoreConnectionContext = latestRestoreVerification && <Alert
+    className="restore-connection-context"
+    type={item.status === 'running' ? 'success' : 'warning'}
+    showIcon
+    message={t('restoreConnectionContextTitle', { name: latestRestoreVerification.backupName || latestRestoreVerification.backupId.slice(0, 8) })}
+    description={<div className="restore-verification-body"><Typography.Text>{t('restoreConnectionContextDescription')}</Typography.Text><RestoreVerificationFacts verification={latestRestoreVerification} /></div>}
+  />
   const connectionTab = <Card title={t('connectionCredentials')} className="connection-card">
+    {restoreConnectionContext}
     {item.status !== 'running' && <Alert className="connection-status-alert" type="warning" showIcon message={t('connectionAvailabilityAffected')} description={t('connectionAvailabilityAffectedHint', { status: translateCode(t, item.status) })} />}
     {!canReadCredentials
       ? <div className="connection-gate"><div className="connection-gate-icon"><LockOutlined /></div><Typography.Title level={4}>{t('connectionRoleRestricted')}</Typography.Title><Typography.Paragraph type="secondary">{t('connectionRoleRestrictedHint')}</Typography.Paragraph></div>
@@ -1052,7 +1079,7 @@ export function InstanceDetailPage() {
         ? <div className="connection-gate"><div className="connection-gate-icon"><LockOutlined /></div><Typography.Title level={4}>{t('connectionProtectedTitle')}</Typography.Title><Typography.Paragraph type="secondary">{t('connectionProtectedDescription')}</Typography.Paragraph>{connectionErrorPanel || <Button type="primary" loading={connectionLoading} onClick={() => void loadConnection()}>{t('showConnectionDetails')}</Button>}</div>
         : <>
             {connectionErrorPanel}
-            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffSummary({ instanceName: item.name, templateName: item.templateName, templateVersion: item.templateVersion, environment: translateCode(t, item.environment), status: translateCode(t, item.status), ...connection }, { title: t('connectionHandoffTitle'), instance: t('connectionHandoffInstance'), template: t('template'), environment: t('environment'), status: t('status'), address: t('address'), port: t('port'), username: t('username'), password: t('password'), database: t('databaseName'), uri: t('uri'), jdbc: t('jdbc') })).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
+            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffSummary({ instanceName: item.name, templateName: item.templateName, templateVersion: item.templateVersion, environment: translateCode(t, item.environment), status: translateCode(t, item.status), dataVersion: latestRestoreVerification?.backupName || latestRestoreVerification?.backupId.slice(0, 8), backupCreatedAt: latestRestoreVerification?.backupCreatedAt ? formatDateTime(latestRestoreVerification.backupCreatedAt, i18n.language, timezone) : undefined, restoreVerifiedAt: latestRestoreVerification?.healthVerifiedAt ? formatDateTime(latestRestoreVerification.healthVerifiedAt, i18n.language, timezone) : undefined, ...connection }, { title: t('connectionHandoffTitle'), instance: t('connectionHandoffInstance'), template: t('template'), environment: t('environment'), status: t('status'), dataVersion: t('connectionHandoffDataVersion'), backupCreatedAt: t('connectionHandoffBackupTime'), restoreVerifiedAt: t('connectionHandoffRestoreVerified'), address: t('address'), port: t('port'), username: t('username'), password: t('password'), database: t('databaseName'), uri: t('uri'), jdbc: t('jdbc') })).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} items={[{ key: 'address', label: t('address'), children: <Typography.Text copyable={{ text: connection.address, icon: <CopyOutlined /> }}>{connection.address}</Typography.Text> },{ key: 'port', label: t('port'), children: <Typography.Text copyable={{ text: String(connection.port), icon: <CopyOutlined /> }}>{connection.port}</Typography.Text> },{ key: 'username', label: t('username'), children: <Typography.Text copyable={{ text: connection.username, icon: <CopyOutlined /> }}>{connection.username}</Typography.Text> },{ key: 'password', label: t('password'), children: <Typography.Text code copyable={{ text: connection.password, icon: <CopyOutlined /> }}>{connection.password}</Typography.Text> },{ key: 'database', label: t('database'), children: <Typography.Text copyable={{ text: connection.database, icon: <CopyOutlined /> }}>{connection.database}</Typography.Text> }]} />
             <div className="connection-strings"><div className="connection-string"><Typography.Text type="secondary">{t('uri')}</Typography.Text><Typography.Text code copyable={{ text: connection.uri, icon: <CopyOutlined /> }}>{connection.uri}</Typography.Text></div>{connection.jdbc && <div className="connection-string"><Typography.Text type="secondary">{t('jdbc')}</Typography.Text><Typography.Text code copyable={{ text: connection.jdbc, icon: <CopyOutlined /> }}>{connection.jdbc}</Typography.Text></div>}</div>
           </>}
@@ -1202,7 +1229,7 @@ export function InstanceDetailPage() {
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{restoreOutcomePanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')} width={620}>
       <Form form={editForm} layout="vertical">
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} /></Form.Item>

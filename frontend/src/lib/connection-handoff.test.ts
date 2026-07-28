@@ -7,6 +7,9 @@ const labels: ConnectionHandoffLabels = {
   template: 'Database',
   environment: 'Environment',
   status: 'Status',
+  dataVersion: 'Data version',
+  backupCreatedAt: 'Backup created',
+  restoreVerifiedAt: 'Restore verified',
   address: 'Address',
   port: 'Port',
   username: 'Username',
@@ -51,5 +54,22 @@ describe('connectionHandoffSummary', () => {
 
   it('omits JDBC when the selected database does not expose it', () => {
     expect(connectionHandoffSummary({ ...details, jdbc: undefined }, labels)).not.toContain('JDBC URL:')
+  })
+
+  it('includes durable restore evidence when the current data came from a backup', () => {
+    const summary = connectionHandoffSummary({
+      ...details,
+      dataVersion: 'Orders release baseline',
+      backupCreatedAt: 'Jul 27, 2026, 4:00 PM',
+      restoreVerifiedAt: 'Jul 28, 2026, 4:01 PM',
+    }, labels)
+
+    expect(summary).toContain([
+      'Status: Running',
+      'Data version: Orders release baseline',
+      'Backup created: Jul 27, 2026, 4:00 PM',
+      'Restore verified: Jul 28, 2026, 4:01 PM',
+      'Address: 10.0.0.8',
+    ].join('\n'))
   })
 })

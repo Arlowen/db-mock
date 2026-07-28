@@ -355,6 +355,7 @@ test('initializes the platform and switches the embedded interface language', as
   let instanceStatus = 'running'
   let instanceStatusMessage = ''
   let relatedTasks: Array<Record<string, unknown>> = []
+  const restoreSuccessTaskID = '66666666-6767-4666-8666-676767676767'
   const restoreOutcomeTaskID = '67676767-6767-4767-8767-676767676767'
   let restoreRetryCount = 0
   let submittedUpgradeBody: Record<string, unknown> | undefined
@@ -699,6 +700,73 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: '隐藏连接信息' }).click()
   await page.getByRole('tab', { name: '详情' }).click()
 
+  const restoredBackupCreatedAt = '2026-07-27T08:00:00.000Z'
+  const restoreHealthVerifiedAt = '2026-07-28T08:01:00.000Z'
+  instanceBackups = [{
+    id: backupID,
+    instanceId: instanceID,
+    hostId: '11111111-1111-4111-8111-111111111111',
+    templateVersionId: '55555555-5555-4555-8555-555555555555',
+    templateVersion: '17',
+    name: 'Orders release baseline',
+    creationType: 'manual',
+    status: 'ready',
+    sizeBytes: 268435456,
+    sha256: 'a'.repeat(64),
+    createdBy: '12121212-1212-4121-8121-121212121212',
+    createdByUsername: 'e2e-admin',
+    createdAt: restoredBackupCreatedAt,
+    completedAt: restoredBackupCreatedAt,
+    updatedAt: restoredBackupCreatedAt,
+  }]
+  relatedTasks = [{
+    id: restoreSuccessTaskID,
+    kind: 'instance.restore',
+    status: 'succeeded',
+    resourceType: 'instance',
+    resourceId: instanceID,
+    progress: 100,
+    stage: 'compose',
+    message: 'task_completed',
+    payload: { instanceId: instanceID, backupId: backupID },
+    result: {
+      instanceId: instanceID,
+      backupId: backupID,
+      backupName: 'Orders release baseline',
+      backupCreatedAt: restoredBackupCreatedAt,
+      backupSha256: 'a'.repeat(64),
+      restoreOutcome: 'target_backup_applied',
+      healthVerifiedAt: restoreHealthVerifiedAt,
+      instanceStatus: 'running',
+      desiredState: 'running',
+      status: 'running',
+    },
+    cancelable: false,
+    cancelAsked: false,
+    attempts: 1,
+    createdAt: restoreHealthVerifiedAt,
+    startedAt: restoreHealthVerifiedAt,
+    finishedAt: restoreHealthVerifiedAt,
+  }]
+  await page.reload()
+  const restoreVerificationNotice = page.locator('.restore-verification-alert')
+  await expect(restoreVerificationNotice.getByText('恢复已完成，目标备份已生效')).toBeVisible()
+  await expect(restoreVerificationNotice.getByText('Orders release baseline', { exact: true })).toBeVisible()
+  await expect(restoreVerificationNotice.getByText('SHA-256 aaaaaaaaaaaa…')).toBeVisible()
+  await expect(restoreVerificationNotice.getByText('归档校验及健康检查通过')).toBeVisible()
+  await expect(restoreVerificationNotice.getByRole('button', { name: '查看恢复任务' })).toBeVisible()
+  await expect(restoreVerificationNotice.getByRole('button', { name: '查看目标备份' })).toBeVisible()
+  await restoreVerificationNotice.getByRole('button', { name: '显示并交付连接信息' }).click()
+  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
+  const restoreConnectionContext = page.locator('.restore-connection-context')
+  await expect(restoreConnectionContext.getByText('当前数据版本：Orders release baseline')).toBeVisible()
+  await expect(restoreConnectionContext.getByText('归档校验及健康检查通过')).toBeVisible()
+  await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '复制交付摘要' }).click()
+  await expect(page.getByText('连接信息交付摘要已复制')).toBeVisible()
+  await page.getByRole('button', { name: '隐藏连接信息' }).click()
+  await page.getByRole('tab', { name: '详情' }).click()
+
   instanceStatus = 'failed'
   relatedTasks = [{ id: '66666666-6666-4666-8666-666666666666', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 42, stage: 'image', message: 'preparing_database_image', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
   await page.reload()
@@ -766,6 +834,13 @@ test('initializes the platform and switches the embedded interface language', as
     errorMessage: 'restore failed and rollback snapshot could not be applied',
     finishedAt: new Date().toISOString(),
   }]
+  const rollbackBrowserErrors: string[] = []
+  const captureRollbackConsoleError = (event: { type: () => string; text: () => string }) => {
+    if (event.type() === 'error') rollbackBrowserErrors.push(event.text())
+  }
+  const captureRollbackPageError = (error: Error) => rollbackBrowserErrors.push(error.message)
+  page.on('console', captureRollbackConsoleError)
+  page.on('pageerror', captureRollbackPageError)
   await page.reload()
   const incompleteRestoreNotice = page.locator('.restore-outcome-alert')
   await expect(incompleteRestoreNotice.getByText('自动回滚未完成，数据状态不可确认')).toBeVisible()
@@ -773,6 +848,16 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(incompleteRestoreNotice.getByText('状态不可确认', { exact: true })).toBeVisible()
   await expect(incompleteRestoreNotice.getByText('禁止交付')).toBeVisible()
   await expect(page.getByText('恢复失败，自动回滚未能完成')).toBeVisible()
+  if (process.env.DBMOCK_VISUAL_EVIDENCE_DIR) {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.screenshot({ path: `${process.env.DBMOCK_VISUAL_EVIDENCE_DIR}/10-after-rollback-incomplete-1440.png` })
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await page.screenshot({ path: `${process.env.DBMOCK_VISUAL_EVIDENCE_DIR}/11-after-rollback-incomplete-1024.png` })
+    await page.setViewportSize({ width: 1280, height: 720 })
+  }
+  page.off('console', captureRollbackConsoleError)
+  page.off('pageerror', captureRollbackPageError)
+  expect(rollbackBrowserErrors).toEqual([])
 
   instanceStatus = 'degraded'
   instanceStatusMessage = ''
@@ -1254,6 +1339,7 @@ test('initializes the platform and switches the embedded interface language', as
   const healthFailureTaskID = '33333333-3333-4333-8333-333333333336'
   const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
   const healthFailureTask = { ...failedTask, id: healthFailureTaskID, kind: 'instance_restore', resourceId: '77777777-7777-4777-8777-777777777777', progress: 90, stage: 'health', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'database did not become healthy', createdAt: new Date(Date.now() - 480000).toISOString() }
+  const restoreSuccessTask = { ...failedTask, id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceId: instanceID, progress: 100, stage: 'compose', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: 'Orders release baseline', backupCreatedAt: restoredBackupCreatedAt, backupSha256: 'a'.repeat(64), restoreOutcome: 'target_backup_applied', healthVerifiedAt: restoreHealthVerifiedAt, instanceStatus: 'running', desiredState: 'running', status: 'running' }, errorCode: '', errorMessage: '', createdAt: restoreHealthVerifiedAt, startedAt: restoreHealthVerifiedAt, finishedAt: restoreHealthVerifiedAt }
   let retriedTask: Record<string, unknown> = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
   const taskCenterBackupTask = { ...failedTask, id: backupDeleteTaskID, kind: 'instance.backup.delete', resourceType: 'backup', resourceId: backupID, progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'task_failed', errorMessage: 'remote command failed: permission denied while deleting archive', createdAt: new Date(Date.now() - 420000).toISOString() }
@@ -1278,6 +1364,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
   await page.route(`**/api/v1/tasks/${healthFailureTaskID}`, async (route) => route.fulfill({ json: healthFailureTask }))
   await page.route(`**/api/v1/tasks/${healthFailureTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 2, level: 'error', message: 'database did not become healthy', createdAt: healthFailureTask.finishedAt }] } }))
+  await page.route(`**/api/v1/tasks/${restoreSuccessTaskID}`, async (route) => route.fulfill({ json: restoreSuccessTask }))
+  await page.route(`**/api/v1/tasks/${restoreSuccessTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 3, level: 'info', message: 'task_completed', createdAt: restoreSuccessTask.finishedAt }] } }))
   await page.route(`**/api/v1/tasks/${backupDeleteTaskID}`, async (route) => route.fulfill({ json: taskCenterBackupTask }))
   await page.route(`**/api/v1/tasks/${backupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/tasks/${failedTaskID}/retry`, async (route) => {
@@ -1377,6 +1465,13 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(restoreFailureDrawer.getByText(/目标备份未生效；实例已恢复到本次操作前的数据和运行状态/)).toBeVisible()
   await expect(restoreFailureDrawer.getByText(/修复健康检查或资源问题后重试恢复/)).toBeVisible()
   await expect(restoreFailureDrawer.getByRole('button', { name: '重试任务' })).toBeVisible()
+  await page.goto(`/tasks?task=${restoreSuccessTaskID}`)
+  const restoreSuccessDrawer = page.getByRole('dialog', { name: /恢复数据库实例/ })
+  await expect(restoreSuccessDrawer.getByText('恢复结果可验证')).toBeVisible()
+  await expect(restoreSuccessDrawer.getByText('Orders release baseline', { exact: true })).toBeVisible()
+  await expect(restoreSuccessDrawer.getByText('归档校验及健康检查通过')).toBeVisible()
+  await expect(restoreSuccessDrawer.getByText(/可直接作为连接信息交付依据/)).toBeVisible()
+  await expect(restoreSuccessDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
 
   const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
   const cleanupReadyID = '44444444-4444-4444-8444-444444444442'
@@ -1467,6 +1562,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}`)
   await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}`)
+  await page.unroute(`**/api/v1/tasks/${restoreSuccessTaskID}/logs`)
+  await page.unroute(`**/api/v1/tasks/${restoreSuccessTaskID}`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}/retry`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${failedTaskID}`)
@@ -1671,6 +1768,7 @@ test('initializes the platform and switches the embedded interface language', as
   const viewerFailedBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'Viewer cleanup backup', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   const viewerFailedBackupTask = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'failed', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
   const viewerRestoreTask = { id: restoreOutcomeTaskID, kind: 'instance.restore', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 75, stage: 'compose', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'restored instance did not become healthy', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
+  const viewerRestoreSuccessTask = { id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'compose', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: 'Viewer cleanup backup', backupCreatedAt: viewerFailedBackup.createdAt, backupSha256: viewerFailedBackup.sha256, restoreOutcome: 'target_backup_applied', healthVerifiedAt: new Date().toISOString(), instanceStatus: 'running', desiredState: 'running', status: 'running' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
   let viewerInstanceTasks: Array<Record<string, unknown>> = [viewerRestoreTask]
   let viewerInstanceStatusMessage = 'Restore failed; the pre-restore database state was recovered'
   await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [viewerFailedBackup] } }))
@@ -1684,6 +1782,15 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(viewerRestoreNotice.getByRole('button', { name: '查看任务' })).toBeVisible()
   await expect(viewerRestoreNotice.getByRole('button', { name: '查看实例日志' })).toBeVisible()
   viewerInstanceStatusMessage = ''
+  viewerInstanceTasks = [viewerRestoreSuccessTask]
+  await developerPage.reload()
+  const viewerRestoreVerification = developerPage.locator('.restore-verification-alert')
+  await expect(viewerRestoreVerification.getByText('恢复已完成，目标备份已生效')).toBeVisible()
+  await expect(viewerRestoreVerification.getByText('Viewer cleanup backup', { exact: true })).toBeVisible()
+  await expect(viewerRestoreVerification.getByText(/需要管理员或运维显示并交付数据库凭据/)).toBeVisible()
+  await expect(viewerRestoreVerification.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
+  await expect(viewerRestoreVerification.getByRole('button', { name: '查看恢复任务' })).toBeVisible()
+  await expect(viewerRestoreVerification.getByRole('button', { name: '查看目标备份' })).toBeVisible()
   viewerInstanceTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }]
   await developerPage.reload()
   await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()

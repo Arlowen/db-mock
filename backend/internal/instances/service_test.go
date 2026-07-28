@@ -30,6 +30,23 @@ func TestRollbackOperationUsesStableRetryLineage(t *testing.T) {
 	}
 }
 
+func TestSuccessfulRestoreResultKeepsDurableHandoffEvidence(t *testing.T) {
+	instanceID, backupID := uuid.New(), uuid.New()
+	createdAt := time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC)
+	verifiedAt := time.Date(2026, 7, 28, 8, 1, 0, 0, time.UTC)
+	result := successfulRestoreResult(instanceID, domain.InstanceBackup{
+		ID: backupID, Name: "Orders release baseline", CreatedAt: createdAt, SHA256: strings.Repeat("a", 64),
+	}, "running", "running", verifiedAt)
+
+	if result["instanceId"] != instanceID || result["backupId"] != backupID ||
+		result["backupName"] != "Orders release baseline" || result["backupCreatedAt"] != createdAt ||
+		result["backupSha256"] != strings.Repeat("a", 64) ||
+		result["restoreOutcome"] != "target_backup_applied" || result["healthVerifiedAt"] != verifiedAt ||
+		result["instanceStatus"] != "running" || result["desiredState"] != "running" || result["status"] != "running" {
+		t.Fatalf("restore result = %#v", result)
+	}
+}
+
 func TestValidateInstanceAction(t *testing.T) {
 	versionID := uuid.New()
 	valid := []struct {
