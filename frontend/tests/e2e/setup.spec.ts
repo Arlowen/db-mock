@@ -741,24 +741,50 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('tab', { name: '\u8be6\u60c5' }).click()
 
   instanceStatus = 'provisioning'
-  relatedTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
+  const deploymentTaskID = '99999999-9999-4999-8999-999999999999'
+  relatedTasks = [{ id: deploymentTaskID, kind: 'instance.create', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
+  const deploymentTaskListRoute = /\/api\/v1\/tasks(?:\?.*)?$/
+  await page.route(deploymentTaskListRoute, async (route) => route.fulfill({ json: { items: relatedTasks } }))
+  await page.route(`**/api/v1/tasks/${deploymentTaskID}`, async (route) => route.fulfill({ json: relatedTasks[0] }))
+  await page.route(`**/api/v1/tasks/${deploymentTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
   await page.reload()
   await expect(page.getByText('42%', { exact: true })).toBeVisible()
   await expect(page.getByText('正在准备数据库镜像')).toBeVisible()
   await expect(page.getByText('下一步：部署完成后，本页会提供连接信息交付入口。')).toBeVisible()
   await expect(page.getByRole('button', { name: '查看任务' })).toBeVisible()
+  await page.getByRole('button', { name: '查看任务' }).click()
+  let deploymentTaskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
+  await expect(deploymentTaskDrawer.getByText('数据库正在部署')).toBeVisible()
+  await expect(deploymentTaskDrawer.getByText(/任务会自动刷新.*完成后可从这里直接进入连接信息交付/)).toBeVisible()
+  await expect(deploymentTaskDrawer.getByRole('button', { name: '返回数据库进度' })).toBeVisible()
+  await expect(deploymentTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
+  await deploymentTaskDrawer.getByRole('button', { name: '返回数据库进度' }).click()
+  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}$`))
 
   instanceStatus = 'running'
-  relatedTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }]
+  relatedTasks = [{ id: deploymentTaskID, kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }]
   await page.reload()
   await expect(page.getByText('数据库已部署，可交付连接信息')).toBeVisible()
   await expect(page.getByText(/查看明文凭据会写入审计日志/)).toBeVisible()
   await expect(page.getByRole('button', { name: '查看部署记录' })).toBeVisible()
-  await page.getByRole('button', { name: '显示并交付连接信息' }).click()
+  await page.getByRole('button', { name: '查看部署记录' }).click()
+  deploymentTaskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
+  await expect(deploymentTaskDrawer.getByText('部署完成，连接信息已就绪')).toBeVisible()
+  await expect(deploymentTaskDrawer.getByText(/显示凭据后可复制完整交付摘要/)).toBeVisible()
+  await expect(deploymentTaskDrawer.getByRole('button', { name: '前往连接信息' })).toBeVisible()
+  await expect(deploymentTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
+  const completedDeploymentRow = page.getByRole('row').filter({ hasText: '创建数据库实例' })
+  await expect(completedDeploymentRow.getByRole('button', { name: '前往连接信息' })).toBeVisible()
+  await deploymentTaskDrawer.getByRole('button', { name: '前往连接信息' }).click()
   await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
+  await expect(page.getByText('连接信息受保护')).toBeVisible()
+  await page.getByRole('button', { name: '显示连接信息' }).click()
   await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '隐藏连接信息' }).click()
   await page.getByRole('tab', { name: '详情' }).click()
+  await page.unroute(deploymentTaskListRoute)
+  await page.unroute(`**/api/v1/tasks/${deploymentTaskID}`)
+  await page.unroute(`**/api/v1/tasks/${deploymentTaskID}/logs`)
 
   const restoredBackupCreatedAt = '2026-07-27T08:00:00.000Z'
   const restoreHealthVerifiedAt = '2026-07-28T08:01:00.000Z'
@@ -1512,8 +1538,11 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(taskDrawer.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
   await expect(taskDrawer.getByText(/数据库尚未就绪/)).toBeVisible()
   await expect(taskDrawer.getByText(/重新检测成功后重试/)).toBeVisible()
+  await expect(taskDrawer.getByText('部署未完成，暂不可交付')).toBeVisible()
+  await expect(taskDrawer.getByText(/连接信息尚未确认可用/)).toBeVisible()
   await expect(taskDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-  await expect(taskDrawer.getByRole('button', { name: '查看对应资源' })).toBeVisible()
+  await expect(taskDrawer.getByRole('button', { name: '查看数据库' })).toBeVisible()
+  await expect(taskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
   await taskDrawer.getByRole('button', { name: '技术详情' }).click()
   await expect(taskDrawer.getByText(/Connection timed out/)).toBeVisible()
   await taskDrawer.getByRole('button', { name: '检查故障主机' }).click()
@@ -1924,12 +1953,29 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(viewerRestoreVerification.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
   await expect(viewerRestoreVerification.getByRole('button', { name: '查看恢复任务' })).toBeVisible()
   await expect(viewerRestoreVerification.getByRole('button', { name: '查看目标备份' })).toBeVisible()
-  viewerInstanceTasks = [{ id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }]
+  const viewerDeploymentTask = { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }
+  viewerInstanceTasks = [viewerDeploymentTask]
   await developerPage.reload()
   await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()
   await expect(developerPage.getByText('部署已完成，但当前账号无权查看数据库凭据。')).toBeVisible()
   await expect(developerPage.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
   await expect(developerPage.getByRole('button', { name: '查看部署记录' })).toBeVisible()
+  await developerPage.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [viewerDeploymentTask] } }))
+  await developerPage.route(`**/api/v1/tasks/${viewerDeploymentTask.id}`, async (route) => route.fulfill({ json: viewerDeploymentTask }))
+  await developerPage.route(`**/api/v1/tasks/${viewerDeploymentTask.id}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
+  await developerPage.getByRole('button', { name: '查看部署记录' }).click()
+  const viewerDeploymentTaskDrawer = developerPage.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
+  await expect(viewerDeploymentTaskDrawer.getByText('部署完成，连接信息已就绪')).toBeVisible()
+  await expect(viewerDeploymentTaskDrawer.getByText(/当前账号无权查看数据库凭据/)).toBeVisible()
+  await expect(viewerDeploymentTaskDrawer.getByRole('button', { name: '前往连接信息' })).toHaveCount(0)
+  await expect(viewerDeploymentTaskDrawer.getByRole('button', { name: '查看数据库' })).toBeVisible()
+  const viewerDeploymentRow = developerPage.getByRole('row').filter({ hasText: '创建数据库实例' })
+  await expect(viewerDeploymentRow.getByRole('button', { name: '查看数据库' })).toBeVisible()
+  await viewerDeploymentTaskDrawer.getByRole('button', { name: '查看数据库' }).click()
+  await expect(developerPage).toHaveURL(new RegExp(`/instances/${instanceID}$`))
+  await developerPage.unroute('**/api/v1/tasks')
+  await developerPage.unroute(`**/api/v1/tasks/${viewerDeploymentTask.id}`)
+  await developerPage.unroute(`**/api/v1/tasks/${viewerDeploymentTask.id}/logs`)
   viewerInstanceTasks = [viewerFailedBackupTask, { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }]
   await developerPage.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
   const viewerCleanupContinuation = developerPage.locator('.cleanup-continuation-alert')

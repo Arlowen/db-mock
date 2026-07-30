@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
+import { deploymentTaskJourney, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -77,6 +77,32 @@ describe('deployment handoff state', () => {
     ], 'failed')
 
     expect(result).toMatchObject({ state: 'failed', task: { id: 'latest' } })
+  })
+})
+
+describe('deployment task journey', () => {
+  it('keeps the next destination stable while a create task changes state', () => {
+    const create = {
+      ...task('create', 'running', '2026-07-19T00:02:00Z'),
+      kind: 'instance.create',
+      resourceType: 'instance',
+      resourceId: 'instance/id',
+    }
+
+    expect(deploymentTaskJourney(create)).toEqual({
+      state: 'active',
+      instancePath: '/instances/instance%2Fid',
+      connectionPath: '/instances/instance%2Fid?tab=connection',
+    })
+    expect(deploymentTaskJourney({ ...create, status: 'succeeded' })).toMatchObject({ state: 'ready' })
+    for (const status of ['failed', 'canceled', 'interrupted']) {
+      expect(deploymentTaskJourney({ ...create, status })).toMatchObject({ state: 'incomplete' })
+    }
+  })
+
+  it('does not invent a deployment destination for unrelated or unscoped tasks', () => {
+    expect(deploymentTaskJourney({ ...task('host', 'running', '2026-07-19T00:02:00Z'), kind: 'host.probe' })).toBeUndefined()
+    expect(deploymentTaskJourney({ ...task('legacy', 'failed', '2026-07-19T00:02:00Z'), kind: 'instance_create', resourceType: 'instance', resourceId: undefined })).toBeUndefined()
   })
 })
 

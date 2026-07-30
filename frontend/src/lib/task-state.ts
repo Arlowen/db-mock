@@ -5,6 +5,14 @@ const cancellationPendingStatuses = new Set(['queued', 'running'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
 const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'reconfiguring', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded'])
 
+export type DeploymentTaskJourneyState = 'active' | 'ready' | 'incomplete'
+
+export interface DeploymentTaskJourney {
+  state: DeploymentTaskJourneyState
+  instancePath: string
+  connectionPath: string
+}
+
 export function isRecoverableInstanceStatus(status: string) {
   return recoverableInstanceStatuses.has(status)
 }
@@ -27,4 +35,15 @@ export function selectDeploymentHandoff(tasks: Task[], instanceStatus: string) {
   if (failedStatuses.has(task.status) && recoverableInstanceStatuses.has(instanceStatus)) return { state: 'failed' as const, task }
   if (task.status === 'succeeded' && instanceStatus === 'running') return { state: 'ready' as const, task }
   return undefined
+}
+
+export function deploymentTaskJourney(task: Task): DeploymentTaskJourney | undefined {
+  if (task.kind.replaceAll('_', '.') !== 'instance.create' || task.resourceType !== 'instance' || !task.resourceId) return undefined
+  const instancePath = `/instances/${encodeURIComponent(task.resourceId)}`
+  const state: DeploymentTaskJourneyState = activeStatuses.has(task.status)
+    ? 'active'
+    : task.status === 'succeeded'
+      ? 'ready'
+      : 'incomplete'
+  return { state, instancePath, connectionPath: `${instancePath}?tab=connection` }
 }

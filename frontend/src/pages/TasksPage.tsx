@@ -16,7 +16,7 @@ import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask, taskRecoveryHostID } from '../lib/task-recovery'
 import { taskResourceReference } from '../lib/task-resource'
 import { restoreVerification } from '../lib/restore-verification'
-import { isTaskCancellationPending } from '../lib/task-state'
+import { deploymentTaskJourney, isTaskCancellationPending } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Host, Instance, Task } from '../lib/types'
 
@@ -27,7 +27,7 @@ export function TasksPage() {
   const { t, i18n } = useTranslation()
   const { timezone } = useSystemSettings()
   const { user } = useAuth()
-  const { canOperate } = permissionsFor(user!)
+  const { canOperate, canReadCredentials } = permissionsFor(user!)
   const { message } = App.useApp()
   const screens = Grid.useBreakpoint()
   const navigate = useNavigate()
@@ -206,11 +206,20 @@ export function TasksPage() {
   const renderTaskActions = (task: Task) => {
     const retryKey = `${task.id}:retry`
     const cancelKey = `${task.id}:cancel`
+    const deploymentJourney = deploymentTaskJourney(task)
+    const deploymentDestination = deploymentJourney?.state === 'ready'
+      ? canReadCredentials ? deploymentJourney.connectionPath : deploymentJourney.instancePath
+      : undefined
     const recoveryPath = canRetry(task) && taskFailureGuidance(task).inspectHost ? taskHostRecoveryPathForTask(task) : undefined
     const retryable = canOperate && canRetry(task) && !recoveryPath
     const cancelable = canOperate && canCancel(task)
-    if (!recoveryPath && !retryable && !cancelable) return null
-    return <Space className="task-table-actions">{recoveryPath && <Button size="small" icon={<CloudServerOutlined />} onClick={() => navigate(recoveryPath)}>{t('inspectFailedHost')}</Button>}{retryable && <Button size="small" loading={actioning === retryKey} disabled={!!actioning && actioning !== retryKey} icon={<RedoOutlined />} onClick={() => void action(task, 'retry')}>{t('retry')}</Button>}{cancelable && <Popconfirm title={t('cancelTask')} description={t(task.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(task, 'cancel')}><Button size="small" danger loading={actioning === cancelKey} disabled={!!actioning && actioning !== cancelKey} icon={<CloseCircleOutlined />}>{t('cancel')}</Button></Popconfirm>}</Space>
+    if (!deploymentDestination && !recoveryPath && !retryable && !cancelable) return null
+    return <Space className="task-table-actions">
+      {deploymentDestination && <Button size="small" icon={<DatabaseOutlined />} onClick={() => navigate(deploymentDestination)}>{t(canReadCredentials ? 'openConnectionHandoff' : 'viewDatabase')}</Button>}
+      {recoveryPath && <Button size="small" icon={<CloudServerOutlined />} onClick={() => navigate(recoveryPath)}>{t('inspectFailedHost')}</Button>}
+      {retryable && <Button size="small" loading={actioning === retryKey} disabled={!!actioning && actioning !== retryKey} icon={<RedoOutlined />} onClick={() => void action(task, 'retry')}>{t('retry')}</Button>}
+      {cancelable && <Popconfirm title={t('cancelTask')} description={t(task.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(task, 'cancel')}><Button size="small" danger loading={actioning === cancelKey} disabled={!!actioning && actioning !== cancelKey} icon={<CloseCircleOutlined />}>{t('cancel')}</Button></Popconfirm>}
+    </Space>
   }
 
   const columns = [
@@ -227,13 +236,20 @@ export function TasksPage() {
   const selectedRecoveryHost = selectedRecoveryHostID ? hosts.find((host) => host.id === selectedRecoveryHostID) : undefined
   const selectedRecoveryPath = selected && selectedRecoveryHostID ? taskHostRecoveryPathForTask(selected) : undefined
   const selectedRestoreVerification = selected ? restoreVerification(selected) : undefined
+  const selectedDeploymentJourney = selected ? deploymentTaskJourney(selected) : undefined
+  const selectedDeploymentDestination = selectedDeploymentJourney
+    ? selectedDeploymentJourney.state === 'ready' && canReadCredentials
+      ? selectedDeploymentJourney.connectionPath
+      : selectedDeploymentJourney.instancePath
+    : undefined
   const inspectRecoveryHost = () => {
     if (!selectedRecoveryPath) return
     closeDetail()
     navigate(selectedRecoveryPath)
   }
-  const hasDrawerLeadingAction = !!selectedResource?.path || !!(canOperate && continueTo)
-  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{selectedResource?.path && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const showResourceFooterAction = !!selectedResource?.path && !selectedDeploymentJourney
+  const hasDrawerLeadingAction = showResourceFooterAction || !!(canOperate && continueTo)
+  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />
@@ -263,6 +279,15 @@ export function TasksPage() {
       {detailLoading ? <Card loading /> : detailError ? <Alert type="error" showIcon message={t('taskLoadFailed')} description={detailError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID, true)}>{t('retry')}</Button>} /> : selected && <div className="task-detail">
         {actionError && <Alert className="task-detail-alert" type="error" showIcon closable message={t('taskActionFailed')} description={actionError} onClose={() => setActionError('')} />}
         <div className={`task-detail-summary is-${selected.status}`}><div><Space><StatusTag value={selected.status} /><Typography.Text strong>{translateCode(t, selected.message, 'taskMessage')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('taskSummaryDescription', { operation: translateCode(t, selected.kind, 'taskKind'), resource: selectedResource?.label || '—' })}</Typography.Paragraph></div><Progress percent={selected.progress} status={selected.status === 'failed' ? 'exception' : selected.status === 'succeeded' ? 'success' : undefined} /></div>
+        {selectedDeploymentJourney && selectedDeploymentDestination && <Alert
+          className="task-detail-alert deployment-task-next-step"
+          type={selectedDeploymentJourney.state === 'ready' ? 'success' : selectedDeploymentJourney.state === 'incomplete' ? 'warning' : 'info'}
+          showIcon
+          aria-live="polite"
+          message={t(`deploymentTask_${selectedDeploymentJourney.state}_title`)}
+          description={t(selectedDeploymentJourney.state === 'ready' && !canReadCredentials ? 'deploymentTask_ready_restricted_hint' : `deploymentTask_${selectedDeploymentJourney.state}_hint`)}
+          action={<Button size="small" type={selectedDeploymentJourney.state === 'ready' ? 'primary' : 'default'} icon={<DatabaseOutlined />} onClick={() => { closeDetail(); navigate(selectedDeploymentDestination) }}>{t(selectedDeploymentJourney.state === 'active' ? 'viewDeploymentProgress' : selectedDeploymentJourney.state === 'ready' && canReadCredentials ? 'openConnectionHandoff' : 'viewDatabase')}</Button>}
+        />}
         {canOperate && continueTo && <Alert className="task-detail-alert" type={selected.status === 'succeeded' ? 'success' : selected.status === 'failed' ? 'warning' : 'info'} showIcon message={selected.status === 'succeeded' ? t('hostReadyContinue') : selected.status === 'failed' ? t('hostSetupFailedContinue') : t('hostSetupInProgress')} description={selected.status === 'succeeded' ? t('hostReadyContinueHint') : selected.status === 'failed' ? t('hostSetupFailedContinueHint') : t('hostSetupInProgressHint')} action={selected.status === 'succeeded' ? <Button size="small" type="primary" onClick={continueCreation}>{t('continueCreateDatabase')}</Button> : undefined} />}
         {isTaskCancellationPending(selected) && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
         {selectedRestoreVerification && <Alert className="task-detail-alert restore-task-verification-alert" type="success" showIcon message={t('restoreTaskVerifiedTitle')} description={<div className="restore-verification-body"><Typography.Text>{t('restoreTaskVerifiedDescription')}</Typography.Text><RestoreVerificationFacts verification={selectedRestoreVerification} /></div>} />}
