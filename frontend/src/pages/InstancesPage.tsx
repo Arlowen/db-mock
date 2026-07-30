@@ -34,7 +34,7 @@ import { restoreOutcome } from '../lib/restore-outcome'
 import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
-import { canCancelTask, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
+import { canCancelTask, canReviewIncompleteDeploymentCleanup, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { templateAuthentication } from '../lib/template-authentication'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
@@ -1346,6 +1346,7 @@ export function InstanceDetailPage() {
     <Space wrap className="instance-operation-actions">
       {failedHostRecoveryPath && <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(failedHostRecoveryPath)}>{t('inspectFailedHost')}</Button>}
       {canOperate && failedTask && !activeTask && !failedHostRecoveryPath && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
+      {canOperate && canReviewIncompleteDeploymentCleanup(operationTask) && <Button icon={<SafetyCertificateOutlined />} disabled={!!actioning} onClick={() => setCleanupOpen(true)}>{t('reviewCleanup')}</Button>}
       {canOperate && activeTask && canCancelTask(operationTask) && <Popconfirm title={t('cancelDeployment')} description={t(operationTask.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void cancelOperationTask(operationTask)}><Button danger icon={<CloseCircleOutlined />} loading={actioning === 'cancel-task'} disabled={!!actioning && actioning !== 'cancel-task'}>{t('cancelDeployment')}</Button></Popconfirm>}
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>

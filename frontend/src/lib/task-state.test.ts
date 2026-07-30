@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canCancelTask, deploymentTaskJourney, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
+import { canCancelTask, canReviewIncompleteDeploymentCleanup, deploymentTaskJourney, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -155,5 +155,34 @@ describe('deployment next step', () => {
     expect(deploymentTaskNextStep({ ...create, cancelAsked: true })).toBeUndefined()
     expect(deploymentTaskNextStep({ ...create, status: 'failed' })).toBeUndefined()
     expect(deploymentTaskNextStep({ ...create, kind: 'instance.restart' })).toBeUndefined()
+  })
+})
+
+describe('incomplete deployment cleanup', () => {
+  it('offers cleanup review for every terminal incomplete create task', () => {
+    const create = {
+      ...task('create', 'failed', '2026-07-19T00:02:00Z'),
+      kind: 'instance.create',
+      resourceType: 'instance',
+      resourceId: 'instance-1',
+    }
+
+    for (const status of ['failed', 'canceled', 'interrupted']) {
+      expect(canReviewIncompleteDeploymentCleanup({ ...create, status })).toBe(true)
+    }
+  })
+
+  it('does not treat active, successful, or unrelated tasks as failed deployments', () => {
+    const create = {
+      ...task('create', 'running', '2026-07-19T00:02:00Z'),
+      kind: 'instance.create',
+      resourceType: 'instance',
+      resourceId: 'instance-1',
+    }
+
+    for (const status of ['queued', 'running', 'retrying', 'succeeded']) {
+      expect(canReviewIncompleteDeploymentCleanup({ ...create, status })).toBe(false)
+    }
+    expect(canReviewIncompleteDeploymentCleanup({ ...create, kind: 'instance.restart', status: 'failed' })).toBe(false)
   })
 })

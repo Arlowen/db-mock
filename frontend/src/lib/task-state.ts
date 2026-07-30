@@ -41,6 +41,10 @@ export function deploymentTaskNextStep(task: Task) {
   return deploymentNextSteps[task.stage.replaceAll('.', '_')]
 }
 
+export function canReviewIncompleteDeploymentCleanup(task: Task) {
+  return task.kind.replaceAll('_', '.') === 'instance.create' && failedStatuses.has(task.status)
+}
+
 export function selectRecoveryTasks(tasks: Task[], recoverable: boolean) {
   const activeTask = tasks.find((task) => activeStatuses.has(task.status))
   const latestTask = tasks[0]

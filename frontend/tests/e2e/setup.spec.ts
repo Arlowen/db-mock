@@ -824,6 +824,19 @@ test('initializes the platform and switches the embedded interface language', as
   await deploymentTaskDrawer.getByRole('button', { name: '返回数据库进度' }).click()
   await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}$`))
 
+  instanceStatus = 'failed'
+  relatedTasks = [{ ...relatedTasks[0], status: 'canceled', progress: 42, stage: 'canceled', message: 'task_canceled', errorCode: 'canceled', errorMessage: 'task canceled at a safe checkpoint', cancelable: false, finishedAt: new Date().toISOString() }]
+  await page.reload()
+  const canceledDeploymentActions = page.locator('.instance-operation-actions')
+  await expect(canceledDeploymentActions.getByRole('button', { name: '重试任务' })).toBeVisible()
+  await expect(canceledDeploymentActions.getByRole('button', { name: '审查清理' })).toBeVisible()
+  await expect(canceledDeploymentActions.getByRole('button', { name: '查看任务' })).toBeVisible()
+  await canceledDeploymentActions.getByRole('button', { name: '审查清理' }).click()
+  detailCleanupDialog = page.getByRole('dialog', { name: /审查清理.*Orders DB/ })
+  await expect(detailCleanupDialog.getByText('已具备永久删除条件')).toBeVisible()
+  await expect(detailCleanupDialog.getByText('Orders release regression')).toBeVisible()
+  await detailCleanupDialog.getByRole('button', { name: /取\s*消/ }).click()
+
   instanceStatus = 'running'
   relatedTasks = [{ id: deploymentTaskID, kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }]
   await page.reload()
@@ -2002,11 +2015,12 @@ test('initializes the platform and switches the embedded interface language', as
   const viewerRestoreTask = { id: restoreOutcomeTaskID, kind: 'instance.restore', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 75, stage: 'compose', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'restored instance did not become healthy', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
   const viewerRestoreSuccessTask = { id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'compose', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: 'Viewer cleanup backup', backupCreatedAt: viewerFailedBackup.createdAt, backupSha256: viewerFailedBackup.sha256, restoreOutcome: 'target_backup_applied', healthVerifiedAt: new Date().toISOString(), instanceStatus: 'running', desiredState: 'running', status: 'running' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
   let viewerInstanceTasks: Array<Record<string, unknown>> = [viewerRestoreTask]
+  let viewerInstanceStatus = 'running'
   let viewerInstanceStatusMessage = 'Restore failed; the pre-restore database state was recovered'
   await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [viewerFailedBackup] } }))
   await developerPage.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
   await developerPage.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => route.fulfill({ json: { items: viewerInstanceTasks } }))
-  await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: 'running', statusMessage: viewerInstanceStatusMessage } }))
+  await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: viewerInstanceStatus, statusMessage: viewerInstanceStatusMessage } }))
   await developerPage.goto(`/instances/${instanceID}`)
   const viewerRestoreNotice = developerPage.locator('.restore-outcome-alert')
   await expect(viewerRestoreNotice.getByText('恢复未生效，已恢复操作前数据')).toBeVisible()
@@ -2028,7 +2042,17 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.reload()
   await expect(developerPage.getByText('系统下一步：渲染 Compose 配置。')).toBeVisible()
   await expect(developerPage.getByRole('button', { name: '取消部署' })).toHaveCount(0)
+  viewerInstanceTasks = [{ ...viewerDeploymentTask, status: 'canceled', progress: 42, stage: 'canceled', message: 'task_canceled', errorCode: 'canceled', errorMessage: 'task canceled at a safe checkpoint', finishedAt: new Date().toISOString() }]
+  viewerInstanceStatus = 'failed'
+  viewerInstanceStatusMessage = 'Instance creation was canceled before the database was started'
+  await developerPage.reload()
+  const viewerCanceledDeploymentActions = developerPage.locator('.instance-operation-actions')
+  await expect(viewerCanceledDeploymentActions.getByRole('button', { name: '审查清理' })).toHaveCount(0)
+  await expect(viewerCanceledDeploymentActions.getByRole('button', { name: '重试任务' })).toHaveCount(0)
+  await expect(viewerCanceledDeploymentActions.getByRole('button', { name: '查看任务' })).toBeVisible()
   viewerInstanceTasks = [viewerDeploymentTask]
+  viewerInstanceStatus = 'running'
+  viewerInstanceStatusMessage = ''
   await developerPage.reload()
   await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()
   await expect(developerPage.getByText('部署已完成，但当前账号无权查看数据库凭据。')).toBeVisible()
