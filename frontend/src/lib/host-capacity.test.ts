@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Host, Instance } from './types'
-import { hostCanAccept, hostCanReconfigure, remainingAfterDeployment, reservationForHost, schedulableCapacity } from './host-capacity'
+import { hostCanAccept, hostCanReconfigure, hostDeploymentReadiness, remainingAfterDeployment, reservationForHost, schedulableCapacity } from './host-capacity'
 
 const host = {
   id: 'host-1', cpuCount: 10, memoryBytes: 1000, diskFreeBytes: 1000, portStart: 20000, portEnd: 20010,
@@ -30,6 +30,20 @@ describe('host capacity', () => {
     expect(hostCanAccept(host, reservation, { ...request, port: 20002 })).toBe(true)
     expect(hostCanAccept(host, reservation, { ...request, port: 20001 })).toBe(false)
     expect(hostCanAccept(host, reservation, { ...request, port: 19999 })).toBe(false)
+  })
+
+  it('explains every constraint that makes a host unavailable for the current deployment', () => {
+    expect(hostDeploymentReadiness(host, { cpu: 8, memory: 750, disk: 750, ports: [20001] }, {
+      cpu: 2,
+      memory: 100,
+      disk: 100,
+      port: 20001,
+    })).toEqual({
+      fits: false,
+      available: { cpu: 1, memory: 50, disk: 50 },
+      remaining: { cpu: 0, memory: 0, disk: 0 },
+      issues: ['cpu', 'memory', 'disk', 'port_in_use'],
+    })
   })
 
   it('previews remaining schedulable capacity after deployment', () => {

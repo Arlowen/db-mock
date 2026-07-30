@@ -20,6 +20,15 @@ export interface HostCapacity {
   disk: number
 }
 
+export type HostDeploymentIssue = 'cpu' | 'memory' | 'disk' | 'port_range' | 'port_in_use'
+
+export interface HostDeploymentReadiness {
+  fits: boolean
+  available: HostCapacity
+  remaining: HostCapacity
+  issues: HostDeploymentIssue[]
+}
+
 export function reservationForHost(instances: Instance[], hostID: string): HostReservation {
   return instances.filter((instance) => instance.hostId === hostID).reduce((total, instance) => ({
     cpu: total.cpu + instance.cpu,
@@ -46,11 +55,24 @@ export function remainingAfterDeployment(host: Host, reservation: HostReservatio
   }
 }
 
-export function hostCanAccept(host: Host, reservation: HostReservation, request: DeploymentRequest): boolean {
+export function hostDeploymentReadiness(host: Host, reservation: HostReservation, request: DeploymentRequest): HostDeploymentReadiness {
   const available = schedulableCapacity(host, reservation)
-  if (request.cpu > available.cpu + Number.EPSILON || request.memory > available.memory || request.disk > available.disk) return false
-  if (!request.port) return true
-  return request.port >= host.portStart && request.port <= host.portEnd && !reservation.ports.includes(request.port)
+  const issues: HostDeploymentIssue[] = []
+  if (request.cpu > available.cpu + Number.EPSILON) issues.push('cpu')
+  if (request.memory > available.memory) issues.push('memory')
+  if (request.disk > available.disk) issues.push('disk')
+  if (request.port && (request.port < host.portStart || request.port > host.portEnd)) issues.push('port_range')
+  if (request.port && reservation.ports.includes(request.port)) issues.push('port_in_use')
+  return {
+    fits: issues.length === 0,
+    available,
+    remaining: remainingAfterDeployment(host, reservation, request),
+    issues,
+  }
+}
+
+export function hostCanAccept(host: Host, reservation: HostReservation, request: DeploymentRequest): boolean {
+  return hostDeploymentReadiness(host, reservation, request).fits
 }
 
 export function hostCanReconfigure(host: Host, reservationWithoutInstance: HostReservation,

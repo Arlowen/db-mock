@@ -139,6 +139,15 @@ button { font: inherit; }
 .wizard-mobile-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .wizard-mobile-progress .ant-progress { margin: 0; line-height: 1; }
 .wizard-readiness-alert, .wizard-capacity-alert, .wizard-submit-error { margin-top: 16px; }
+.wizard-host-select { margin-top: 20px; margin-bottom: 0; }
+.deployment-host-option { min-width: 0; padding-block: 2px; display: grid; gap: 3px; white-space: normal; }
+.deployment-host-option-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.deployment-host-option-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deployment-host-option-heading span { flex: none; color: #667085; font-size: 11px; }
+.deployment-host-option small { color: #667085; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.deployment-host-option.is-unavailable .deployment-host-option-heading strong { color: #667085; }
+.deployment-host-option.is-unavailable small { color: #a15c00; }
+.ant-select-item-option-disabled .deployment-host-option { opacity: 1; }
 .wizard-form .ant-radio-group { display: flex; width: 100%; }
 .wizard-form .ant-radio-button-wrapper { flex: 1; text-align: center; }
 .wizard-resource-profiles .ant-radio-button-wrapper { height: auto; min-height: 54px; padding-block: 6px; display: inline-flex; align-items: center; justify-content: center; line-height: 1.25; }
