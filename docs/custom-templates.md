@@ -32,6 +32,7 @@ spec:
   minDiskBytes: 10737418240
   username: dbmock
   database: app
+  authentication: password
   scheme: postgresql
   jdbcScheme: postgresql
   hostTuning: []
@@ -70,6 +71,12 @@ spec:
       diskBytes: 10737418240
 ```
 
+`spec.authentication` accepts `password`, `username`, or `none` and defaults to `password`.
+In `password` mode DB Mock generates or accepts a database password and includes it in the protected
+connection handoff. `username` keeps the declared username but does not generate a password. `none`
+generates neither username nor password. The Compose contract, healthcheck, and connection scheme must
+match the declared mode; passwordless modes should only be deployed on a controlled test network.
+
 The Compose file may use these Go template variables:
 
 | Variable | Meaning |
@@ -93,8 +100,9 @@ optional. Number parameters may declare `min`, `max`, and a positive `step`. Sel
 declare between 1 and 50 unique options. A template can declare at most 32 parameters.
 
 Parameters are intentionally non-secret. Their selected values are visible in the instance configuration
-and are stored independently from the encrypted database password. Do not use them for passwords, tokens,
-or private keys; use the platform-managed database credential or another dedicated secret mechanism.
+and are stored independently from any encrypted database password. Do not use them for passwords, tokens,
+or private keys; for `password` authentication use the platform-managed database credential, otherwise use
+another dedicated secret mechanism.
 DB Mock validates submitted values against the immutable selected template version, quotes every rendered
 environment value, and rejects collisions with advanced environment overrides.
 

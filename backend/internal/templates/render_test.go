@@ -141,6 +141,37 @@ func TestBuiltinsDeclareEveryComposeImageAndSupportedPlatform(t *testing.T) {
 	}
 }
 
+func TestBuiltinsDeclareAuthenticationThatMatchesDeploymentContract(t *testing.T) {
+	expectedModes := map[string]string{
+		"cassandra": AuthenticationNone,
+		"tidb":      AuthenticationUsername,
+		"starrocks": AuthenticationUsername,
+		"doris":     AuthenticationUsername,
+	}
+	for _, definition := range Builtins() {
+		t.Run(definition.Slug, func(t *testing.T) {
+			want := expectedModes[definition.Slug]
+			if want == "" {
+				want = AuthenticationPassword
+			}
+			if got := builtinAuthentication(definition); got != want {
+				t.Fatalf("authentication = %q, want %q", got, want)
+			}
+			contract := definition.Compose + strings.Join(definition.Command, "\n") + strings.Join(definition.Healthcheck, "\n")
+			for key, value := range definition.Environment {
+				contract += "\n" + key + "=" + value
+			}
+			usesPassword := strings.Contains(contract, "DB_PASSWORD")
+			if want == AuthenticationPassword && !usesPassword {
+				t.Fatal("password authentication declared but the deployment contract never consumes DB_PASSWORD")
+			}
+			if want != AuthenticationPassword && usesPassword {
+				t.Fatalf("%s authentication declared but the deployment contract consumes DB_PASSWORD", want)
+			}
+		})
+	}
+}
+
 func TestRequiredImageReferencesSupportsNewAndLegacyVersions(t *testing.T) {
 	manifest, _ := json.Marshal(Manifest{ImageReferences: []string{"apache/doris:fe-2.1.11", "apache/doris:be-2.1.11"}})
 	references, err := RequiredImageReferences(domain.TemplateVersion{ImageReference: "apache/doris:fe-2.1.11", Manifest: manifest})
@@ -199,10 +230,51 @@ func TestRenderComposeEscapesEnvironment(t *testing.T) {
 }
 
 func TestConnection(t *testing.T) {
-	manifest, _ := json.Marshal(Manifest{Scheme: "postgresql", JDBCScheme: "postgresql"})
-	instance := domain.Instance{HostPort: 5432, DatabaseUsername: "user", DatabaseName: "db"}
-	connection := Connection(domain.Template{}, domain.TemplateVersion{Manifest: manifest}, instance, "10.0.0.1", "p@ss")
-	if !strings.Contains(connection.URI, "p%40ss") || connection.JDBC != "jdbc:postgresql://10.0.0.1:5432/db" {
-		t.Fatalf("unexpected: %#v", connection)
+	tests := []struct {
+		name           string
+		template       domain.Template
+		manifest       Manifest
+		instance       domain.Instance
+		address        string
+		password       string
+		authentication string
+		username       string
+		returnPassword string
+		uri            string
+		jdbc           string
+	}{
+		{
+			name:     "password with escaped secret and IPv6",
+			manifest: Manifest{Authentication: AuthenticationPassword, Scheme: "postgresql", JDBCScheme: "postgresql"},
+			instance: domain.Instance{HostPort: 5432, DatabaseUsername: "user", DatabaseName: "db"},
+			address:  "2001:db8::10", password: "p@ss", authentication: AuthenticationPassword, username: "user", returnPassword: "p@ss",
+			uri: "postgresql://user:p%40ss@[2001:db8::10]:5432/db", jdbc: "jdbc:postgresql://[2001:db8::10]:5432/db",
+		},
+		{
+			name:     "username only",
+			template: domain.Template{Slug: "tidb"},
+			manifest: Manifest{Scheme: "mysql", JDBCScheme: "mysql"},
+			instance: domain.Instance{HostPort: 4000, DatabaseUsername: "root", DatabaseName: "test"},
+			address:  "db-test.internal", password: "unused", authentication: AuthenticationUsername, username: "root",
+			uri: "mysql://root@db-test.internal:4000/test", jdbc: "jdbc:mysql://db-test.internal:4000/test",
+		},
+		{
+			name:     "no credentials",
+			template: domain.Template{Slug: "cassandra"},
+			manifest: Manifest{Scheme: "cassandra"},
+			instance: domain.Instance{HostPort: 9042, DatabaseUsername: "legacy-user"},
+			address:  "db-test.internal", password: "unused", authentication: AuthenticationNone,
+			uri: "cassandra://db-test.internal:9042",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest, _ := json.Marshal(test.manifest)
+			connection := Connection(test.template, domain.TemplateVersion{Manifest: manifest}, test.instance, test.address, test.password)
+			if connection.Authentication != test.authentication || connection.Username != test.username ||
+				connection.Password != test.returnPassword || connection.URI != test.uri || connection.JDBC != test.jdbc {
+				t.Fatalf("unexpected connection: %#v", connection)
+			}
+		})
 	}
 }

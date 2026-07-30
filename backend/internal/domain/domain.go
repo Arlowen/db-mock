@@ -240,13 +240,14 @@ func InstanceCleanupBlockers(status string, backupCount int, activeOperation boo
 }
 
 type InstanceConnection struct {
-	Address  string `json:"address"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Database string `json:"database"`
-	URI      string `json:"uri"`
-	JDBC     string `json:"jdbc,omitempty"`
+	Address        string `json:"address"`
+	Port           int    `json:"port"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	Database       string `json:"database"`
+	Authentication string `json:"authentication"`
+	URI            string `json:"uri"`
+	JDBC           string `json:"jdbc,omitempty"`
 }
 
 type InstanceBackup struct {

@@ -184,6 +184,31 @@ func TestValidatePackageStoresImmutableVersionRiskReport(t *testing.T) {
 	if len(manifest.ImageReferences) != 1 || manifest.ImageReferences[0] != "registry.example.test/postgres:1.0.0" {
 		t.Fatalf("expected the rendered Compose image set in the manifest, got %v", manifest.ImageReferences)
 	}
+	if manifest.Authentication != AuthenticationPassword {
+		t.Fatalf("authentication = %q, want the backward-compatible password default", manifest.Authentication)
+	}
+}
+
+func TestValidatePackageStoresExplicitAuthentication(t *testing.T) {
+	manifest := strings.Replace(validCustomManifest, "  database: app\n", "  database: app\n  authentication: none\n", 1)
+	validated, err := ValidatePackage(writeTemplatePackage(t, manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored Manifest
+	if err = json.Unmarshal(validated.Version.Manifest, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Authentication != AuthenticationNone {
+		t.Fatalf("authentication = %q, want %q", stored.Authentication, AuthenticationNone)
+	}
+}
+
+func TestValidatePackageRejectsUnknownAuthentication(t *testing.T) {
+	manifest := strings.Replace(validCustomManifest, "  database: app\n", "  database: app\n  authentication: token\n", 1)
+	if _, err := ValidatePackage(writeTemplatePackage(t, manifest)); err == nil || !strings.Contains(err.Error(), "unsupported template authentication mode") {
+		t.Fatalf("expected unsupported authentication error, got %v", err)
+	}
 }
 
 func TestValidatePackageStoresParameterFormAndResourceProfiles(t *testing.T) {

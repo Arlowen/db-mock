@@ -331,11 +331,24 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if request.DatabaseName == "" {
 		request.DatabaseName = manifest.Database
 	}
-	if request.Password == "" {
-		request.Password = generatePassword()
-	}
-	if strings.ContainsAny(request.Password, "\r\n\x00") {
-		return domain.Instance{}, domain.Task{}, domain.ErrInvalid
+	authentication := templates.AuthenticationMode(template, manifest)
+	switch authentication {
+	case templates.AuthenticationPassword:
+		if request.Password == "" {
+			request.Password = generatePassword()
+		}
+		if strings.ContainsAny(request.Password, "\r\n\x00") {
+			return domain.Instance{}, domain.Task{}, domain.ErrInvalid
+		}
+	case templates.AuthenticationUsername:
+		if request.Password != "" {
+			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: selected template does not use password authentication", domain.ErrInvalid)
+		}
+	case templates.AuthenticationNone:
+		if request.Password != "" {
+			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: selected template does not use database credentials", domain.ErrInvalid)
+		}
+		request.Username = ""
 	}
 	if request.Environment == "" {
 		request.Environment = "development"
@@ -1023,15 +1036,23 @@ func (s *Service) Connection(ctx context.Context, id uuid.UUID) (domain.Instance
 	if err != nil {
 		return domain.InstanceConnection{}, err
 	}
-	plain, err := s.vault.Open(instance.EncryptedPassword, "instance:"+instance.ID.String())
-	if err != nil {
-		return domain.InstanceConnection{}, err
-	}
 	template, version, err := s.store.GetTemplateVersion(ctx, instance.TemplateVersionID)
 	if err != nil {
 		return domain.InstanceConnection{}, err
 	}
-	return templates.Connection(template, version, instance, instance.ConnectionAddress, string(plain)), nil
+	manifest, err := templates.ParseManifest(version.Manifest)
+	if err != nil {
+		return domain.InstanceConnection{}, err
+	}
+	password := ""
+	if templates.AuthenticationMode(template, manifest) == templates.AuthenticationPassword {
+		plain, openErr := s.vault.Open(instance.EncryptedPassword, "instance:"+instance.ID.String())
+		if openErr != nil {
+			return domain.InstanceConnection{}, openErr
+		}
+		password = string(plain)
+	}
+	return templates.Connection(template, version, instance, instance.ConnectionAddress, password), nil
 }
 
 func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, architectures []string, cpu float64, memory, disk int64, port int) (domain.Host, int, error) {

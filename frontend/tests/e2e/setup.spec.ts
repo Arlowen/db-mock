@@ -535,7 +535,7 @@ test('initializes the platform and switches the embedded interface language', as
   })
   await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => failConnection
     ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: credential service could not read this instance secret' } } })
-    : route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
+    : route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', authentication: 'password', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
   await page.route(`**/api/v1/instances/${instanceID}/logs?**`, async (route) => failLogs
     ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' } } })
     : route.fulfill({ status: 200, contentType: 'text/plain', body: '' }))
@@ -786,6 +786,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
   await expect(page.getByText('连接信息受保护')).toBeVisible()
   await page.getByRole('button', { name: '显示连接信息' }).click()
+  await expect(page.getByText('用户名和密码', { exact: true })).toBeVisible()
   await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '隐藏连接信息' }).click()
   await page.getByRole('tab', { name: '详情' }).click()

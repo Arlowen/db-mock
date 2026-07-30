@@ -13,31 +13,32 @@ const (
 )
 
 type Definition struct {
-	Slug          string
-	Name          string
-	NameZH        string
-	Description   string
-	Category      string
-	Tier          string
-	Icon          string
-	Version       string
-	Image         string
-	Architectures []string
-	MinCPU        float64
-	MinMemory     int64
-	MinDisk       int64
-	Port          int
-	Username      string
-	Database      string
-	Scheme        string
-	JDBCScheme    string
-	DataTarget    string
-	Environment   map[string]string
-	Command       []string
-	Healthcheck   []string
-	Privileged    bool
-	Tuning        []string
-	Compose       string
+	Slug           string
+	Name           string
+	NameZH         string
+	Description    string
+	Category       string
+	Tier           string
+	Icon           string
+	Version        string
+	Image          string
+	Architectures  []string
+	MinCPU         float64
+	MinMemory      int64
+	MinDisk        int64
+	Port           int
+	Username       string
+	Database       string
+	Authentication string
+	Scheme         string
+	JDBCScheme     string
+	DataTarget     string
+	Environment    map[string]string
+	Command        []string
+	Healthcheck    []string
+	Privileged     bool
+	Tuning         []string
+	Compose        string
 }
 
 func Seed(ctx context.Context, target *store.Store) error {
@@ -53,6 +54,7 @@ func Seed(ctx context.Context, target *store.Store) error {
 		manifest := map[string]any{
 			"username":        definition.Username,
 			"database":        definition.Database,
+			"authentication":  builtinAuthentication(definition),
 			"scheme":          definition.Scheme,
 			"jdbcScheme":      definition.JDBCScheme,
 			"containerPort":   definition.Port,
@@ -102,18 +104,24 @@ func Builtins() []Definition {
 		{Slug: "opensearch", Name: "OpenSearch", NameZH: "OpenSearch", Description: "Open source search and analytics suite", Category: "search", Tier: standard, Icon: "OS", Version: "2.19.1", Image: "opensearchproject/opensearch:2.19.1", Architectures: both(), MinCPU: 2, MinMemory: 4 * GiB, MinDisk: 20 * GiB, Port: 9200, Username: "admin", Scheme: "https", DataTarget: "/usr/share/opensearch/data", Environment: map[string]string{"discovery.type": "single-node", "OPENSEARCH_INITIAL_ADMIN_PASSWORD": "${DB_PASSWORD}", "DISABLE_INSTALL_DEMO_CONFIG": "false", "OPENSEARCH_JAVA_OPTS": "-Xms1g -Xmx1g"}, Healthcheck: []string{"CMD-SHELL", "curl -kfsS -u \"admin:$${DBMOCK_DB_PASSWORD}\" https://localhost:9200/_cluster/health"}, Tuning: []string{"sysctl -w vm.max_map_count=262144", "printf 'vm.max_map_count=262144\\n' >/etc/sysctl.d/99-dbmock-opensearch.conf"}},
 		{Slug: "influxdb", Name: "InfluxDB", NameZH: "InfluxDB", Description: "Time-series database", Category: "time-series", Tier: standard, Icon: "IN", Version: "2.7", Image: "influxdb:2.7", Architectures: both(), MinCPU: 1, MinMemory: GiB, MinDisk: 10 * GiB, Port: 8086, Username: "dbmock", Database: "dbmock", Scheme: "http", DataTarget: "/var/lib/influxdb2", Environment: map[string]string{"DOCKER_INFLUXDB_INIT_MODE": "setup", "DOCKER_INFLUXDB_INIT_USERNAME": "${DB_USERNAME}", "DOCKER_INFLUXDB_INIT_PASSWORD": "${DB_PASSWORD}", "DOCKER_INFLUXDB_INIT_ORG": "dbmock", "DOCKER_INFLUXDB_INIT_BUCKET": "${DB_NAME}", "DOCKER_INFLUXDB_INIT_ADMIN_TOKEN": "${DB_PASSWORD}"}, Healthcheck: []string{"CMD", "influx", "ping"}},
 		{Slug: "neo4j", Name: "Neo4j", NameZH: "Neo4j", Description: "Graph database", Category: "graph", Tier: standard, Icon: "N4", Version: "5.26-community", Image: "neo4j:5.26-community", Architectures: both(), MinCPU: 1, MinMemory: 2 * GiB, MinDisk: 10 * GiB, Port: 7687, Username: "neo4j", Scheme: "bolt", DataTarget: "/data", Environment: map[string]string{"NEO4J_AUTH": "${DB_USERNAME}/${DB_PASSWORD}"}, Healthcheck: []string{"CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null"}},
-		{Slug: "cassandra", Name: "Apache Cassandra", NameZH: "Apache Cassandra", Description: "Wide-column distributed database in single-node mode", Category: "wide-column", Tier: standard, Icon: "CA", Version: "5.0", Image: "cassandra:5.0", Architectures: both(), MinCPU: 2, MinMemory: 4 * GiB, MinDisk: 20 * GiB, Port: 9042, Username: "cassandra", Scheme: "cassandra", DataTarget: "/var/lib/cassandra", Environment: map[string]string{"CASSANDRA_CLUSTER_NAME": "DB Mock", "CASSANDRA_ENDPOINT_SNITCH": "GossipingPropertyFileSnitch"}, Healthcheck: []string{"CMD-SHELL", "cqlsh -e 'DESCRIBE CLUSTER'"}},
+		{Slug: "cassandra", Name: "Apache Cassandra", NameZH: "Apache Cassandra", Description: "Wide-column distributed database in single-node mode", Category: "wide-column", Tier: standard, Icon: "CA", Version: "5.0", Image: "cassandra:5.0", Architectures: both(), MinCPU: 2, MinMemory: 4 * GiB, MinDisk: 20 * GiB, Port: 9042, Authentication: AuthenticationNone, Scheme: "cassandra", DataTarget: "/var/lib/cassandra", Environment: map[string]string{"CASSANDRA_CLUSTER_NAME": "DB Mock", "CASSANDRA_ENDPOINT_SNITCH": "GossipingPropertyFileSnitch"}, Healthcheck: []string{"CMD-SHELL", "cqlsh -e 'DESCRIBE CLUSTER'"}},
 		{Slug: "sqlserver", Name: "Microsoft SQL Server", NameZH: "SQL Server", Description: "Microsoft SQL Server Developer container", Category: "relational", Tier: standard, Icon: "MS", Version: "2022", Image: "mcr.microsoft.com/mssql/server:2022-latest", Architectures: []string{"amd64"}, MinCPU: 2, MinMemory: 4 * GiB, MinDisk: 20 * GiB, Port: 1433, Username: "sa", Database: "master", Scheme: "sqlserver", JDBCScheme: "sqlserver", DataTarget: "/var/opt/mssql", Environment: map[string]string{"ACCEPT_EULA": "Y", "MSSQL_PID": "Developer", "MSSQL_SA_PASSWORD": "${DB_PASSWORD}"}, Healthcheck: []string{"CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${DBMOCK_DB_PASSWORD}\" -C -Q 'SELECT 1'"}},
 		{Slug: "oracle", Name: "Oracle Database Free", NameZH: "Oracle Database Free", Description: "Oracle Database Free container", Category: "relational", Tier: standard, Icon: "OR", Version: "23", Image: "gvenzl/oracle-free:23-slim", Architectures: both(), MinCPU: 4, MinMemory: 8 * GiB, MinDisk: 30 * GiB, Port: 1521, Username: "dbmock", Database: "FREEPDB1", Scheme: "oracle", JDBCScheme: "oracle:thin", DataTarget: "/opt/oracle/oradata", Environment: map[string]string{"ORACLE_PASSWORD": "${DB_PASSWORD}", "APP_USER": "${DB_USERNAME}", "APP_USER_PASSWORD": "${DB_PASSWORD}"}, Healthcheck: []string{"CMD", "healthcheck.sh"}},
 		{Slug: "opengauss", Name: "openGauss", NameZH: "openGauss", Description: "openGauss community relational database", Category: "relational", Tier: standard, Icon: "OG", Version: "6.0.0-r1", Image: "enmotech/opengauss:6.0.0", Architectures: both(), MinCPU: 2, MinMemory: 2 * GiB, MinDisk: 10 * GiB, Port: 5432, Username: "gaussdb", Database: "postgres", Scheme: "postgresql", JDBCScheme: "postgresql", DataTarget: "/var/lib/opengauss/data", Environment: map[string]string{"GS_PASSWORD": "${DB_PASSWORD}"}, Healthcheck: []string{"CMD-SHELL", "gsql -d postgres -U gaussdb -W \"$${DBMOCK_DB_PASSWORD}\" -c 'select 1'"}, Privileged: true},
-		{Slug: "tidb", Name: "TiDB", NameZH: "TiDB", Description: "TiDB single-host development mode", Category: "distributed-sql", Tier: experimental, Icon: "TI", Version: "8.5.3", Image: "pingcap/tidb:v8.5.3", Architectures: both(), MinCPU: 2, MinMemory: 4 * GiB, MinDisk: 20 * GiB, Port: 4000, Username: "root", Database: "test", Scheme: "mysql", JDBCScheme: "mysql", DataTarget: "/var/lib/tidb", Command: []string{"--store=unistore", "--path=/var/lib/tidb", "--host=0.0.0.0"}, Healthcheck: []string{"CMD-SHELL", "wget -qO- http://localhost:10080/status | grep -q 'connections'"}},
+		{Slug: "tidb", Name: "TiDB", NameZH: "TiDB", Description: "TiDB single-host development mode", Category: "distributed-sql", Tier: experimental, Icon: "TI", Version: "8.5.3", Image: "pingcap/tidb:v8.5.3", Architectures: both(), MinCPU: 2, MinMemory: 4 * GiB, MinDisk: 20 * GiB, Port: 4000, Username: "root", Database: "test", Authentication: AuthenticationUsername, Scheme: "mysql", JDBCScheme: "mysql", DataTarget: "/var/lib/tidb", Command: []string{"--store=unistore", "--path=/var/lib/tidb", "--host=0.0.0.0"}, Healthcheck: []string{"CMD-SHELL", "wget -qO- http://localhost:10080/status | grep -q 'connections'"}},
 		{Slug: "oceanbase", Name: "OceanBase CE", NameZH: "OceanBase 社区版", Description: "OceanBase CE mini single-host mode", Category: "distributed-sql", Tier: experimental, Icon: "OB", Version: "4.3.5-lts", Image: "oceanbase/oceanbase-ce:4.3.5-lts", Architectures: both(), MinCPU: 4, MinMemory: 8 * GiB, MinDisk: 30 * GiB, Port: 2881, Username: "root", Database: "test", Scheme: "mysql", JDBCScheme: "mysql", DataTarget: "/root/ob", Environment: map[string]string{"MODE": "mini", "OB_ROOT_PASSWORD": "${DB_PASSWORD}"}, Healthcheck: []string{"CMD-SHELL", "obclient -h127.0.0.1 -P2881 -uroot -p\"$${DBMOCK_DB_PASSWORD}\" -e 'select 1'"}},
-		{Slug: "starrocks", Name: "StarRocks", NameZH: "StarRocks", Description: "StarRocks all-in-one development container", Category: "analytics", Tier: experimental, Icon: "SR", Version: "3.4", Image: "starrocks/allin1-ubuntu:3.4-latest", Architectures: both(), MinCPU: 4, MinMemory: 8 * GiB, MinDisk: 30 * GiB, Port: 9030, Username: "root", Database: "default_catalog", Scheme: "mysql", JDBCScheme: "mysql", DataTarget: "/data/deploy", Healthcheck: []string{"CMD-SHELL", "mysql -h127.0.0.1 -P9030 -uroot -e 'select 1'"}},
-		{Slug: "doris", Name: "Apache Doris", NameZH: "Apache Doris", Description: "Apache Doris FE and BE on one host", Category: "analytics", Tier: experimental, Icon: "DO", Version: "2.1.11", Image: "apache/doris:fe-2.1.11", Architectures: both(), MinCPU: 4, MinMemory: 8 * GiB, MinDisk: 30 * GiB, Port: 9030, Username: "root", Database: "information_schema", Scheme: "mysql", JDBCScheme: "mysql", Compose: dorisCompose(), Tuning: []string{"sysctl -w vm.max_map_count=2000000", "printf 'vm.max_map_count=2000000\\n' >/etc/sysctl.d/99-dbmock-doris.conf"}},
+		{Slug: "starrocks", Name: "StarRocks", NameZH: "StarRocks", Description: "StarRocks all-in-one development container", Category: "analytics", Tier: experimental, Icon: "SR", Version: "3.4", Image: "starrocks/allin1-ubuntu:3.4-latest", Architectures: both(), MinCPU: 4, MinMemory: 8 * GiB, MinDisk: 30 * GiB, Port: 9030, Username: "root", Database: "default_catalog", Authentication: AuthenticationUsername, Scheme: "mysql", JDBCScheme: "mysql", DataTarget: "/data/deploy", Healthcheck: []string{"CMD-SHELL", "mysql -h127.0.0.1 -P9030 -uroot -e 'select 1'"}},
+		{Slug: "doris", Name: "Apache Doris", NameZH: "Apache Doris", Description: "Apache Doris FE and BE on one host", Category: "analytics", Tier: experimental, Icon: "DO", Version: "2.1.11", Image: "apache/doris:fe-2.1.11", Architectures: both(), MinCPU: 4, MinMemory: 8 * GiB, MinDisk: 30 * GiB, Port: 9030, Username: "root", Database: "information_schema", Authentication: AuthenticationUsername, Scheme: "mysql", JDBCScheme: "mysql", Compose: dorisCompose(), Tuning: []string{"sysctl -w vm.max_map_count=2000000", "printf 'vm.max_map_count=2000000\\n' >/etc/sysctl.d/99-dbmock-doris.conf"}},
 	}
 }
 
 func both() []string { return []string{"amd64", "arm64"} }
+func builtinAuthentication(definition Definition) string {
+	if definition.Authentication != "" {
+		return definition.Authentication
+	}
+	return AuthenticationPassword
+}
 func maxFloat(a, b float64) float64 {
 	if a > b {
 		return a

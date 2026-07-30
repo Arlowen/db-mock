@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"path"
 	"sort"
@@ -15,6 +16,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	AuthenticationPassword = "password"
+	AuthenticationUsername = "username"
+	AuthenticationNone     = "none"
 )
 
 type RenderContext struct {
@@ -35,6 +42,7 @@ type RenderContext struct {
 type Manifest struct {
 	Username         string              `json:"username" yaml:"username"`
 	Database         string              `json:"database" yaml:"database"`
+	Authentication   string              `json:"authentication,omitempty" yaml:"authentication,omitempty"`
 	Scheme           string              `json:"scheme" yaml:"scheme"`
 	JDBCScheme       string              `json:"jdbcScheme" yaml:"jdbcScheme"`
 	ContainerPort    int                 `json:"containerPort" yaml:"containerPort"`
@@ -54,7 +62,41 @@ func ParseManifest(raw json.RawMessage) (Manifest, error) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return result, err
 	}
+	authentication, err := NormalizeAuthentication(result.Authentication)
+	if err != nil {
+		return Manifest{}, err
+	}
+	result.Authentication = authentication
 	return result, nil
+}
+
+func NormalizeAuthentication(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "", nil
+	}
+	switch value {
+	case AuthenticationPassword, AuthenticationUsername, AuthenticationNone:
+		return value, nil
+	default:
+		return "", fmt.Errorf("unsupported template authentication mode %q", value)
+	}
+}
+
+// AuthenticationMode keeps connection handoff accurate for template versions
+// seeded before authentication became explicit in immutable manifests.
+func AuthenticationMode(template domain.Template, manifest Manifest) string {
+	if manifest.Authentication != "" {
+		return manifest.Authentication
+	}
+	switch template.Slug {
+	case "cassandra":
+		return AuthenticationNone
+	case "tidb", "starrocks", "doris":
+		return AuthenticationUsername
+	default:
+		return AuthenticationPassword
+	}
 }
 
 // RequiredImageReferences returns the complete immutable image set required by
@@ -253,10 +295,26 @@ func Connection(template domain.Template, version domain.TemplateVersion, instan
 	manifest, _ := ParseManifest(version.Manifest)
 	username := instance.DatabaseUsername
 	database := instance.DatabaseName
-	userInfo := url.UserPassword(username, password)
+	authentication := AuthenticationMode(template, manifest)
+	var userInfo *url.Userinfo
+	switch authentication {
+	case AuthenticationPassword:
+		userInfo = url.UserPassword(username, password)
+	case AuthenticationUsername:
+		password = ""
+		userInfo = url.User(username)
+	case AuthenticationNone:
+		username = ""
+		password = ""
+	}
+	endpoint := net.JoinHostPort(address, strconv.Itoa(instance.HostPort))
 	uri := ""
 	if manifest.Scheme != "" {
-		uri = manifest.Scheme + "://" + userInfo.String() + "@" + address + ":" + strconv.Itoa(instance.HostPort)
+		uri = manifest.Scheme + "://"
+		if userInfo != nil && userInfo.String() != "" {
+			uri += userInfo.String() + "@"
+		}
+		uri += endpoint
 		if database != "" {
 			uri += "/" + url.PathEscape(database)
 		}
@@ -264,16 +322,16 @@ func Connection(template domain.Template, version domain.TemplateVersion, instan
 	jdbc := ""
 	if manifest.JDBCScheme != "" {
 		if manifest.JDBCScheme == "oracle:thin" {
-			jdbc = "jdbc:oracle:thin:@//" + address + ":" + strconv.Itoa(instance.HostPort) + "/" + url.PathEscape(database)
+			jdbc = "jdbc:oracle:thin:@//" + endpoint + "/" + url.PathEscape(database)
 		} else {
-			jdbc = "jdbc:" + manifest.JDBCScheme + "://" + address + ":" + strconv.Itoa(instance.HostPort)
+			jdbc = "jdbc:" + manifest.JDBCScheme + "://" + endpoint
 			if database != "" {
 				jdbc += "/" + url.PathEscape(database)
 			}
 		}
 	}
 	return domain.InstanceConnection{Address: address, Port: instance.HostPort, Username: username, Password: password,
-		Database: database, URI: uri, JDBC: jdbc}
+		Database: database, Authentication: authentication, URI: uri, JDBC: jdbc}
 }
 
 func escapeEnv(value string) string {

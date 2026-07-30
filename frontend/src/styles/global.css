@@ -139,6 +139,7 @@ button { font: inherit; }
 .wizard-mobile-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .wizard-mobile-progress .ant-progress { margin: 0; line-height: 1; }
 .wizard-readiness-alert, .wizard-capacity-alert, .wizard-submit-error { margin-top: 16px; }
+.wizard-authentication-alert { margin-bottom: 16px; }
 .wizard-host-select { margin-top: 20px; margin-bottom: 0; }
 .deployment-host-option { min-width: 0; padding-block: 2px; display: grid; gap: 3px; white-space: normal; }
 .deployment-host-option-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
@@ -275,6 +276,7 @@ button { font: inherit; }
 .health-facts .ant-typography-secondary { font-size: 12px; }
 .connection-card .ant-card-body { min-height: 300px; }
 .connection-status-alert { margin-bottom: 20px; }
+.connection-authentication-alert { margin-bottom: 18px; }
 .connection-gate { width: min(520px, 100%); margin: 22px auto 10px; text-align: center; }
 .connection-gate-icon { width: 52px; height: 52px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 15px; color: #2563eb; background: #edf4ff; font-size: 23px; }
 .connection-gate h4.ant-typography { margin-bottom: 8px; }

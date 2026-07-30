@@ -7,6 +7,7 @@ const labels: ConnectionHandoffLabels = {
   template: 'Database',
   environment: 'Environment',
   status: 'Status',
+  authentication: 'Authentication',
   dataVersion: 'Data version',
   backupCreatedAt: 'Backup created',
   restoreVerifiedAt: 'Restore verified',
@@ -25,6 +26,7 @@ const details = {
   templateVersion: '17',
   environment: 'Testing',
   status: 'Running',
+  authentication: 'Username and password',
   address: '10.0.0.8',
   port: 25432,
   username: 'app',
@@ -42,6 +44,7 @@ describe('connectionHandoffSummary', () => {
       'Database: PostgreSQL 17',
       'Environment: Testing',
       'Status: Running',
+      'Authentication: Username and password',
       'Address: 10.0.0.8',
       'Port: 25432',
       'Username: app',
@@ -56,6 +59,24 @@ describe('connectionHandoffSummary', () => {
     expect(connectionHandoffSummary({ ...details, jdbc: undefined }, labels)).not.toContain('JDBC URL:')
   })
 
+  it('does not invent credentials for a database without authentication', () => {
+    const summary = connectionHandoffSummary({
+      ...details,
+      authentication: 'No username or password',
+      username: '',
+      password: '',
+      database: '',
+      uri: 'cassandra://10.0.0.8:29042',
+      jdbc: undefined,
+    }, labels)
+
+    expect(summary).toContain('Authentication: No username or password')
+    expect(summary).toContain('Connection URI: cassandra://10.0.0.8:29042')
+    expect(summary).not.toContain('Username:')
+    expect(summary).not.toContain('Password:')
+    expect(summary).not.toContain('Database name:')
+  })
+
   it('includes durable restore evidence when the current data came from a backup', () => {
     const summary = connectionHandoffSummary({
       ...details,
@@ -66,6 +87,7 @@ describe('connectionHandoffSummary', () => {
 
     expect(summary).toContain([
       'Status: Running',
+      'Authentication: Username and password',
       'Data version: Orders release baseline',
       'Backup created: Jul 27, 2026, 4:00 PM',
       'Restore verified: Jul 28, 2026, 4:01 PM',

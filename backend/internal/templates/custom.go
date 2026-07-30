@@ -36,6 +36,7 @@ type PackageManifest struct {
 		MinDisk          int64               `yaml:"minDiskBytes"`
 		Username         string              `yaml:"username"`
 		Database         string              `yaml:"database"`
+		Authentication   string              `yaml:"authentication"`
 		Scheme           string              `yaml:"scheme"`
 		JDBCScheme       string              `yaml:"jdbcScheme"`
 		HostTuning       []string            `yaml:"hostTuning"`
@@ -182,6 +183,13 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 	if strings.ContainsAny(manifest.Spec.Version+manifest.Spec.Image, "\r\n\x00") {
 		return ValidatedPackage{}, errors.New("template version and image must be single-line values")
 	}
+	authentication, err := NormalizeAuthentication(manifest.Spec.Authentication)
+	if err != nil {
+		return ValidatedPackage{}, err
+	}
+	if authentication == "" {
+		authentication = AuthenticationPassword
+	}
 	if manifest.Spec.MinCPU <= 0 || manifest.Spec.MinMemory <= 0 || manifest.Spec.MinDisk <= 0 {
 		return ValidatedPackage{}, errors.New("positive minimum resources are required")
 	}
@@ -257,7 +265,8 @@ func validatePackage(filename string, ignorePlatformOwnedFiles bool) (ValidatedP
 		return ValidatedPackage{}, fmt.Errorf("validate Compose images: %w", err)
 	}
 	manifestJSON, _ := json.Marshal(Manifest{Username: manifest.Spec.Username, Database: manifest.Spec.Database,
-		Scheme: manifest.Spec.Scheme, JDBCScheme: manifest.Spec.JDBCScheme, ContainerPort: manifest.Spec.DefaultPort,
+		Authentication: authentication,
+		Scheme:         manifest.Spec.Scheme, JDBCScheme: manifest.Spec.JDBCScheme, ContainerPort: manifest.Spec.DefaultPort,
 		HostTuning: manifest.Spec.HostTuning, UpgradeScript: upgradeScript, ImageReferences: imageReferences,
 		Parameters: parameters, ResourceProfiles: resourceProfiles})
 	return ValidatedPackage{Template: store.TemplateInput{Slug: slug, Name: manifest.Metadata.Name,
