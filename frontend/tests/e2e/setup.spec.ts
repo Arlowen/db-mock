@@ -249,12 +249,28 @@ test('initializes the platform and switches the embedded interface language', as
       finishedAt: failed ? new Date().toISOString() : undefined,
     }] } })
   })
+  const frequentTemplateCatalog = JSON.parse(JSON.stringify(immutableCatalog)) as {
+    items: Array<{ slug: string; versions: Array<Record<string, unknown>> }>
+  }
+  for (const template of frequentTemplateCatalog.items) {
+    for (const version of template.versions) {
+      version.deploymentCount = 0
+      delete version.lastDeployedAt
+    }
+  }
+  const frequentPostgresVersion = frequentTemplateCatalog.items
+    .find((item) => item.slug === 'postgresql')?.versions
+    .find((item) => item.version === '17')
+  expect(frequentPostgresVersion).toBeTruthy()
+  frequentPostgresVersion!.deploymentCount = 5
+  frequentPostgresVersion!.lastDeployedAt = '2026-07-30T08:00:00Z'
+  await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: frequentTemplateCatalog }))
   await page.goto('/projects')
   const projectWithDefaultsCard = page.locator('.project-card').filter({ hasText: 'E2E Project' })
   await projectWithDefaultsCard.getByRole('button', { name: '创建数据库' }).click()
   const projectDefaultsDrawer = page.getByRole('dialog', { name: '创建数据库' })
   await expect(projectDefaultsDrawer).toBeVisible()
-  const projectTemplateSelect = projectDefaultsDrawer.getByLabel('模板 / 版本')
+  const projectTemplateSelect = projectDefaultsDrawer.getByLabel('模板 / 版本', { exact: true })
   await projectTemplateSelect.click()
   await projectTemplateSelect.press('ArrowDown')
   await projectTemplateSelect.press('Enter')
@@ -313,11 +329,13 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(createInstanceDrawer).toBeVisible()
   await expect(createInstanceDrawer.getByRole('button', { name: '上一步' })).toBeDisabled()
   await expect(createInstanceDrawer.getByRole('button', { name: '下一步' })).toBeVisible()
-  const templateSelect = createInstanceDrawer.getByLabel('模板 / 版本')
-  await templateSelect.click()
-  await expect(page.getByRole('option', { name: 'Apache Cassandra 5.0' })).toHaveAttribute('aria-label', 'Apache Cassandra 5.0')
-  await templateSelect.press('ArrowDown')
-  await templateSelect.press('Enter')
+  const templateSelect = createInstanceDrawer.getByLabel('模板 / 版本', { exact: true })
+  await expect(createInstanceDrawer.getByText('根据历史部署自动排序，选择后仍可检查兼容性。')).toBeVisible()
+  const frequentPostgresButton = createInstanceDrawer.getByRole('button', { name: '选择常用版本 PostgreSQL 17，历史部署 5 次' })
+  await frequentPostgresButton.click()
+  await expect(frequentPostgresButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(templateSelect).toBeVisible()
+  await expect(createInstanceDrawer.getByRole('heading', { name: 'PostgreSQL' })).toBeVisible()
   await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
   await createInstanceDrawer.getByLabel('名称').fill('E2E Database')
   await createInstanceDrawer.getByLabel('用途').fill('Release candidate regression')
@@ -369,6 +387,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute('**/api/v1/instances/batch-actions/stop')
   await page.unroute('**/api/v1/instances')
   await page.unroute('**/api/v1/hosts')
+  await page.unroute('**/api/v1/templates')
 
   const instanceID = '44444444-4444-4444-8444-444444444444'
   const upgradeVersionID = '56565656-5656-4565-8565-565656565656'

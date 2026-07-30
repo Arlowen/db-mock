@@ -123,6 +123,18 @@ button { font: inherit; }
 .wizard-form { margin-top: 28px; }
 .copy-deployment-banner { margin-top: 18px; }
 .copy-deployment-banner + .wizard-form { margin-top: 18px; }
+.frequent-template-versions { margin-bottom: 20px; padding: 14px; border: 1px solid #d8e4f7; border-radius: 11px; background: #f8faff; }
+.frequent-template-versions-header { margin-bottom: 11px; display: grid; gap: 2px; }
+.frequent-template-versions-header .ant-typography-secondary { font-size: 12px; }
+.frequent-template-version-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.frequent-template-version.ant-btn { min-width: 0; height: auto; min-height: 66px; padding: 9px 10px; border-color: #dce3ed; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; text-align: left; white-space: normal; background: #fff; }
+.frequent-template-version.ant-btn:hover { border-color: #7ca8ee; background: #fbfdff; }
+.frequent-template-version.ant-btn.is-selected { border-color: #2f73da; background: #eef5ff; box-shadow: 0 0 0 1px rgb(47 115 218 / 10%); }
+.frequent-template-version-copy { min-width: 0; display: grid; gap: 3px; }
+.frequent-template-version-copy strong, .frequent-template-version-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frequent-template-version-copy strong { color: #172033; font-size: 13px; }
+.frequent-template-version-copy small { color: #667085; font-size: 11px; font-weight: 400; }
+.frequent-template-version-check { color: #2563eb; }
 .wizard-mobile-progress { display: grid; gap: 8px; }
 .wizard-mobile-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .wizard-mobile-progress .ant-progress { margin: 0; line-height: 1; }
@@ -796,6 +808,7 @@ button { font: inherit; }
   .app-header { padding-inline: 16px !important; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
   .app-header-tools { justify-self: start; }
   .app-content { padding: 16px; }
+  .frequent-template-version-grid { grid-template-columns: minmax(0, 1fr); }
   .instance-action-request-description > div { grid-template-columns: 1fr; gap: 2px; }
   .instance-action-request-actions { width: 100%; }
   .workbench-stats > .ant-col { flex: 0 0 100%; max-width: 100%; }

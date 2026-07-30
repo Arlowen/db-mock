@@ -187,8 +187,13 @@ func (s *Store) GetTemplateVersion(ctx context.Context, id uuid.UUID) (domain.Te
 func (s *Store) ListTemplates(ctx context.Context) ([]domain.Template, error) {
 	rows, err := s.pool.Query(ctx, `SELECT t.id,t.slug,t.name,t.name_zh,t.description,t.category,t.tier,t.builtin,t.icon,
 		t.risk_report,t.created_at,t.updated_at,v.id,v.template_id,v.version,v.image_reference,v.architectures,
-		v.min_cpu,v.min_memory_bytes,v.min_disk_bytes,v.default_port,v.manifest,v.risk_report,v.selectable,v.immutable,v.created_at
+		v.min_cpu,v.min_memory_bytes,v.min_disk_bytes,v.default_port,v.manifest,v.risk_report,v.selectable,v.immutable,v.created_at,
+		COALESCE(usage.deployment_count,0),usage.last_deployed_at
         FROM templates t LEFT JOIN template_versions v ON v.template_id=t.id
+        LEFT JOIN (
+          SELECT i.template_version_id,count(*)::integer AS deployment_count,max(i.created_at) AS last_deployed_at
+          FROM instances i GROUP BY i.template_version_id
+        ) usage ON usage.template_version_id=v.id
         ORDER BY CASE t.tier WHEN 'standard' THEN 1 WHEN 'experimental' THEN 2 ELSE 3 END,lower(t.name),v.created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -203,7 +208,8 @@ func (s *Store) ListTemplates(ctx context.Context) ([]domain.Template, error) {
 			&item.Category, &item.Tier, &item.Builtin, &item.Icon, &item.RiskReport, &item.CreatedAt,
 			&item.UpdatedAt, &version.ID, &version.TemplateID, &version.Version, &version.ImageReference,
 			&version.Architectures, &version.MinCPU, &version.MinMemoryBytes, &version.MinDiskBytes,
-			&version.DefaultPort, &version.Manifest, &version.RiskReport, &version.Selectable, &version.Immutable, &version.CreatedAt); err != nil {
+			&version.DefaultPort, &version.Manifest, &version.RiskReport, &version.Selectable, &version.Immutable,
+			&version.CreatedAt, &version.DeploymentCount, &version.LastDeployedAt); err != nil {
 			return nil, err
 		}
 		position, ok := index[item.ID]

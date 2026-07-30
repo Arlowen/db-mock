@@ -19,6 +19,7 @@ import { failedBackupDeleteRecoveries } from '../lib/backup-delete-recovery'
 import { cleanupContinuationPhase, cleanupEvidenceState, hasActiveBackupOperation, type CleanupEvidenceState } from '../lib/cleanup-continuation'
 import { connectionHandoffSummary } from '../lib/connection-handoff'
 import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
+import { frequentTemplateVersions } from '../lib/frequent-template-versions'
 import { hostCanAccept, hostCanReconfigure, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
@@ -186,6 +187,7 @@ export function InstancesPage() {
   const requestedHostPort = Form.useWatch('hostPort', { form, preserve: true })
   const submittedTemplateParameters = Form.useWatch('templateParameters', { form, preserve: true })
   const selected = useMemo(() => { for (const item of templates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable !== false) return { template: item, version }; return undefined }, [templates, selectedVersionID])
+  const frequentVersions = useMemo(() => frequentTemplateVersions(templates), [templates])
   const selectedProject = projects.find((project) => project.id === selectedProjectID)
   const selectedTemplateParameters = useMemo(() => templateParameters(selected?.version), [selected])
   const selectedResourceProfiles = useMemo(() => templateResourceProfiles(selected?.version), [selected])
@@ -228,6 +230,14 @@ export function InstancesPage() {
     const project = projects.find((candidate) => candidate.id === projectID)
     form.setFieldsValue(projectDeploymentValues(project))
     setAppliedProjectDefaultsID(project?.id || '')
+  }
+  const chooseTemplateVersion = (value: string) => {
+    form.setFieldValue('templateVersionId', value)
+    setCreateDraftDirty(true)
+    if (copySource && value !== copySource.templateVersionId) {
+      setCopySource(undefined)
+      applyProjectDefaults(selectedProjectID)
+    }
   }
   const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } const project = projects.find((candidate) => candidate.id === projectFilter); copyPrefillApplied.current = false; setCopySource(undefined); setDrawer(true); setStep(0); setCreateError(''); setCreateDraftDirty(false); setAppliedProjectDefaultsID(project?.id || ''); form.resetFields(); form.setFieldsValue({ bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', projectId: projectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(project) }) }
   const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields() }
@@ -583,12 +593,42 @@ export function InstancesPage() {
         {bulkRequestError && <Alert type="error" showIcon message={t('batchRequestFailed')} description={bulkRequestError} />}
       </div>
     </Modal>
-    <Drawer title={copySource ? t('copyDeploymentTitle', { name: copySource.name }) : t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateError(''); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && (!imageSourceReady || (imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0)))} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
+    <Drawer title={copySource ? t('copyDeploymentTitle', { name: copySource.name }) : t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateError(''); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && (!imageSourceReady || (imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0)))} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
       {copySource && <Alert className="copy-deployment-banner" type="success" showIcon message={t('copyDeploymentPrepared', { name: copySource.name })} description={t('copyDeploymentPreparedHint')} />}
       {requestedCopySourceUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentSourceUnavailable')} description={t('copyDeploymentSourceUnavailableHint')} />}
       {requestedCopyTemplateUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentTemplateUnavailable')} description={t('copyDeploymentTemplateUnavailableHint')} />}
       <Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
-      {step === 0 && <><Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" onChange={(value) => { if (copySource && value !== copySource.templateVersionId) { setCopySource(undefined); applyProjectDefaults(selectedProjectID) } }} optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>{selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{templateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}{selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}</>}
+      {step === 0 && <>
+        {frequentVersions.length > 0 && <section className="frequent-template-versions" aria-label={t('frequentTemplateVersions')}>
+          <div className="frequent-template-versions-header">
+            <Typography.Text strong>{t('frequentTemplateVersions')}</Typography.Text>
+            <Typography.Text type="secondary">{t('frequentTemplateVersionsHint')}</Typography.Text>
+          </div>
+          <div className="frequent-template-version-grid">
+            {frequentVersions.map(({ template, version }) => {
+              const displayName = localizedTemplateText(template.name, template.nameZh, i18n.language)
+              const selectedFrequentlyUsed = selectedVersionID === version.id
+              return <Button
+                key={version.id}
+                className={`frequent-template-version${selectedFrequentlyUsed ? ' is-selected' : ''}`}
+                aria-pressed={selectedFrequentlyUsed}
+                aria-label={t('selectFrequentTemplateVersion', { name: displayName, version: version.version, count: version.deploymentCount || 0 })}
+                onClick={() => chooseTemplateVersion(version.id)}
+              >
+                <DatabaseIcon slug={template.slug} name={displayName} size="small" />
+                <span className="frequent-template-version-copy">
+                  <strong>{displayName} {version.version}</strong>
+                  <small>{t('historicalDeploymentCount', { count: version.deploymentCount || 0 })}</small>
+                </span>
+                {selectedFrequentlyUsed && <CheckCircleOutlined className="frequent-template-version-check" />}
+              </Button>
+            })}
+          </div>
+        </section>}
+        <Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" onChange={chooseTemplateVersion} optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>
+        {selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{templateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}
+        {selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
+      </>}
       {step === 1 && <>
         {hasProjectDeploymentDefaults(selectedProject) && (copySource && appliedProjectDefaultsID !== selectedProject?.id
           ? <Alert className="project-defaults-banner" type="info" showIcon message={t('projectDefaultsAvailableForCopy', { name: selectedProject?.name })} description={t('projectDefaultsAvailableForCopyHint')} action={<Button size="small" onClick={() => applyProjectDefaults(selectedProject?.id)}>{t('applyProjectDefaults')}</Button>} />

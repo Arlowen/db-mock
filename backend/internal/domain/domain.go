@@ -158,6 +158,8 @@ type TemplateVersion struct {
 	Selectable      bool            `json:"selectable"`
 	Immutable       bool            `json:"immutable"`
 	CreatedAt       time.Time       `json:"createdAt"`
+	DeploymentCount int             `json:"deploymentCount"`
+	LastDeployedAt  *time.Time      `json:"lastDeployedAt,omitempty"`
 }
 
 type Instance struct {
