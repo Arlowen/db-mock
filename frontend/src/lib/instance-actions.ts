@@ -1,12 +1,11 @@
 import type { Instance, Task } from './types'
 
-export type InstanceQuickAction = 'start' | 'stop'
-export type InstanceBatchAction = InstanceQuickAction | 'restart'
+export type InstanceBatchAction = 'start' | 'stop' | 'restart'
 
-export function instanceQuickAction(status: string): InstanceQuickAction | null {
-  if (status === 'running' || status === 'degraded') return 'stop'
-  if (status === 'stopped') return 'start'
-  return null
+export function instanceListActions(status: string): InstanceBatchAction[] {
+  if (status === 'running' || status === 'degraded') return ['restart', 'stop']
+  if (status === 'stopped') return ['start']
+  return []
 }
 
 export interface InstanceBatchActionPlan {
@@ -36,6 +35,8 @@ export interface InstanceBatchActionResponse {
 
 export interface InstanceBatchActionResult extends InstanceBatchActionResponse {
   skipped: Instance[]
+  source?: 'row' | 'selection'
+  contextName?: string
 }
 
 export interface InstanceBatchTaskGroups {

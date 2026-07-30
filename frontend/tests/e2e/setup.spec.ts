@@ -222,6 +222,8 @@ test('initializes the platform and switches the embedded interface language', as
     await route.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'invalid input: e2e submission stopped' } } })
   })
   const batchStopBodies: Array<{ instanceIds: string[] }> = []
+  const singleRestartBodies: Array<{ instanceIds: string[] }> = []
+  let singleRestartAttempt = 0
   let batchStopAttempt = 0
   let batchTaskPolls = 0
   const acceptedBatchTask = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', kind: 'instance.stop', status: 'queued', resourceType: 'instance', resourceId: listInstances[0].id, hostId: listInstances[0].hostId, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
@@ -233,6 +235,15 @@ test('initializes the platform and switches the embedded interface language', as
       return
     }
     await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, task: acceptedBatchTask }], rejected: [] } })
+  })
+  await page.route('**/api/v1/instances/batch-actions/restart', async (route) => {
+    singleRestartAttempt += 1
+    singleRestartBodies.push(route.request().postDataJSON() as { instanceIds: string[] })
+    if (singleRestartAttempt === 1) {
+      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: lifecycle dispatcher is unavailable' } } })
+      return
+    }
+    await route.fulfill({ status: 200, json: { action: 'restart', accepted: [], rejected: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' }] } })
   })
   await page.route('**/api/v1/tasks?ids=*', async (route) => {
     batchTaskPolls += 1
@@ -288,6 +299,34 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByText('共 2 个实例')).toBeVisible()
   const ordersRow = page.getByRole('row').filter({ hasText: 'Orders DB' })
   const cacheRow = page.getByRole('row').filter({ hasText: 'Staging Cache' })
+  const ordersRuntimeActions = ordersRow.getByRole('button', { name: '运行操作 · Orders DB' })
+  await expect(ordersRuntimeActions).toBeVisible()
+  await ordersRuntimeActions.click()
+  await expect(page.getByRole('menuitem', { name: '停止' })).toBeVisible()
+  await page.getByRole('menuitem', { name: '重启' }).click()
+  let singleRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
+  await expect(singleRestartDialog.getByText('现有数据库连接将短暂中断')).toBeVisible()
+  await expect(singleRestartDialog.getByText('Orders DB · 运行中')).toBeVisible()
+  expect(singleRestartBodies).toEqual([])
+  await singleRestartDialog.getByRole('button', { name: /取\s*消/ }).click()
+  await ordersRuntimeActions.click()
+  await page.getByRole('menuitem', { name: '重启' }).click()
+  singleRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
+  await singleRestartDialog.getByRole('button', { name: '确认重启' }).click()
+  await expect(singleRestartDialog.getByText('重启请求未创建任务')).toBeVisible()
+  await expect(singleRestartDialog.getByText('本次请求没有创建任务，数据库运行状态未因本次请求改变。')).toBeVisible()
+  expect(singleRestartBodies).toEqual([{ instanceIds: [listInstances[0].id] }])
+  await singleRestartDialog.getByRole('button', { name: '确认重启' }).click()
+  await expect(page.getByText('Orders DB：重启未排队')).toBeVisible()
+  await expect(page.getByText(/暂时无法通过 SSH 连接实例主机/)).toBeVisible()
+  expect(singleRestartBodies).toEqual([{ instanceIds: [listInstances[0].id] }, { instanceIds: [listInstances[0].id] }])
+  await page.getByRole('button', { name: '关闭提示' }).click()
+  const cacheRuntimeActions = cacheRow.getByRole('button', { name: '运行操作 · Staging Cache' })
+  await cacheRuntimeActions.click()
+  await expect(page.getByRole('menuitem', { name: '启动' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '停止' })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: '重启' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await ordersRow.getByRole('checkbox').check()
   await cacheRow.getByRole('checkbox').check()
   await expect(page.getByText('已选择 2 个实例')).toBeVisible()

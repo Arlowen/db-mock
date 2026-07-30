@@ -470,6 +470,9 @@ button { font: inherit; }
 .instance-table-card .ant-table-cell { vertical-align: middle; }
 .instance-table-name.ant-btn { display: block; max-width: 100%; height: auto; padding-inline: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .instance-row-actions { flex: none; white-space: nowrap; }
+.instance-row-actions .ant-btn { display: inline-flex; align-items: center; justify-content: center; }
+.instance-row-lifecycle-label { font-size: 12px; font-weight: 600; }
+.instance-action-request-error { display: grid; gap: 5px; }
 .instance-mobile-summary { min-width: 0; display: grid; gap: 12px; }
 .instance-mobile-summary-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .instance-mobile-summary-header .instance-table-name { min-width: 0; font-weight: 700; }
@@ -837,6 +840,7 @@ button { font: inherit; }
   .app-header { padding-inline: 16px !important; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
   .app-header-tools { justify-self: start; }
   .app-content { padding: 16px; }
+  .instance-row-lifecycle-label { display: none; }
   .frequent-template-version-grid { grid-template-columns: minmax(0, 1fr); }
   .instance-action-request-description > div { grid-template-columns: 1fr; gap: 2px; }
   .instance-action-request-actions { width: 100%; }
