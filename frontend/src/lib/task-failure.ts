@@ -53,6 +53,22 @@ function impactKey(kind: string) {
 }
 
 export function taskFailureGuidance(task: Pick<Task, 'kind' | 'errorCode'> & Partial<Pick<Task, 'status' | 'result'>>): TaskFailureGuidance {
+  if (task.status === 'canceled') {
+    return {
+      causeKey: 'taskFailureCause_task_canceled',
+      impactKey: impactKey(task.kind),
+      recoveryKey: 'taskFailureRecovery_task_canceled',
+      inspectHost: false,
+    }
+  }
+  if (task.status === 'interrupted') {
+    return {
+      causeKey: 'taskFailureCause_task_interrupted',
+      impactKey: impactKey(task.kind),
+      recoveryKey: 'taskFailureRecovery_task_interrupted',
+      inspectHost: false,
+    }
+  }
   const code = task.errorCode && knownFailureCodes.has(task.errorCode) ? task.errorCode : 'task_failed'
   const restore = restoreOutcome(task)
   if (restore) {

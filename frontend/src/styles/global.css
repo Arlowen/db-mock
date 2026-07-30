@@ -218,9 +218,12 @@ button { font: inherit; }
 .instance-operation-copy { min-width: 0; }
 .instance-operation-copy .ant-tag { margin-inline-end: 0; }
 .instance-operation-copy .ant-typography { margin: 5px 0 0; line-height: 1.45; }
-.instance-operation-next { display: block; }
+.instance-operation-next { display: grid; gap: 2px; }
+.instance-operation-next .ant-typography { margin-top: 0; }
 .instance-operation-progress { margin: 0; }
 .instance-operation-actions { justify-self: end; }
+.instance-operation-action-error { grid-column: 1 / -1; width: 100%; }
+.instance-operation-action-error-copy { display: grid; gap: 4px; line-height: 1.5; }
 .restore-outcome-alert { margin-bottom: 16px; border-radius: 12px; }
 .restore-outcome-alert .ant-alert-content { min-width: 0; width: 100%; }
 .restore-outcome-body { display: grid; gap: 12px; line-height: 1.5; }
@@ -765,8 +768,10 @@ button { font: inherit; }
 }
 
 @media (max-width: 1100px) {
-  .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
-  .instance-operation.is-failed .instance-operation-actions { justify-self: start; }
+  .app-header { padding-inline: 22px !important; gap: 14px; }
+  .header-language-label, .desktop-only { display: none; }
+  .instance-operation, .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
+  .instance-operation-actions { justify-self: start; }
   .instance-bulk-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
   .instance-bulk-result .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 10px; }
   .cleanup-batch-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
@@ -775,8 +780,6 @@ button { font: inherit; }
 
 @media (max-width: 1000px) {
   .app-content { padding: 22px; }
-  .app-header { padding-inline: 22px !important; gap: 14px; }
-  .header-language-label, .desktop-only { display: none; }
   .page-header p.ant-typography { max-width: 48ch; }
   .auth-shell { padding: 28px; }
   .metric-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -964,9 +967,12 @@ button { font: inherit; }
   .instance-handoff-footer > .ant-btn { width: 100%; }
   .instance-handoff-footer > .ant-space { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
   .instance-handoff-footer > .ant-space .ant-btn { width: 100%; }
-  .instance-detail-tabs > .ant-tabs-nav { align-items: stretch; flex-direction: column; gap: 10px; }
-  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-nav-wrap { width: 100%; min-width: 0; }
-  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-extra-content { width: 100%; min-width: 0; }
+  .instance-detail-tabs > .ant-tabs-nav { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 10px 0; }
+  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-nav-wrap { grid-column: 1; grid-row: 1; width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-nav-wrap::-webkit-scrollbar { display: none; }
+  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-nav-list { transform: none !important; }
+  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-nav-operations { display: none; }
+  .instance-detail-tabs > .ant-tabs-nav .ant-tabs-extra-content { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; }
   .instance-detail-tabs > .ant-tabs-nav .ant-tabs-extra-content > .ant-space {
     width: 100%;
     display: grid;

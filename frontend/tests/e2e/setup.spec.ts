@@ -787,13 +787,33 @@ test('initializes the platform and switches the embedded interface language', as
   const deploymentTaskID = '99999999-9999-4999-8999-999999999999'
   relatedTasks = [{ id: deploymentTaskID, kind: 'instance.create', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
   const deploymentTaskListRoute = /\/api\/v1\/tasks(?:\?.*)?$/
+  let deploymentCancelAttempts = 0
   await page.route(deploymentTaskListRoute, async (route) => route.fulfill({ json: { items: relatedTasks } }))
   await page.route(`**/api/v1/tasks/${deploymentTaskID}`, async (route) => route.fulfill({ json: relatedTasks[0] }))
   await page.route(`**/api/v1/tasks/${deploymentTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/tasks/${deploymentTaskID}/cancel`, async (route) => {
+    deploymentCancelAttempts += 1
+    if (deploymentCancelAttempts === 1) {
+      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task service outage' } } })
+      return
+    }
+    relatedTasks = [{ ...relatedTasks[0], cancelAsked: true }]
+    await route.fulfill({ status: 202, json: relatedTasks[0] })
+  })
   await page.reload()
   await expect(page.getByText('42%', { exact: true })).toBeVisible()
   await expect(page.getByText('正在准备数据库镜像')).toBeVisible()
-  await expect(page.getByText('下一步：部署完成后，本页会提供连接信息交付入口。')).toBeVisible()
+  await expect(page.getByText('系统下一步：渲染 Compose 配置。')).toBeVisible()
+  await expect(page.getByText('全部阶段完成后，本页将直接切换为连接信息交付入口。')).toBeVisible()
+  await page.getByRole('button', { name: '取消部署' }).click()
+  await expect(page.getByText('任务会在下一个安全检查点停止，并按操作策略恢复资源状态。')).toBeVisible()
+  await page.getByRole('button', { name: /确\s*认/ }).click()
+  await expect(page.getByText('取消部署请求未完成')).toBeVisible()
+  await expect(page.getByText(/本次请求没有改变任务，部署仍可能继续/)).toBeVisible()
+  await page.getByRole('button', { name: '取消部署' }).click()
+  await page.getByRole('button', { name: /确\s*认/ }).click()
+  await expect(page.getByText('已请求取消，正在等待任务到达安全检查点。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '取消部署' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '查看任务' })).toBeVisible()
   await page.getByRole('button', { name: '查看任务' }).click()
   let deploymentTaskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
@@ -829,6 +849,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(deploymentTaskListRoute)
   await page.unroute(`**/api/v1/tasks/${deploymentTaskID}`)
   await page.unroute(`**/api/v1/tasks/${deploymentTaskID}/logs`)
+  await page.unroute(`**/api/v1/tasks/${deploymentTaskID}/cancel`)
 
   const restoredBackupCreatedAt = '2026-07-27T08:00:00.000Z'
   const restoreHealthVerifiedAt = '2026-07-28T08:01:00.000Z'
@@ -2003,6 +2024,10 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(viewerRestoreVerification.getByRole('button', { name: '查看恢复任务' })).toBeVisible()
   await expect(viewerRestoreVerification.getByRole('button', { name: '查看目标备份' })).toBeVisible()
   const viewerDeploymentTask = { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }
+  viewerInstanceTasks = [{ ...viewerDeploymentTask, status: 'running', progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, finishedAt: undefined }]
+  await developerPage.reload()
+  await expect(developerPage.getByText('系统下一步：渲染 Compose 配置。')).toBeVisible()
+  await expect(developerPage.getByRole('button', { name: '取消部署' })).toHaveCount(0)
   viewerInstanceTasks = [viewerDeploymentTask]
   await developerPage.reload()
   await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()

@@ -54,6 +54,19 @@ describe('taskFailureGuidance', () => {
       .toBe('taskFailureImpact_instance_backup')
   })
 
+  it('explains canceled and interrupted operations without calling them unknown failures', () => {
+    expect(taskFailureGuidance({ kind: 'instance.create', status: 'canceled', errorCode: 'canceled' })).toMatchObject({
+      causeKey: 'taskFailureCause_task_canceled',
+      recoveryKey: 'taskFailureRecovery_task_canceled',
+      inspectHost: false,
+    })
+    expect(taskFailureGuidance({ kind: 'instance.create', status: 'interrupted', errorCode: 'application_restarted' })).toMatchObject({
+      causeKey: 'taskFailureCause_task_interrupted',
+      recoveryKey: 'taskFailureRecovery_task_interrupted',
+      inspectHost: false,
+    })
+  })
+
   it('explains an unshared Docker Desktop bind path as a host failure', () => {
     expect(taskFailureGuidance({ kind: 'instance.create', errorCode: 'host_path_not_shared' })).toMatchObject({
       causeKey: 'taskFailureCause_host_path_not_shared',

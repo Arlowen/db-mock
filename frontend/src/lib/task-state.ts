@@ -4,6 +4,17 @@ const activeStatuses = new Set(['queued', 'running', 'retrying'])
 const cancellationPendingStatuses = new Set(['queued', 'running'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
 const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'reconfiguring', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded'])
+const deploymentNextSteps: Record<string, string> = {
+  queued: 'preflight',
+  starting: 'preflight',
+  preflight: 'tuning',
+  tuning: 'image',
+  image: 'render',
+  render: 'compose',
+  compose: 'health',
+  health: 'handoff',
+  finalize: 'handoff',
+}
 
 export type DeploymentTaskJourneyState = 'active' | 'ready' | 'incomplete'
 
@@ -19,6 +30,15 @@ export function isRecoverableInstanceStatus(status: string) {
 
 export function isTaskCancellationPending(task: Task) {
   return task.cancelAsked && cancellationPendingStatuses.has(task.status)
+}
+
+export function canCancelTask(task: Task) {
+  return task.cancelable && !task.cancelAsked && cancellationPendingStatuses.has(task.status)
+}
+
+export function deploymentTaskNextStep(task: Task) {
+  if (task.kind.replaceAll('_', '.') !== 'instance.create' || !activeStatuses.has(task.status) || task.cancelAsked) return undefined
+  return deploymentNextSteps[task.stage.replaceAll('.', '_')]
 }
 
 export function selectRecoveryTasks(tasks: Task[], recoverable: boolean) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deploymentTaskJourney, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
+import { canCancelTask, deploymentTaskJourney, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -117,5 +117,43 @@ describe('task cancellation state', () => {
       finished.cancelAsked = true
       expect(isTaskCancellationPending(finished)).toBe(false)
     }
+  })
+
+  it('allows one safe cancellation request while a task is cancelable and active', () => {
+    const running = task('running', 'running', '2026-07-19T00:02:00Z')
+    running.cancelable = true
+    expect(canCancelTask(running)).toBe(true)
+
+    running.cancelAsked = true
+    expect(canCancelTask(running)).toBe(false)
+    running.cancelAsked = false
+    running.status = 'succeeded'
+    expect(canCancelTask(running)).toBe(false)
+  })
+})
+
+describe('deployment next step', () => {
+  it('explains the next automatic stage throughout instance creation', () => {
+    const create = {
+      ...task('create', 'running', '2026-07-19T00:02:00Z'),
+      kind: 'instance.create',
+    }
+
+    expect(deploymentTaskNextStep({ ...create, stage: 'preflight' })).toBe('tuning')
+    expect(deploymentTaskNextStep({ ...create, stage: 'image' })).toBe('render')
+    expect(deploymentTaskNextStep({ ...create, stage: 'compose' })).toBe('health')
+    expect(deploymentTaskNextStep({ ...create, stage: 'health' })).toBe('handoff')
+  })
+
+  it('does not promise a next stage after cancellation is requested or the task ends', () => {
+    const create = {
+      ...task('create', 'running', '2026-07-19T00:02:00Z'),
+      kind: 'instance.create',
+      stage: 'image',
+    }
+
+    expect(deploymentTaskNextStep({ ...create, cancelAsked: true })).toBeUndefined()
+    expect(deploymentTaskNextStep({ ...create, status: 'failed' })).toBeUndefined()
+    expect(deploymentTaskNextStep({ ...create, kind: 'instance.restart' })).toBeUndefined()
   })
 })

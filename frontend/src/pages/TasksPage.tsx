@@ -16,7 +16,7 @@ import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask, taskRecoveryHostID } from '../lib/task-recovery'
 import { taskResourceReference } from '../lib/task-resource'
 import { restoreVerification } from '../lib/restore-verification'
-import { deploymentTaskJourney, isTaskCancellationPending } from '../lib/task-state'
+import { canCancelTask, deploymentTaskJourney, isTaskCancellationPending } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import type { Host, Instance, Task } from '../lib/types'
 
@@ -140,7 +140,6 @@ export function TasksPage() {
   const continueCreation = () => { if (!continueTo) return; setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); navigate(continueTo) }
   const goToResource = (task: Task) => { const resource = resourceLink(task); if (!resource.path) return; closeDetail(); navigate(resource.path) }
   const canRetry = (task: Task) => ['failed', 'canceled', 'interrupted'].includes(task.status)
-  const canCancel = (task: Task) => task.cancelable && !task.cancelAsked && ['queued', 'running'].includes(task.status)
 
   const action = async (item: Task, name: 'cancel' | 'retry') => {
     const key = `${item.id}:${name}`
@@ -212,7 +211,7 @@ export function TasksPage() {
       : undefined
     const recoveryPath = canRetry(task) && taskFailureGuidance(task).inspectHost ? taskHostRecoveryPathForTask(task) : undefined
     const retryable = canOperate && canRetry(task) && !recoveryPath
-    const cancelable = canOperate && canCancel(task)
+    const cancelable = canOperate && canCancelTask(task)
     if (!deploymentDestination && !recoveryPath && !retryable && !cancelable) return null
     return <Space className="task-table-actions">
       {deploymentDestination && <Button size="small" icon={<DatabaseOutlined />} onClick={() => navigate(deploymentDestination)}>{t(canReadCredentials ? 'openConnectionHandoff' : 'viewDatabase')}</Button>}
@@ -249,7 +248,7 @@ export function TasksPage() {
   }
   const showResourceFooterAction = !!selectedResource?.path && !selectedDeploymentJourney
   const hasDrawerLeadingAction = showResourceFooterAction || !!(canOperate && continueTo)
-  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancel(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancelTask(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />

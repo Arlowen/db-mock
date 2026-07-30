@@ -1,5 +1,5 @@
 import { CheckCircleOutlined, ClockCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExportOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SafetyCertificateOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
-import { Alert, App, AutoComplete, Button, Card, Col, DatePicker, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, App, AutoComplete, Button, Card, Col, DatePicker, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Popconfirm, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import type { TFunction } from 'i18next'
 import { type Key, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -34,7 +34,7 @@ import { restoreOutcome } from '../lib/restore-outcome'
 import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
-import { isRecoverableInstanceStatus, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
+import { canCancelTask, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { templateAuthentication } from '../lib/template-authentication'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
@@ -996,6 +996,7 @@ export function InstanceDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [actioning, setActioning] = useState('')
+  const [taskCancellationFailure, setTaskCancellationFailure] = useState<{ taskId: string; message: string }>()
   const [lifecycleRequestFailure, setLifecycleRequestFailure] = useState<{ action: InstanceLifecycleAction; code: string; message: string }>()
   const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab || '') ? requestedTab! : 'overview')
   const [editForm] = Form.useForm<EditValues>()
@@ -1276,6 +1277,21 @@ export function InstanceDetailPage() {
       await load()
     } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
   }
+  const cancelOperationTask = async (task: Task) => {
+    try {
+      setActioning('cancel-task')
+      setTaskCancellationFailure(undefined)
+      const canceled = await api<Task>(`/tasks/${task.id}/cancel`, { method: 'POST', body: {} })
+      setTasks((current) => current.map((candidate) => candidate.id === canceled.id ? canceled : candidate))
+      message.success(t(canceled.status === 'canceled' ? 'taskCanceledImmediately' : 'cancelRequested'))
+      await load()
+    } catch (error) {
+      setTaskCancellationFailure({ taskId: task.id, message: errorMessage(error) })
+      await load()
+    } finally {
+      setActioning('')
+    }
+  }
   const retryBackupDelete = async (task: Task) => {
     const actionKey = `retry-backup-delete:${task.id}`
     try {
@@ -1309,19 +1325,31 @@ export function InstanceDetailPage() {
       <Button size="small" type="text" onClick={() => setLifecycleRequestFailure(undefined)}>{t('dismiss')}</Button>
     </Space>}
   />
+  const deploymentNextStep = operationTask ? deploymentTaskNextStep(operationTask) : undefined
+  const deploymentCancellationFailure = operationTask && taskCancellationFailure?.taskId === operationTask.id ? taskCancellationFailure : undefined
   const operationPanel = operationTask && (!latestRestoreOutcome || activeTask || operationTask.id !== restoreOutcomeTask?.id) && <div className={`instance-operation is-${activeTask ? 'active' : 'failed'}`}>
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={operationTask.status} /><Typography.Text strong>{translateCode(t, operationTask.kind, 'taskKind')}</Typography.Text><Typography.Text type="secondary">· {translateCode(t, operationTask.stage, 'taskStage')}</Typography.Text></Space>
       {activeTask
-        ? <><Typography.Paragraph type="secondary">{translateCode(t, operationTask.message, 'taskMessage')}</Typography.Paragraph>{deploymentHandoff?.state === 'active' && deploymentHandoff.task.id === operationTask.id && <Typography.Text type="secondary" className="instance-operation-next">{t('deploymentInProgressNextStep')}</Typography.Text>}</>
+        ? <>
+            <Typography.Paragraph type="secondary">{translateCode(t, operationTask.message, 'taskMessage')}</Typography.Paragraph>
+            {isTaskCancellationPending(operationTask)
+              ? <Typography.Text type="warning" className="instance-operation-next">{t('taskCancelPending')}</Typography.Text>
+              : deploymentHandoff?.state === 'active' && deploymentHandoff.task.id === operationTask.id && <div className="instance-operation-next">
+                  {deploymentNextStep && <Typography.Text strong>{t('deploymentAutomaticNextStep', { step: t(`deploymentNextStep_${deploymentNextStep}`) })}</Typography.Text>}
+                  <Typography.Text type="secondary">{t('deploymentInProgressNextStep')}</Typography.Text>
+                </div>}
+          </>
         : <TaskFailureGuidance task={operationTask} hostName={item.hostName} />}
     </div>
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space wrap className="instance-operation-actions">
       {failedHostRecoveryPath && <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(failedHostRecoveryPath)}>{t('inspectFailedHost')}</Button>}
       {canOperate && failedTask && !activeTask && !failedHostRecoveryPath && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
+      {canOperate && activeTask && canCancelTask(operationTask) && <Popconfirm title={t('cancelDeployment')} description={t(operationTask.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void cancelOperationTask(operationTask)}><Button danger icon={<CloseCircleOutlined />} loading={actioning === 'cancel-task'} disabled={!!actioning && actioning !== 'cancel-task'}>{t('cancelDeployment')}</Button></Popconfirm>}
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>
+    {deploymentCancellationFailure && <Alert className="instance-operation-action-error" type="error" showIcon message={t('deploymentCancelFailed')} description={<div className="instance-operation-action-error-copy"><span>{deploymentCancellationFailure.message}</span><span>{t(canCancelTask(operationTask) ? 'deploymentCancelFailedRetryHint' : 'deploymentCancelFailedRefreshHint')}</span></div>} />}
   </div>
   const restoreOutcomePanel = latestRestoreOutcome && restoreOutcomeTask && !activeTask && <Alert
     className="restore-outcome-alert"
