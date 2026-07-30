@@ -1711,7 +1711,7 @@ test('initializes the platform and switches the embedded interface language', as
     lifecycleItems = []
     await route.fulfill({ status: 202, json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'queued', resourceType: 'instance', resourceId: cleanupReadyID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
   })
-  await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}`, async (route) => route.fulfill({ json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'succeeded', resourceType: 'instance', resourceId: cleanupReadyID, progress: 100, stage: 'completed', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() } }))
+  await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}`, async (route) => route.fulfill({ json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'succeeded', resourceType: 'instance', resourceId: cleanupReadyID, progress: 100, stage: 'completed', message: 'task_completed', result: { instanceId: cleanupReadyID, instanceName: cleanupReady.name, hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', releasedHostPort: 26379, releasedBindAddress: '0.0.0.0', composeProjectRemoved: true, managedDirectoryRemoved: true, status: 'deleted' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() } }))
   await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
 
   await page.goto('/')
@@ -1783,7 +1783,13 @@ test('initializes the platform and switches the embedded interface language', as
   await queueDeleteButton.click()
   await expect(page.getByText('永久删除任务已创建')).toBeVisible()
   await expect(deleteCleanupDialog).toBeHidden()
-  await expect(page.getByText('未来 7 天没有需要确认清理的数据库。平台不会因到期自动停机或删除。')).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${cleanupDeleteTaskID}$`))
+  const cleanupDeleteTaskDrawer = page.getByRole('dialog', { name: /删除数据库实例.*44444444/ })
+  await expect(cleanupDeleteTaskDrawer.getByText(`“${cleanupReady.name}”已安全删除`)).toBeVisible()
+  await expect(cleanupDeleteTaskDrawer.getByText('0.0.0.0:26379', { exact: true })).toBeVisible()
+  await expect(cleanupDeleteTaskDrawer.getByText('Compose 项目与托管目录', { exact: true })).toBeVisible()
+  await expect(cleanupDeleteTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
+  await expect(cleanupDeleteTaskDrawer.getByRole('button', { name: '返回数据库实例' })).toBeVisible()
 
   await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}`)
@@ -1994,7 +2000,10 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(viewerSourceInstanceRow.getByRole('button', { name: /复制连接交付/ })).toHaveCount(0)
   await expect(developerPage.getByRole('button', { name: '创建数据库' })).toHaveCount(0)
   const viewerTaskCenterBackup = { ...taskCenterBackupTask, errorCode: 'task_failed', errorMessage: 'permission denied while deleting backup archive' }
+  const viewerDeleteTask = { id: cleanupDeleteTaskID, kind: 'instance.delete', status: 'succeeded', resourceType: 'instance', resourceId: cleanupReadyID, progress: 100, stage: 'completed', message: 'task_completed', result: { instanceId: cleanupReadyID, instanceName: cleanupReady.name, hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', releasedHostPort: 26379, releasedBindAddress: '0.0.0.0', composeProjectRemoved: true, managedDirectoryRemoved: true, status: 'deleted' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
   await developerPage.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, viewerTaskCenterBackup] } }))
+  await developerPage.route(`**/api/v1/tasks/${cleanupDeleteTaskID}`, async (route) => route.fulfill({ json: viewerDeleteTask }))
+  await developerPage.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
   await developerPage.route('**/api/v1/hosts', async (route) => route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary host list outage' } } }))
   await developerPage.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [] } }))
   await developerPage.goto('/tasks')
@@ -2007,7 +2016,16 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(viewerBackupTaskRow.getByRole('button', { name: /重试/ })).toHaveCount(0)
   await viewerBackupTaskRow.getByRole('button', { name: instanceID.slice(0, 8) }).click()
   await expect(developerPage).toHaveURL(new RegExp(`/instances/${instanceID}\\?tab=backups&cleanup=review$`))
+  await developerPage.goto(`/tasks?task=${cleanupDeleteTaskID}`)
+  const viewerDeleteTaskDrawer = developerPage.getByRole('dialog', { name: /删除数据库实例.*44444444/ })
+  await expect(viewerDeleteTaskDrawer.getByText(`“${cleanupReady.name}”已安全删除`)).toBeVisible()
+  await expect(viewerDeleteTaskDrawer.getByText('0.0.0.0:26379', { exact: true })).toBeVisible()
+  await expect(viewerDeleteTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
+  await expect(viewerDeleteTaskDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
+  await expect(viewerDeleteTaskDrawer.getByRole('button', { name: '返回数据库实例' })).toBeVisible()
   await developerPage.unroute('**/api/v1/tasks')
+  await developerPage.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}`)
+  await developerPage.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`)
   await developerPage.unroute('**/api/v1/hosts')
   await developerPage.unroute('**/api/v1/instances')
   const viewerFailedBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'Viewer cleanup backup', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }

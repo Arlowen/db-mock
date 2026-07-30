@@ -151,6 +151,7 @@ func classifyTaskFailure(err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "operation_timeout"
 	case strings.Contains(message, "ssh credential is invalid") ||
+		strings.Contains(message, "decrypt ssh credential") ||
 		strings.Contains(message, "unable to authenticate") ||
 		strings.Contains(message, "no supported methods remain"):
 		return "ssh_credential_invalid"

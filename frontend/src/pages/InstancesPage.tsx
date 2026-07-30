@@ -1616,7 +1616,7 @@ export function InstanceDetailPage() {
       open={cleanupOpen}
       onClose={closeCleanupReview}
       onChanged={load}
-      onDeleteQueued={() => navigate('/instances')}
+      onDeleteQueued={(task) => navigate(`/tasks?task=${encodeURIComponent(task.id)}`)}
     />
     <Modal title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={submitUpgrade} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeReady }} destroyOnHidden>
       <Typography.Paragraph type="secondary">{t('upgradeHint')}</Typography.Paragraph>

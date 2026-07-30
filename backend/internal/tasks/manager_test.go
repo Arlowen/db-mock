@@ -14,6 +14,7 @@ func TestClassifyTaskFailure(t *testing.T) {
 	}{
 		{name: "ssh unreachable", err: errors.New("restart instance: dial SSH db-host:22: lookup db-host: no such host"), wantCode: "ssh_unreachable"},
 		{name: "ssh credential", err: errors.New("connect host: SSH credential is invalid: the server rejected the configured private key"), wantCode: "ssh_credential_invalid"},
+		{name: "encrypted ssh credential", err: errors.New("stop Compose project: decrypt SSH credential: cannot decrypt value"), wantCode: "ssh_credential_invalid"},
 		{name: "ssh host key", err: errors.New("connect host: SSH host key changed: expected old, received new"), wantCode: "ssh_host_key_changed"},
 		{name: "timeout", err: context.DeadlineExceeded, wantCode: "operation_timeout"},
 		{name: "disk full", err: errors.New("remote command failed (exit 1): write /data: no space left on device"), wantCode: "host_disk_full"},

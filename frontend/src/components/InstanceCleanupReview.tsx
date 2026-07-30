@@ -17,7 +17,7 @@ interface InstanceCleanupReviewProps {
   open: boolean
   onClose: () => void
   onChanged?: () => void | Promise<void>
-  onDeleteQueued?: () => void | Promise<void>
+  onDeleteQueued?: (task: Task) => void | Promise<void>
 }
 
 export function InstanceCleanupReviewModal({
@@ -99,8 +99,8 @@ export function InstanceCleanupReviewModal({
       notifyTask(task)
       message.success(t('cleanupDeleteQueued'))
       onClose()
-      if (onDeleteQueued) await onDeleteQueued()
-      else await onChanged?.()
+      if (onDeleteQueued) await onDeleteQueued(task)
+      else navigate(`/tasks?task=${encodeURIComponent(task.id)}`)
     } catch (error) {
       setActionError(errorMessage(error))
     } finally {

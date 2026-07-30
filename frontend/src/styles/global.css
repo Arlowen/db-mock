@@ -239,6 +239,12 @@ button { font: inherit; }
 .restore-verification-facts > div { min-width: 0; padding: 10px 12px; border: 1px solid rgba(22, 119, 255, .16); border-radius: 9px; background: rgba(255, 255, 255, .72); display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
 .restore-verification-facts .ant-typography-secondary { font-size: 12px; font-weight: 600; }
 .restore-verification-actions { justify-content: flex-start; }
+.instance-delete-outcome-alert { border-radius: 12px; }
+.instance-delete-outcome-alert .ant-alert-content { min-width: 0; width: 100%; }
+.instance-delete-outcome-body { display: grid; gap: 12px; line-height: 1.5; }
+.instance-delete-outcome-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.instance-delete-outcome-facts > div { min-width: 0; padding: 10px 12px; border: 1px solid rgba(82, 196, 26, .22); border-radius: 9px; background: rgba(255, 255, 255, .72); display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.instance-delete-outcome-facts .ant-typography-secondary { font-size: 12px; font-weight: 600; }
 .restore-connection-context { margin-bottom: 16px; border-radius: 10px; }
 .upgrade-field, .upgrade-source-panel { display: grid; gap: 10px; }
 .upgrade-field { margin-bottom: 18px; }
@@ -793,6 +799,7 @@ button { font: inherit; }
   .restore-outcome-actions { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .restore-outcome-actions .ant-btn { width: 100%; }
   .restore-verification-facts { grid-template-columns: 1fr; }
+  .instance-delete-outcome-facts { grid-template-columns: 1fr; }
   .restore-verification-actions { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .restore-verification-actions .ant-btn { width: 100%; }
   .instance-action-request-alert { align-items: flex-start; }

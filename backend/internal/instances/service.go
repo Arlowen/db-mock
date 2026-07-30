@@ -1717,7 +1717,21 @@ func (s *Service) handleDelete(ctx context.Context, runtime *tasks.Runtime, task
 	if err = s.store.MarkInstanceDeleted(ctx, instance.ID); err != nil {
 		return nil, err
 	}
-	return map[string]any{"instanceId": instance.ID, "status": "deleted"}, nil
+	return successfulDeleteResult(instance, host), nil
+}
+
+func successfulDeleteResult(instance domain.Instance, host domain.Host) map[string]any {
+	return map[string]any{
+		"instanceId":              instance.ID,
+		"instanceName":            instance.Name,
+		"hostId":                  host.ID,
+		"hostName":                host.Name,
+		"releasedHostPort":        instance.HostPort,
+		"releasedBindAddress":     instance.BindAddress,
+		"composeProjectRemoved":   true,
+		"managedDirectoryRemoved": true,
+		"status":                  "deleted",
+	}
 }
 
 func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, task domain.Task) (result any, err error) {

@@ -47,6 +47,21 @@ func TestSuccessfulRestoreResultKeepsDurableHandoffEvidence(t *testing.T) {
 	}
 }
 
+func TestSuccessfulDeleteResultKeepsCleanupEvidence(t *testing.T) {
+	instanceID, hostID := uuid.New(), uuid.New()
+	result := successfulDeleteResult(domain.Instance{
+		ID: instanceID, Name: "orders-cleanup-pg17", HostPort: 20001, BindAddress: "0.0.0.0",
+	}, domain.Host{ID: hostID, Name: "QA Hangzhou 01"})
+
+	if result["instanceId"] != instanceID || result["instanceName"] != "orders-cleanup-pg17" ||
+		result["hostId"] != hostID || result["hostName"] != "QA Hangzhou 01" ||
+		result["releasedHostPort"] != 20001 || result["releasedBindAddress"] != "0.0.0.0" ||
+		result["composeProjectRemoved"] != true || result["managedDirectoryRemoved"] != true ||
+		result["status"] != "deleted" {
+		t.Fatalf("delete result = %#v", result)
+	}
+}
+
 func TestValidateInstanceAction(t *testing.T) {
 	versionID := uuid.New()
 	valid := []struct {

@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { safeCreateReturnPath } from '../lib/deployment-continuation'
+import { instanceDeleteOutcome } from '../lib/instance-delete-outcome'
 import { formatCompactDateTime, formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { taskFailureGuidance } from '../lib/task-failure'
@@ -122,6 +123,8 @@ export function TasksPage() {
   const instanceNames = useMemo(() => new Map(instances.map((instance) => [instance.id, instance.name])), [instances])
   const compactLayout = screens.md === false
   const resourceLink = useCallback((task: Task): ResourceLink => {
+    const deleteOutcome = instanceDeleteOutcome(task)
+    if (deleteOutcome) return { label: deleteOutcome.instanceName, icon: <DatabaseOutlined /> }
     const reference = taskResourceReference(task)
     const label = reference.lookupType === 'host' && reference.lookupID
       ? hostNames.get(reference.lookupID) || reference.lookupID.slice(0, 8)
@@ -235,6 +238,7 @@ export function TasksPage() {
   const selectedRecoveryHost = selectedRecoveryHostID ? hosts.find((host) => host.id === selectedRecoveryHostID) : undefined
   const selectedRecoveryPath = selected && selectedRecoveryHostID ? taskHostRecoveryPathForTask(selected) : undefined
   const selectedRestoreVerification = selected ? restoreVerification(selected) : undefined
+  const selectedDeleteOutcome = selected ? instanceDeleteOutcome(selected) : undefined
   const selectedDeploymentJourney = selected ? deploymentTaskJourney(selected) : undefined
   const selectedDeploymentDestination = selectedDeploymentJourney
     ? selectedDeploymentJourney.state === 'ready' && canReadCredentials
@@ -246,9 +250,9 @@ export function TasksPage() {
     closeDetail()
     navigate(selectedRecoveryPath)
   }
-  const showResourceFooterAction = !!selectedResource?.path && !selectedDeploymentJourney
-  const hasDrawerLeadingAction = showResourceFooterAction || !!(canOperate && continueTo)
-  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancelTask(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const showResourceFooterAction = !!selectedResource?.path && !selectedDeploymentJourney && !selectedDeleteOutcome
+  const hasDrawerLeadingAction = showResourceFooterAction || !!selectedDeleteOutcome || !!(canOperate && continueTo)
+  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{selectedDeleteOutcome && <Button icon={<DatabaseOutlined />} onClick={() => { closeDetail(); navigate('/instances') }}>{t('backToInstances')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancelTask(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />
@@ -290,6 +294,21 @@ export function TasksPage() {
         {canOperate && continueTo && <Alert className="task-detail-alert" type={selected.status === 'succeeded' ? 'success' : selected.status === 'failed' ? 'warning' : 'info'} showIcon message={selected.status === 'succeeded' ? t('hostReadyContinue') : selected.status === 'failed' ? t('hostSetupFailedContinue') : t('hostSetupInProgress')} description={selected.status === 'succeeded' ? t('hostReadyContinueHint') : selected.status === 'failed' ? t('hostSetupFailedContinueHint') : t('hostSetupInProgressHint')} action={selected.status === 'succeeded' ? <Button size="small" type="primary" onClick={continueCreation}>{t('continueCreateDatabase')}</Button> : undefined} />}
         {isTaskCancellationPending(selected) && <Alert className="task-detail-alert" type="warning" showIcon message={t('taskCancelPending')} />}
         {selectedRestoreVerification && <Alert className="task-detail-alert restore-task-verification-alert" type="success" showIcon message={t('restoreTaskVerifiedTitle')} description={<div className="restore-verification-body"><Typography.Text>{t('restoreTaskVerifiedDescription')}</Typography.Text><RestoreVerificationFacts verification={selectedRestoreVerification} /></div>} />}
+        {selectedDeleteOutcome && <Alert
+          className="task-detail-alert instance-delete-outcome-alert"
+          type="success"
+          showIcon
+          aria-live="polite"
+          message={t('instanceDeleteOutcomeTitle', { name: selectedDeleteOutcome.instanceName })}
+          description={<div className="instance-delete-outcome-body">
+            <Typography.Text>{t('instanceDeleteOutcomeDescription')}</Typography.Text>
+            <div className="instance-delete-outcome-facts">
+              <div><Typography.Text type="secondary">{t('releasedPort')}</Typography.Text><Typography.Text strong>{selectedDeleteOutcome.releasedBindAddress}:{selectedDeleteOutcome.releasedHostPort}</Typography.Text></div>
+              <div><Typography.Text type="secondary">{t('host')}</Typography.Text><Typography.Text strong>{selectedDeleteOutcome.hostName}</Typography.Text></div>
+              <div><Typography.Text type="secondary">{t('cleanupScope')}</Typography.Text><Typography.Text strong>{t('instanceDeleteOutcomeCleanupScope')}</Typography.Text></div>
+            </div>
+          </div>}
+        />}
         {(selected.status === 'failed' || selected.errorMessage) && <Alert className="task-detail-alert" type={selected.status === 'failed' ? 'error' : selected.status === 'canceled' ? 'info' : 'warning'} showIcon message={selected.status === 'failed' ? t('taskFailureTitle', { stage: translateCode(t, selected.stage, 'taskStage') }) : translateCode(t, selected.status)} description={selected.status === 'failed' ? <TaskFailureGuidance task={selected} hostName={selectedRecoveryHost?.name} /> : taskSummary(selected)} action={selectedRecoveryPath ? <Button type="primary" size="small" icon={<CloudServerOutlined />} onClick={inspectRecoveryHost}>{t('inspectFailedHost')}</Button> : undefined} />}
         <Descriptions className="task-detail-meta" bordered size="small" column={screens.sm ? 2 : 1} items={[
           { key: 'resource', label: t('resource'), children: selectedResource?.path ? <Button type="link" icon={selectedResource.icon} onClick={() => goToResource(selected)}>{selectedResource.label}</Button> : selectedResource?.label || '—' },
