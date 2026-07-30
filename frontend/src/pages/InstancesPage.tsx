@@ -405,8 +405,17 @@ export function InstancesPage() {
   const instanceActions = (item: Instance) => {
     const action = canOperate ? instanceQuickAction(item.status) : undefined
     const key = action ? `${item.id}:${action}` : ''
+    const copyAvailable = templates.some((template) => template.versions.some((version) => version.id === item.templateVersionId && version.selectable !== false))
     return <Space size={2}>
       {action && <Button type="text" loading={actioning === key} disabled={bulkSubmitting || (!!actioning && actioning !== key)} aria-label={t(action)} title={t(action)} icon={action === 'stop' ? <PauseCircleOutlined /> : <PlayCircleOutlined />} onClick={() => void quickAction(item, action)} />}
+      {canOperate && <Button
+        type="text"
+        disabled={bulkSubmitting || !creationDataReady || !copyAvailable}
+        aria-label={t('copyDeployment')}
+        title={copyAvailable ? t('copyDeploymentForInstance', { name: item.name }) : t('copyDeploymentUnavailableHint')}
+        icon={<CopyOutlined />}
+        onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}
+      />}
       <Button type="text" aria-label={t('details')} title={t('details')} icon={<MoreOutlined />} onClick={() => navigate(`/instances/${item.id}`)} />
     </Space>
   }
@@ -418,7 +427,7 @@ export function InstancesPage() {
     { title: t('resources'), width: 195, render: (_: unknown, item: Instance) => `${item.cpu} CPU · ${bytes(item.memoryBytes)} · ${bytes(item.reservedDiskBytes)}` },
     { title: t('environment'), dataIndex: 'environment', width: 125, render: (value: string) => <Tag>{translateCode(t, value)}</Tag> },
     { title: t('lifecycle'), width: 190, render: (_: unknown, item: Instance) => <div className="instance-lifecycle-cell"><Space size={4} wrap><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space><Typography.Text type="secondary">{item.owner || t('ownerMissing')}</Typography.Text></div> },
-    { title: '', align: 'right' as const, fixed: 'right' as const, width: 88, render: (_: unknown, item: Instance) => instanceActions(item) },
+    { title: '', align: 'right' as const, fixed: 'right' as const, width: 124, render: (_: unknown, item: Instance) => instanceActions(item) },
   ]
   const mobileColumns = [
     {
