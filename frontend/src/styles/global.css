@@ -460,6 +460,7 @@ button { font: inherit; }
 .instance-table-card .ant-card-body { padding: 0; }
 .instance-table-card .ant-table-cell { vertical-align: middle; }
 .instance-table-name.ant-btn { display: block; max-width: 100%; height: auto; padding-inline: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.instance-row-actions { flex: none; white-space: nowrap; }
 .instance-mobile-summary { min-width: 0; display: grid; gap: 12px; }
 .instance-mobile-summary-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .instance-mobile-summary-header .instance-table-name { min-width: 0; font-weight: 700; }
@@ -467,6 +468,13 @@ button { font: inherit; }
 .instance-mobile-template > div { min-width: 0; display: grid; gap: 2px; }
 .instance-mobile-template .ant-typography { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .instance-mobile-summary .ant-tag { margin-inline-end: 0; }
+.instance-handoff-body { display: grid; gap: 16px; }
+.instance-handoff-body > .ant-typography { margin: 0; }
+.instance-handoff-error { display: grid; gap: 5px; }
+.instance-handoff-facts .ant-descriptions-item-label { width: 150px; color: #667085; }
+.instance-handoff-facts code { white-space: normal; overflow-wrap: anywhere; }
+.instance-handoff-sensitive-note { line-height: 1.55; }
+.instance-handoff-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .delete-instance-alert { margin-bottom: 16px; }
 .tab-count { display: inline-flex; align-items: center; gap: 7px; }
 .tab-count > span { min-width: 21px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; color: #667085; background: #edf1f6; font-size: 11px; line-height: 20px; }
@@ -952,6 +960,10 @@ button { font: inherit; }
   .instance-bulk-task-item .task-failure-guidance-grid { grid-template-columns: minmax(0, 1fr); }
   .instance-table-card .ant-table-cell { padding: 16px !important; }
   .instance-table-card .ant-pagination { margin-inline: 16px !important; }
+  .instance-handoff-footer { align-items: stretch; flex-direction: column-reverse; }
+  .instance-handoff-footer > .ant-btn { width: 100%; }
+  .instance-handoff-footer > .ant-space { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .instance-handoff-footer > .ant-space .ant-btn { width: 100%; }
   .instance-detail-tabs > .ant-tabs-nav { align-items: stretch; flex-direction: column; gap: 10px; }
   .instance-detail-tabs > .ant-tabs-nav .ant-tabs-nav-wrap { width: 100%; min-width: 0; }
   .instance-detail-tabs > .ant-tabs-nav .ant-tabs-extra-content { width: 100%; min-width: 0; }

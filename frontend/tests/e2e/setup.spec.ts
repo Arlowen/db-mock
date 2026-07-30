@@ -408,6 +408,7 @@ test('initializes the platform and switches the embedded interface language', as
   const backupDeleteRetryTaskID = '63636363-6363-4363-8363-636363636364'
   let failLogs = true
   let failConnection = false
+  let connectionRequestCount = 0
   let failRestartRequest = true
   let restartRequestCount = 0
   let instanceStatus = 'running'
@@ -533,9 +534,12 @@ test('initializes the platform and switches the embedded interface language', as
     instanceStatusMessage = ''
     await route.fulfill({ status: 202, json: retried })
   })
-  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => failConnection
-    ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: credential service could not read this instance secret' } } })
-    : route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', authentication: 'password', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
+  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => {
+    connectionRequestCount += 1
+    return failConnection
+      ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: credential service could not read this instance secret' } } })
+      : route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', authentication: 'password', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } })
+  })
   await page.route(`**/api/v1/instances/${instanceID}/logs?**`, async (route) => failLogs
     ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' } } })
     : route.fulfill({ status: 200, contentType: 'text/plain', body: '' }))
@@ -553,6 +557,38 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByRole('button', { name: '复制部署' })).toBeVisible()
   await page.goto('/instances')
   const sourceInstanceRow = page.getByRole('row').filter({ hasText: 'Orders DB' })
+  const listHandoffBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'orders_release_2026_07_30', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: '2026-07-29T10:00:00Z', completedAt: '2026-07-29T10:10:00Z', updatedAt: '2026-07-29T10:10:00Z' }
+  instanceBackups = [listHandoffBackup]
+  relatedTasks = [{ id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'completed', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: listHandoffBackup.name, backupCreatedAt: listHandoffBackup.createdAt, backupSha256: listHandoffBackup.sha256, restoreOutcome: 'target_backup_applied', healthVerifiedAt: '2026-07-30T02:30:00Z', instanceStatus: 'running' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: '2026-07-30T02:00:00Z', finishedAt: '2026-07-30T02:30:00Z' }]
+  failConnection = true
+  const directHandoffButton = sourceInstanceRow.getByRole('button', { name: '复制连接交付' })
+  await expect(directHandoffButton).toBeVisible()
+  await directHandoffButton.click()
+  const directHandoffDialog = page.getByRole('dialog', { name: '快速交付 · Orders DB' })
+  await expect(directHandoffDialog.getByText('连接凭据尚未读取')).toBeVisible()
+  expect(connectionRequestCount).toBe(0)
+  await directHandoffDialog.getByRole('button', { name: '显示并复制完整摘要' }).click()
+  await expect(directHandoffDialog.getByText('连接交付摘要未复制')).toBeVisible()
+  await expect(directHandoffDialog.getByRole('button', { name: '重试并复制' })).toBeVisible()
+  expect(connectionRequestCount).toBe(1)
+  failConnection = false
+  await directHandoffDialog.getByRole('button', { name: '重试并复制' }).click()
+  await expect(directHandoffDialog.getByText('连接交付摘要已复制')).toBeVisible()
+  await expect(directHandoffDialog.getByText('orders_release_2026_07_30')).toBeVisible()
+  await expect(directHandoffDialog.getByText('10.0.0.8:25432')).toBeVisible()
+  expect(connectionRequestCount).toBe(2)
+  failConnection = true
+  await directHandoffDialog.getByRole('button', { name: '再次复制' }).click()
+  await expect(directHandoffDialog.getByText('连接交付摘要未复制')).toBeVisible()
+  await expect(directHandoffDialog.getByText('连接交付摘要已复制')).toHaveCount(0)
+  await expect(directHandoffDialog.getByRole('button', { name: '重试并复制' })).toBeVisible()
+  failConnection = false
+  await directHandoffDialog.getByRole('button', { name: '重试并复制' }).click()
+  await expect(directHandoffDialog.getByText('连接交付摘要已复制')).toBeVisible()
+  expect(connectionRequestCount).toBe(4)
+  await directHandoffDialog.locator('.instance-handoff-footer > button').click()
+  relatedTasks = []
+  instanceBackups = []
   const sourceListCopy = sourceInstanceRow.getByRole('button', { name: '复制部署' })
   await expect(sourceListCopy).toBeVisible()
   await sourceListCopy.click()
@@ -1921,6 +1957,7 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.goto('/instances')
   const viewerSourceInstanceRow = developerPage.getByRole('row').filter({ hasText: 'Orders DB' })
   await expect(viewerSourceInstanceRow.getByRole('button', { name: /复制部署/ })).toHaveCount(0)
+  await expect(viewerSourceInstanceRow.getByRole('button', { name: /复制连接交付/ })).toHaveCount(0)
   await expect(developerPage.getByRole('button', { name: '创建数据库' })).toHaveCount(0)
   const viewerTaskCenterBackup = { ...taskCenterBackupTask, errorCode: 'task_failed', errorMessage: 'permission denied while deleting backup archive' }
   await developerPage.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, viewerTaskCenterBackup] } }))

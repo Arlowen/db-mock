@@ -1,6 +1,7 @@
 import { CheckCircleOutlined, ClockCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, ExportOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SafetyCertificateOutlined, SaveOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons'
 import { Alert, App, AutoComplete, Button, Card, Col, DatePicker, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
+import type { TFunction } from 'i18next'
 import { type Key, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -23,6 +24,7 @@ import { frequentTemplateVersions } from '../lib/frequent-template-versions'
 import { hostCanAccept, hostCanReconfigure, hostDeploymentReadiness, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
+import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from '../lib/instance-handoff'
 import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceQuickAction, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
@@ -69,6 +71,45 @@ function batchActionErrorMessage(item: InstanceBatchRejected): string {
   return errorMessage(new ApiError(status, item.code, item.message))
 }
 
+function connectionHandoffText(
+  item: Instance,
+  connection: Connection,
+  verification: ReturnType<typeof restoreVerification>,
+  t: TFunction,
+  language: string,
+  timezone: string,
+) {
+  return connectionHandoffSummary({
+    instanceName: item.name,
+    templateName: item.templateName,
+    templateVersion: item.templateVersion,
+    environment: translateCode(t, item.environment),
+    status: translateCode(t, item.status),
+    dataVersion: verification?.backupName || verification?.backupId.slice(0, 8),
+    backupCreatedAt: verification?.backupCreatedAt ? formatDateTime(verification.backupCreatedAt, language, timezone) : undefined,
+    restoreVerifiedAt: verification?.healthVerifiedAt ? formatDateTime(verification.healthVerifiedAt, language, timezone) : undefined,
+    ...connection,
+    authentication: t(`authenticationMode_${connection.authentication || 'password'}`),
+  }, {
+    title: t('connectionHandoffTitle'),
+    instance: t('connectionHandoffInstance'),
+    template: t('template'),
+    environment: t('environment'),
+    status: t('status'),
+    authentication: t('authentication'),
+    dataVersion: t('connectionHandoffDataVersion'),
+    backupCreatedAt: t('connectionHandoffBackupTime'),
+    restoreVerifiedAt: t('connectionHandoffRestoreVerified'),
+    address: t('address'),
+    port: t('port'),
+    username: t('username'),
+    password: t('password'),
+    database: t('databaseName'),
+    uri: t('uri'),
+    jdbc: t('jdbc'),
+  })
+}
+
 export function InstancesPage() {
   const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createError, setCreateError] = useState(''); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const [actioning, setActioning] = useState(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
@@ -79,7 +120,12 @@ export function InstancesPage() {
   const [bulkTracking, setBulkTracking] = useState(false)
   const [bulkTrackingError, setBulkTrackingError] = useState('')
   const [bulkRetryingTaskID, setBulkRetryingTaskID] = useState('')
-  const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
+  const [handoffItem, setHandoffItem] = useState<Instance>()
+  const [handoffLoading, setHandoffLoading] = useState(false)
+  const [handoffError, setHandoffError] = useState('')
+  const [handoffResult, setHandoffResult] = useState<{ address: string; port: number; authentication: Connection['authentication']; verification?: ReturnType<typeof restoreVerification> }>()
+  const handoffRequestID = useRef(0)
+  const { user } = useAuth(); const { canOperate, canReadCredentials } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
   const lifecycleDefaults = useMemo(() => ({ owner: user?.displayName?.trim() || user?.username || '', expiresAt: dayjs().add(7, 'day').endOf('day') }), [user?.displayName, user?.username])
   const [appliedProjectDefaultsID, setAppliedProjectDefaultsID] = useState('')
@@ -405,12 +451,63 @@ export function InstancesPage() {
     setBulkRequestError('')
     setBulkTrackingError('')
   }
+  const openConnectionHandoff = (item: Instance) => {
+    handoffRequestID.current += 1
+    setHandoffItem(item)
+    setHandoffLoading(false)
+    setHandoffError('')
+    setHandoffResult(undefined)
+  }
+  const closeConnectionHandoff = () => {
+    handoffRequestID.current += 1
+    setHandoffItem(undefined)
+    setHandoffLoading(false)
+    setHandoffError('')
+    setHandoffResult(undefined)
+  }
+  const copyConnectionHandoff = async () => {
+    if (!handoffItem) return
+    const requestID = ++handoffRequestID.current
+    try {
+      setHandoffLoading(true)
+      setHandoffError('')
+      setHandoffResult(undefined)
+      const [connection, taskResponse, backupResponse] = await Promise.all([
+        api<Connection>(`/instances/${handoffItem.id}/connection`),
+        api<{ items: Task[] }>(`/instances/${handoffItem.id}/tasks`),
+        api<{ items: InstanceBackup[] }>(`/instances/${handoffItem.id}/backups`),
+      ])
+      if (requestID !== handoffRequestID.current) return
+      const verification = instanceHandoffRestoreVerification(handoffItem, taskResponse.items, backupResponse.items)
+      await copyText(connectionHandoffText(handoffItem, connection, verification, t, i18n.language, timezone))
+      if (requestID !== handoffRequestID.current) return
+      setHandoffResult({
+        address: connection.address,
+        port: connection.port,
+        authentication: connection.authentication || 'password',
+        verification,
+      })
+    } catch (error) {
+      if (requestID === handoffRequestID.current) setHandoffError(errorMessage(error))
+    } finally {
+      if (requestID === handoffRequestID.current) setHandoffLoading(false)
+    }
+  }
   const instanceActions = (item: Instance) => {
     const action = canOperate ? instanceQuickAction(item.status) : undefined
     const key = action ? `${item.id}:${action}` : ''
     const copyAvailable = templates.some((template) => template.versions.some((version) => version.id === item.templateVersionId && version.selectable !== false))
-    return <Space size={2}>
+    const handoffAvailability = instanceHandoffAvailability(item, canReadCredentials)
+    return <Space size={2} className="instance-row-actions">
       {action && <Button type="text" loading={actioning === key} disabled={bulkSubmitting || (!!actioning && actioning !== key)} aria-label={t(action)} title={t(action)} icon={action === 'stop' ? <PauseCircleOutlined /> : <PlayCircleOutlined />} onClick={() => void quickAction(item, action)} />}
+      {canReadCredentials && <Button
+        type="text"
+        disabled={handoffAvailability !== 'ready'}
+        aria-label={t('quickConnectionHandoff')}
+        title={handoffAvailability === 'ready' ? t('quickConnectionHandoffForInstance', { name: item.name }) : t('quickConnectionHandoffUnavailable')}
+        icon={<ExportOutlined />}
+        onClick={() => openConnectionHandoff(item)}
+      />}
       {canOperate && <Button
         type="text"
         disabled={bulkSubmitting || !creationDataReady || !copyAvailable}
@@ -430,7 +527,7 @@ export function InstancesPage() {
     { title: t('resources'), width: 195, render: (_: unknown, item: Instance) => `${item.cpu} CPU · ${bytes(item.memoryBytes)} · ${bytes(item.reservedDiskBytes)}` },
     { title: t('environment'), dataIndex: 'environment', width: 125, render: (value: string) => <Tag>{translateCode(t, value)}</Tag> },
     { title: t('lifecycle'), width: 190, render: (_: unknown, item: Instance) => <div className="instance-lifecycle-cell"><Space size={4} wrap><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space><Typography.Text type="secondary">{item.owner || t('ownerMissing')}</Typography.Text></div> },
-    { title: '', align: 'right' as const, fixed: 'right' as const, width: 124, render: (_: unknown, item: Instance) => instanceActions(item) },
+    { title: '', align: 'right' as const, fixed: 'right' as const, width: 160, render: (_: unknown, item: Instance) => instanceActions(item) },
   ]
   const mobileColumns = [
     {
@@ -585,6 +682,56 @@ export function InstancesPage() {
     {bulkToolbar}
     {bulkResultAlert}
     {(items.length > 0 || !loadError) && <Card className="instance-table-card" title={!showFilters ? t('instances') : undefined} extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} rowSelection={rowSelection} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 1210 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
+    <Modal
+      className="instance-handoff-modal"
+      title={handoffItem ? t('quickConnectionHandoffTitle', { name: handoffItem.name }) : t('quickConnectionHandoff')}
+      open={!!handoffItem}
+      onCancel={closeConnectionHandoff}
+      width={620}
+      destroyOnHidden
+      footer={<div className="instance-handoff-footer">
+        <Button onClick={closeConnectionHandoff}>{t(handoffResult ? 'close' : 'cancel')}</Button>
+        <Space wrap>
+          <Button onClick={() => {
+            if (!handoffItem) return
+            const id = handoffItem.id
+            closeConnectionHandoff()
+            navigate(`/instances/${id}?tab=connection`)
+          }}>{t('openFullConnection')}</Button>
+          <Button type="primary" icon={<CopyOutlined />} loading={handoffLoading} onClick={() => void copyConnectionHandoff()}>
+            {t(handoffResult ? 'copyConnectionHandoffAgain' : handoffError ? 'retryCopyConnectionHandoff' : 'revealAndCopyConnectionHandoff')}
+          </Button>
+        </Space>
+      </div>}
+    >
+      <div className="instance-handoff-body">
+        <Typography.Paragraph type="secondary">{t('quickConnectionHandoffIntro')}</Typography.Paragraph>
+        {!handoffError && !handoffResult && <Alert
+          type="info"
+          showIcon
+          message={t('quickConnectionHandoffProtectedTitle')}
+          description={t('quickConnectionHandoffAuditNotice')}
+        />}
+        {handoffError && <Alert
+          type="error"
+          showIcon
+          message={t('quickConnectionHandoffFailedTitle')}
+          description={<div className="instance-handoff-error"><Typography.Text>{handoffError}</Typography.Text><Typography.Text type="secondary">{t('quickConnectionHandoffFailedHint')}</Typography.Text></div>}
+        />}
+        {handoffResult && <Alert
+          type="success"
+          showIcon
+          message={t('quickConnectionHandoffCopiedTitle')}
+          description={t('quickConnectionHandoffCopiedHint')}
+        />}
+        {handoffResult && <Descriptions className="instance-handoff-facts" size="small" bordered column={1} items={[
+          { key: 'endpoint', label: t('connectionEndpoint'), children: <Typography.Text code>{handoffResult.address}:{handoffResult.port}</Typography.Text> },
+          { key: 'authentication', label: t('authentication'), children: t(`authenticationMode_${handoffResult.authentication}`) },
+          { key: 'data-version', label: t('connectionHandoffDataVersion'), children: handoffResult.verification?.backupName || handoffResult.verification?.backupId.slice(0, 8) || t('connectionHandoffDefaultDataVersion') },
+        ]} />}
+        {handoffResult && <Typography.Text className="instance-handoff-sensitive-note" type="secondary">{t('quickConnectionHandoffSensitiveHint')}</Typography.Text>}
+      </div>
+    </Modal>
     <Modal
       title={bulkAction ? t(bulkAction === 'stop' ? 'batchStopConfirmTitle' : bulkAction === 'restart' ? 'batchRestartConfirmTitle' : 'batchStartConfirmTitle', { count: activeBatchPlan.eligible.length }) : ''}
       open={!!bulkAction}
@@ -1255,7 +1402,7 @@ export function InstanceDetailPage() {
         : <>
             {connectionErrorPanel}
             {connectionAuthentication !== 'password' && <Alert className="connection-authentication-alert" type="warning" showIcon message={t('nonPasswordAuthenticationTitle')} description={t(`nonPasswordAuthenticationHint_${connectionAuthentication}`)} />}
-            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffSummary({ instanceName: item.name, templateName: item.templateName, templateVersion: item.templateVersion, environment: translateCode(t, item.environment), status: translateCode(t, item.status), dataVersion: latestRestoreVerification?.backupName || latestRestoreVerification?.backupId.slice(0, 8), backupCreatedAt: latestRestoreVerification?.backupCreatedAt ? formatDateTime(latestRestoreVerification.backupCreatedAt, i18n.language, timezone) : undefined, restoreVerifiedAt: latestRestoreVerification?.healthVerifiedAt ? formatDateTime(latestRestoreVerification.healthVerifiedAt, i18n.language, timezone) : undefined, ...connection, authentication: t(`authenticationMode_${connectionAuthentication}`) }, { title: t('connectionHandoffTitle'), instance: t('connectionHandoffInstance'), template: t('template'), environment: t('environment'), status: t('status'), authentication: t('authentication'), dataVersion: t('connectionHandoffDataVersion'), backupCreatedAt: t('connectionHandoffBackupTime'), restoreVerifiedAt: t('connectionHandoffRestoreVerified'), address: t('address'), port: t('port'), username: t('username'), password: t('password'), database: t('databaseName'), uri: t('uri'), jdbc: t('jdbc') })).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
+            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffText(item, connection, latestRestoreVerification, t, i18n.language, timezone)).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} items={[{ key: 'authentication', label: t('authentication'), children: t(`authenticationMode_${connectionAuthentication}`) },{ key: 'address', label: t('address'), children: <Typography.Text copyable={{ text: connection.address, icon: <CopyOutlined /> }}>{connection.address}</Typography.Text> },{ key: 'port', label: t('port'), children: <Typography.Text copyable={{ text: String(connection.port), icon: <CopyOutlined /> }}>{connection.port}</Typography.Text> },...(connection.username ? [{ key: 'username', label: t('username'), children: <Typography.Text copyable={{ text: connection.username, icon: <CopyOutlined /> }}>{connection.username}</Typography.Text> }] : []),...(connectionAuthentication === 'password' && connection.password ? [{ key: 'password', label: t('password'), children: <Typography.Text code copyable={{ text: connection.password, icon: <CopyOutlined /> }}>{connection.password}</Typography.Text> }] : []),...(connection.database ? [{ key: 'database', label: t('database'), children: <Typography.Text copyable={{ text: connection.database, icon: <CopyOutlined /> }}>{connection.database}</Typography.Text> }] : [])]} />
             <div className="connection-strings"><div className="connection-string"><Typography.Text type="secondary">{t('uri')}</Typography.Text><Typography.Text code copyable={{ text: connection.uri, icon: <CopyOutlined /> }}>{connection.uri}</Typography.Text></div>{connection.jdbc && <div className="connection-string"><Typography.Text type="secondary">{t('jdbc')}</Typography.Text><Typography.Text code copyable={{ text: connection.jdbc, icon: <CopyOutlined /> }}>{connection.jdbc}</Typography.Text></div>}</div>
           </>}
