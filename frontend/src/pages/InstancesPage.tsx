@@ -1031,6 +1031,7 @@ export function InstanceDetailPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [actioning, setActioning] = useState('')
   const [taskCancellationFailure, setTaskCancellationFailure] = useState<{ taskId: string; message: string }>()
+  const [lifecycleConfirmAction, setLifecycleConfirmAction] = useState<InstanceLifecycleAction>()
   const [lifecycleRequestFailure, setLifecycleRequestFailure] = useState<{ action: InstanceLifecycleAction; code: string; message: string }>()
   const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab || '') ? requestedTab! : 'overview')
   const [editForm] = Form.useForm<EditValues>()
@@ -1097,6 +1098,8 @@ export function InstanceDetailPage() {
     setTaskInventoryState('loading')
     setTaskInventoryError('')
     setCleanupRetryError('')
+    setLifecycleConfirmAction(undefined)
+    setLifecycleRequestFailure(undefined)
     void load()
   }, [load])
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
@@ -1112,6 +1115,7 @@ export function InstanceDetailPage() {
   }
   const run = async (action: string, body: Record<string, unknown> = {}) => {
     const lifecycleAction = isInstanceLifecycleAction(action) ? action : undefined
+    let accepted = false
     try {
       setActioning(action)
       if (lifecycleAction) setLifecycleRequestFailure(undefined)
@@ -1121,6 +1125,7 @@ export function InstanceDetailPage() {
       setUpgradeOpen(false)
       setRuntimeOpen(false)
       await load()
+      accepted = true
     } catch (error) {
       if (lifecycleAction) {
         setLifecycleRequestFailure({
@@ -1135,6 +1140,15 @@ export function InstanceDetailPage() {
     } finally {
       setActioning('')
     }
+    return accepted
+  }
+  const openLifecycleConfirmation = (action: InstanceLifecycleAction) => {
+    if (lifecycleRequestFailure?.action !== action) setLifecycleRequestFailure(undefined)
+    setLifecycleConfirmAction(action)
+  }
+  const submitLifecycleAction = async () => {
+    if (!lifecycleConfirmAction) return
+    if (await run(lifecycleConfirmAction)) setLifecycleConfirmAction(undefined)
   }
   const refreshLifecycleState = async () => {
     try {
@@ -1342,7 +1356,7 @@ export function InstanceDetailPage() {
       setActioning('')
     }
   }
-  const lifecycleRequestFailurePanel = lifecycleRequestFailure && !operationTask && <Alert
+  const lifecycleRequestFailurePanel = lifecycleRequestFailure && !operationTask && !lifecycleConfirmAction && <Alert
     className="instance-page-alert instance-action-request-alert"
     type="error"
     showIcon
@@ -1355,7 +1369,7 @@ export function InstanceDetailPage() {
     action={<Space wrap className="instance-action-request-actions">
       <Button size="small" icon={<ReloadOutlined />} loading={actioning === 'refresh-lifecycle-state'} disabled={!!actioning && actioning !== 'refresh-lifecycle-state'} onClick={() => void refreshLifecycleState()}>{t('refreshStatus')}</Button>
       <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>
-      {lifecycleRequestCanRetry && <Button size="small" type="primary" loading={actioning === lifecycleRequestFailure.action} disabled={!!actioning && actioning !== lifecycleRequestFailure.action} onClick={() => void run(lifecycleRequestFailure.action)}>{t('retryInstanceAction', { action: t(lifecycleRequestFailure.action) })}</Button>}
+      {lifecycleRequestCanRetry && <Button size="small" type="primary" disabled={!!actioning} onClick={() => openLifecycleConfirmation(lifecycleRequestFailure.action)}>{t('retryInstanceAction', { action: t(lifecycleRequestFailure.action) })}</Button>}
       <Button size="small" type="text" onClick={() => setLifecycleRequestFailure(undefined)}>{t('dismiss')}</Button>
     </Space>}
   />
@@ -1480,6 +1494,11 @@ export function InstanceDetailPage() {
   const metricsTab = <Card className="ops-panel" loading={metricsLoading && !metrics.length && !metricsError} title={t('metrics')} extra={<Space><Select aria-label={t('metricWindow')} value={metricHours} onChange={setMetricHours} options={[{ value: 1, label: t('lastHour') },{ value: 6, label: t('last6Hours') },{ value: 24, label: t('last24Hours') },{ value: 168, label: t('last7Days') }]} /><Button icon={<ReloadOutlined />} loading={metricsLoading} onClick={() => void loadMetrics()}>{t('refresh')}</Button></Space>}>{metricsError && <Alert className="ops-alert" type="error" showIcon message={t('metricsLoadFailed')} description={metricsError} action={<Button size="small" onClick={() => void loadMetrics()}>{t('retry')}</Button>} />}{latestMetric && <div className="metric-summary"><div className="metric-stat"><Typography.Text type="secondary">{t('cpu')}</Typography.Text><strong>{latestMetric.cpuPercent.toFixed(1)}%</strong></div><div className="metric-stat"><Typography.Text type="secondary">{t('memoryUsage')}</Typography.Text><strong>{latestMetric.memoryPercent.toFixed(1)}%</strong><span>{bytes(latestMetric.memoryBytes)}</span></div><div className="metric-stat"><Typography.Text type="secondary">{t('hostDiskUsage')}</Typography.Text><strong>{latestMetric.diskTotalBytes > 0 ? `${(latestMetric.diskUsedBytes * 100 / latestMetric.diskTotalBytes).toFixed(1)}%` : t('notReported')}</strong>{latestMetric.diskTotalBytes > 0 && <span>{bytes(latestMetric.diskUsedBytes)} / {bytes(latestMetric.diskTotalBytes)}</span>}</div><div className="metric-stat"><Typography.Text type="secondary">{t('lastCollected')}</Typography.Text><strong className="metric-time">{formatDateTime(latestMetric.collectedAt, i18n.language, timezone)}</strong></div></div>}{metrics.length ? <div className="metric-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={metricData} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}><CartesianGrid stroke="#e8edf4" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="time" minTickGap={48} tick={{ fill: '#667085', fontSize: 12 }} axisLine={{ stroke: '#dfe5ec' }} tickLine={false} /><YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} tick={{ fill: '#667085', fontSize: 12 }} axisLine={false} tickLine={false} /><ChartTooltip /><Legend /><Line type="monotone" dataKey="cpuPercent" name={t('cpuPercent')} stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 4 }} /><Line type="monotone" dataKey="memoryPercent" name={t('memoryPercent')} stroke="#0f9f8f" strokeWidth={2} dot={false} activeDot={{ r: 4 }} /><Line type="monotone" dataKey="diskPercent" name={t('hostDiskPercent')} stroke="#f59e0b" strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls /></LineChart></ResponsiveContainer></div> : !metricsError && <EmptyState compact description={t('metricsEmptyDescription')} />}</Card>
   const canStart = item.status === 'stopped' || (item.status === 'failed' && !failedTask && !activeTask)
   const canStopOrRestart = !operationTask && (item.status === 'running' || item.status === 'degraded')
+  const lifecycleConfirmationAllowed = lifecycleConfirmAction === 'start' ? canStart
+    : lifecycleConfirmAction === 'stop' || lifecycleConfirmAction === 'restart' ? canStopOrRestart
+      : false
+  const lifecycleConfirmationCanSubmit = lifecycleConfirmationAllowed &&
+    (!lifecycleRequestFailure || lifecycleRequestFailure.action !== lifecycleConfirmAction || lifecycleRequestCanRetry)
   const canUpgrade = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
   const canReconfigure = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
   const canCreateBackup = !operationTask && ['running', 'stopped'].includes(item.status)
@@ -1614,8 +1633,44 @@ export function InstanceDetailPage() {
     <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1240 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
-  const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} loading={actioning === 'start'} disabled={!!actioning && actioning !== 'start'} onClick={() => void run('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} loading={actioning === 'stop'} disabled={!!actioning && actioning !== 'stop'} onClick={() => void run('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} loading={actioning === 'restart'} disabled={!!actioning && actioning !== 'restart'} onClick={() => void run('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
+  const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
   return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
+    <Modal
+      title={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmTitle' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: item.name }) : ''}
+      open={!!lifecycleConfirmAction}
+      onCancel={() => { if (!actioning) setLifecycleConfirmAction(undefined) }}
+      onOk={() => void submitLifecycleAction()}
+      okText={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'confirmInstanceStop' : lifecycleConfirmAction === 'restart' ? 'confirmInstanceRestart' : 'confirmInstanceStart') : t('confirm')}
+      cancelText={t('cancel')}
+      confirmLoading={actioning === lifecycleConfirmAction}
+      closable={!actioning}
+      maskClosable={!actioning}
+      okButtonProps={{ danger: lifecycleConfirmAction === 'stop', disabled: !lifecycleConfirmationCanSubmit || (!!actioning && actioning !== lifecycleConfirmAction) }}
+      destroyOnHidden
+    >
+      <div className="instance-bulk-confirm">
+        <Alert
+          type={lifecycleConfirmAction === 'stop' || lifecycleConfirmAction === 'restart' ? 'warning' : 'info'}
+          showIcon
+          message={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmMessage' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmMessage' : 'instanceStartConfirmMessage') : ''}
+          description={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmImpact' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmImpact' : 'instanceStartConfirmImpact') : ''}
+        />
+        <div>
+          <Typography.Text strong>{t('instanceActionTarget')}</Typography.Text>
+          <Space size={[6, 6]} wrap className="instance-bulk-name-list"><Tag>{item.name} · {translateCode(t, item.status)}</Tag></Space>
+        </div>
+        {lifecycleRequestFailure && lifecycleRequestFailure.action === lifecycleConfirmAction && <Alert
+          type="error"
+          showIcon
+          message={t('instanceActionRequestFailed', { action: t(lifecycleRequestFailure.action) })}
+          description={<div className="instance-action-request-description">
+            <div><Typography.Text type="secondary">{t('failureCause')}</Typography.Text><Typography.Text>{lifecycleRequestFailure.message}</Typography.Text></div>
+            <div><Typography.Text type="secondary">{t('failureImpact')}</Typography.Text><Typography.Text>{t('instanceActionRequestImpact')}</Typography.Text></div>
+            <div><Typography.Text type="secondary">{t('recoveryAdvice')}</Typography.Text><Typography.Text>{t(instanceLifecycleRequestRecoveryKey(lifecycleRequestFailure.code))}</Typography.Text></div>
+          </div>}
+        />}
+      </div>
+    </Modal>
     <Modal title={t('edit')} open={editOpen} onCancel={() => { if (!editSaving) setEditOpen(false) }} onOk={() => void saveEdit()} confirmLoading={editSaving} okText={t('save')} width={620}>
       <Form form={editForm} layout="vertical">
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} /></Form.Item>
