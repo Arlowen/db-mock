@@ -367,6 +367,19 @@ button { font: inherit; }
 .task-detail-summary .ant-typography-secondary { margin: 8px 0 14px; }
 .task-detail-summary .ant-progress { margin-bottom: 0; }
 .task-detail-alert { margin: 0; }
+.task-retry-request-alert { align-items: flex-start; flex-wrap: wrap; }
+.task-retry-request-alert .ant-alert-section { min-width: 0; flex: 1 1 calc(100% - 32px); }
+.task-retry-request-alert .ant-alert-action { width: 100%; margin-inline-start: 32px; padding-top: 12px; }
+.task-retry-request-body { min-width: 0; width: 100%; margin-top: 8px; display: grid; gap: 10px; }
+.task-retry-request-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.task-retry-request-grid > div { min-width: 0; padding: 9px 10px; border: 1px solid rgba(148, 163, 184, .28); border-radius: 8px; background: rgba(255, 255, 255, .72); display: grid; gap: 4px; }
+.task-retry-request-grid .ant-typography { min-width: 0; overflow-wrap: anywhere; }
+.task-retry-request-grid .ant-typography-secondary { font-size: 12px; font-weight: 600; }
+.task-retry-request-evidence { min-width: 0; display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
+.task-retry-request-evidence .ant-tag { margin-inline-end: 0; }
+.task-retry-request-evidence code { overflow-wrap: anywhere; }
+.task-retry-request-refresh-error { overflow-wrap: anywhere; }
+.task-retry-request-actions { width: 100%; }
 .task-failure-guidance { min-width: 0; width: 100%; }
 .task-failure-guidance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .task-failure-guidance-item { min-width: 0; padding: 10px 12px; border: 1px solid #f0d5d8; border-radius: 9px; background: rgba(255, 255, 255, .72); display: flex; flex-direction: column; gap: 4px; line-height: 1.5; }
@@ -917,6 +930,10 @@ button { font: inherit; }
   .task-detail-alert .ant-alert-section { min-width: 0; flex: 1 1 220px; }
   .task-detail-alert .ant-alert-actions { width: 100%; margin-inline-start: 0; padding-top: 8px; }
   .task-detail-alert .ant-alert-actions .ant-btn { width: 100%; }
+  .task-retry-request-alert .ant-alert-action { margin-inline-start: 0; }
+  .task-retry-request-grid { grid-template-columns: minmax(0, 1fr); }
+  .task-retry-request-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .task-retry-request-actions .ant-btn { width: 100%; }
   .alert-toolbar .ant-input-search { flex-basis: 100%; }
   .alert-toolbar .ant-select { flex: 1; }
   .alert-refresh-button { margin-left: 0; }

@@ -8,13 +8,14 @@ import { RestoreVerificationFacts } from '../components/RestoreVerificationFacts
 import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
-import { api, errorMessage } from '../lib/api'
+import { ApiError, api, errorMessage } from '../lib/api'
 import { safeCreateReturnPath } from '../lib/deployment-continuation'
 import { instanceDeleteOutcome } from '../lib/instance-delete-outcome'
 import { formatCompactDateTime, formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask, taskRecoveryHostID } from '../lib/task-recovery'
+import { taskRetryRequestEvidence, type TaskRetryRequestFailure } from '../lib/task-retry-request'
 import { taskResourceReference } from '../lib/task-resource'
 import { restoreVerification } from '../lib/restore-verification'
 import { canCancelTask, deploymentTaskJourney, isTaskCancellationPending } from '../lib/task-state'
@@ -50,6 +51,10 @@ export function TasksPage() {
   const [detailError, setDetailError] = useState('')
   const [actioning, setActioning] = useState('')
   const [actionError, setActionError] = useState('')
+  const [retryRequestFailure, setRetryRequestFailure] = useState<TaskRetryRequestFailure | null>(null)
+  const [retryEvidenceItems, setRetryEvidenceItems] = useState<Task[]>([])
+  const [retryEvidenceRefreshing, setRetryEvidenceRefreshing] = useState(false)
+  const [retryEvidenceError, setRetryEvidenceError] = useState('')
   const [search, setSearch] = useState('')
   const [resourceType, setResourceType] = useState('')
   const [page, setPage] = useState(1)
@@ -63,8 +68,10 @@ export function TasksPage() {
       const value = await api<{ items: Task[] }>(`/tasks${query.size ? `?${query}` : ''}`)
       setItems(value.items)
       setListError('')
+      return value.items
     } catch (error) {
       setListError(errorMessage(error))
+      return undefined
     } finally {
       setLoading(false)
     }
@@ -143,16 +150,26 @@ export function TasksPage() {
   const continueCreation = () => { if (!continueTo) return; setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); navigate(continueTo) }
   const goToResource = (task: Task) => { const resource = resourceLink(task); if (!resource.path) return; closeDetail(); navigate(resource.path) }
   const canRetry = (task: Task) => ['failed', 'canceled', 'interrupted'].includes(task.status)
+  const retryEvidence = useMemo(
+    () => retryRequestFailure ? taskRetryRequestEvidence(retryRequestFailure, retryEvidenceItems) : undefined,
+    [retryEvidenceItems, retryRequestFailure],
+  )
+  const retryAllowed = (task: Task) => retryRequestFailure?.taskId !== task.id || retryEvidence?.canRetry === true
+  const openTask = (id: string) => setParams(continueTo ? { task: id, continue: continueTo } : { task: id })
 
   const action = async (item: Task, name: 'cancel' | 'retry') => {
     const key = `${item.id}:${name}`
+    const attemptedAt = new Date().toISOString()
     try {
       setActioning(key)
       setActionError('')
       if (name === 'retry') {
+        setRetryRequestFailure(null)
+        setRetryEvidenceItems([])
+        setRetryEvidenceError('')
         const retried = await api<Task>(`/tasks/${item.id}/retry`, { method: 'POST', body: {} })
         notifyTask(retried)
-        setParams(continueTo ? { task: retried.id, continue: continueTo } : { task: retried.id })
+        openTask(retried.id)
       } else {
         const canceled = await api<Task>(`/tasks/${item.id}/cancel`, { method: 'POST', body: {} })
         message.success(t(canceled.status === 'canceled' ? 'taskCanceledImmediately' : 'cancelRequested'))
@@ -164,9 +181,63 @@ export function TasksPage() {
       }
       await load()
     } catch (error) {
-      setActionError(errorMessage(error))
+      if (name === 'cancel') {
+        setActionError(errorMessage(error))
+      } else {
+        const failure: TaskRetryRequestFailure = {
+          taskId: item.id,
+          code: error instanceof ApiError ? error.code : 'network_error',
+          message: errorMessage(error),
+          serverRejected: error instanceof ApiError,
+          attemptedAt,
+          evidenceChecks: 0,
+        }
+        try {
+          const evidenceResponse = await api<{ items: Task[] }>('/tasks')
+          const confirmedFailure = { ...failure, evidenceChecks: 1 }
+          const evidence = taskRetryRequestEvidence(confirmedFailure, evidenceResponse.items)
+          setRetryEvidenceItems(evidenceResponse.items)
+          setRetryEvidenceError('')
+          if (evidence.successor) {
+            notifyTask(evidence.successor)
+            openTask(evidence.successor.id)
+          } else {
+            setRetryRequestFailure(confirmedFailure)
+          }
+        } catch (evidenceError) {
+          setRetryEvidenceError(errorMessage(evidenceError))
+          setRetryRequestFailure(failure)
+        }
+        if (taskID === item.id) await loadDetail(item.id)
+        await load()
+      }
     } finally {
       setActioning('')
+    }
+  }
+
+  const refreshRetryEvidence = async () => {
+    if (!retryRequestFailure) return
+    try {
+      setRetryEvidenceRefreshing(true)
+      setRetryEvidenceError('')
+      const evidenceResponse = await api<{ items: Task[] }>('/tasks')
+      const nextFailure = { ...retryRequestFailure, evidenceChecks: retryRequestFailure.evidenceChecks + 1 }
+      const evidence = taskRetryRequestEvidence(nextFailure, evidenceResponse.items)
+      setRetryEvidenceItems(evidenceResponse.items)
+      if (evidence.successor) {
+        setRetryRequestFailure(null)
+        notifyTask(evidence.successor)
+        openTask(evidence.successor.id)
+      } else {
+        setRetryRequestFailure(nextFailure)
+      }
+      await load()
+      if (taskID) await loadDetail(taskID)
+    } catch (error) {
+      setRetryEvidenceError(errorMessage(error))
+    } finally {
+      setRetryEvidenceRefreshing(false)
     }
   }
 
@@ -219,7 +290,7 @@ export function TasksPage() {
     return <Space className="task-table-actions">
       {deploymentDestination && <Button size="small" icon={<DatabaseOutlined />} onClick={() => navigate(deploymentDestination)}>{t(canReadCredentials ? 'openConnectionHandoff' : 'viewDatabase')}</Button>}
       {recoveryPath && <Button size="small" icon={<CloudServerOutlined />} onClick={() => navigate(recoveryPath)}>{t('inspectFailedHost')}</Button>}
-      {retryable && <Button size="small" loading={actioning === retryKey} disabled={!!actioning && actioning !== retryKey} icon={<RedoOutlined />} onClick={() => void action(task, 'retry')}>{t('retry')}</Button>}
+      {retryable && <Button size="small" loading={actioning === retryKey} disabled={!retryAllowed(task) || (!!actioning && actioning !== retryKey)} icon={<RedoOutlined />} onClick={() => void action(task, 'retry')}>{t('retry')}</Button>}
       {cancelable && <Popconfirm title={t('cancelTask')} description={t(task.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(task, 'cancel')}><Button size="small" danger loading={actioning === cancelKey} disabled={!!actioning && actioning !== cancelKey} icon={<CloseCircleOutlined />}>{t('cancel')}</Button></Popconfirm>}
     </Space>
   }
@@ -252,13 +323,48 @@ export function TasksPage() {
   }
   const showResourceFooterAction = !!selectedResource?.path && !selectedDeploymentJourney && !selectedDeleteOutcome
   const hasDrawerLeadingAction = showResourceFooterAction || !!selectedDeleteOutcome || !!(canOperate && continueTo)
-  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{selectedDeleteOutcome && <Button icon={<DatabaseOutlined />} onClick={() => { closeDetail(); navigate('/instances') }}>{t('backToInstances')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancelTask(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+  const drawerFooter = selected ? <div className="task-drawer-footer">{hasDrawerLeadingAction && <Space>{showResourceFooterAction && <Button icon={<ArrowRightOutlined />} onClick={() => goToResource(selected)}>{t(selected.resourceType === 'backup' ? 'viewBackupCleanup' : 'viewResource')}</Button>}{selectedDeleteOutcome && <Button icon={<DatabaseOutlined />} onClick={() => { closeDetail(); navigate('/instances') }}>{t('backToInstances')}</Button>}{canOperate && continueTo && <Button type="primary" disabled={selected.status !== 'succeeded'} icon={<DatabaseOutlined />} onClick={continueCreation}>{t('continueCreateDatabase')}</Button>}</Space>}{canOperate && <Space className="task-drawer-actions">{canCancelTask(selected) && <Popconfirm title={t('cancelTask')} description={t(selected.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void action(selected, 'cancel')}><Button danger loading={actioning === `${selected.id}:cancel`} icon={<CloseCircleOutlined />}>{t('cancelTask')}</Button></Popconfirm>}{canRetry(selected) && !selectedRecoveryPath && <Button type="primary" disabled={!retryAllowed(selected)} loading={actioning === `${selected.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(selected, 'retry')}>{t('retryTask')}</Button>}</Space>}</div> : undefined
+
+  const retryRequestAlert = retryRequestFailure && retryEvidence ? <Alert
+    className="task-retry-request-alert"
+    type={retryEvidence.phase === 'ready' ? 'success' : retryEvidence.phase === 'unavailable' ? 'error' : 'warning'}
+    showIcon
+    closable
+    aria-live="polite"
+    message={t(retryRequestFailure.serverRejected ? 'taskRetryRequestRejectedTitle' : 'taskRetryRequestUnknownTitle')}
+    description={<div className="task-retry-request-body">
+      <div className="task-retry-request-grid">
+        <div><Typography.Text type="secondary">{t('failureCause')}</Typography.Text><Typography.Text>{retryEvidence.phase === 'blocked' && retryEvidence.blocker ? t('taskRetryRequestBlockedCause', { operation: translateCode(t, retryEvidence.blocker.kind, 'taskKind') }) : retryRequestFailure.serverRejected ? t(`error_${retryRequestFailure.code}`, { defaultValue: retryRequestFailure.message }) : retryRequestFailure.message}</Typography.Text></div>
+        <div><Typography.Text type="secondary">{t('failureImpact')}</Typography.Text><Typography.Text>{t(retryRequestFailure.serverRejected ? 'taskRetryRequestRejectedImpact' : 'taskRetryRequestUnknownImpact')}</Typography.Text></div>
+        <div><Typography.Text type="secondary">{t('recoveryAdvice')}</Typography.Text><Typography.Text>{t(`taskRetryRequestRecovery_${retryEvidence.phase}`)}</Typography.Text></div>
+      </div>
+      <div className="task-retry-request-evidence">
+        <Typography.Text type="secondary">{t('taskRetryRequestErrorCode')}</Typography.Text>
+        <Tag>{retryRequestFailure.code}</Tag>
+      </div>
+      {retryEvidence.blocker && <div className="task-retry-request-evidence">
+        <Typography.Text type="secondary">{t('taskRetryRequestCurrentTask')}</Typography.Text>
+        <StatusTag value={retryEvidence.blocker.status} />
+        <Typography.Text strong>{translateCode(t, retryEvidence.blocker.kind, 'taskKind')}</Typography.Text>
+        <Typography.Text code>{retryEvidence.blocker.id.slice(0, 8)}</Typography.Text>
+      </div>}
+      {retryEvidenceError && <Typography.Text className="task-retry-request-refresh-error" type="danger">{t('taskRetryEvidenceRefreshFailed', { error: retryEvidenceError })}</Typography.Text>}
+    </div>}
+    action={<Space wrap className="task-retry-request-actions">
+      {retryEvidence.canRetry && retryEvidence.original && taskID !== retryRequestFailure.taskId && <Button size="small" type="primary" loading={actioning === `${retryEvidence.original.id}:retry`} icon={<RedoOutlined />} onClick={() => void action(retryEvidence.original!, 'retry')}>{t('retryTask')}</Button>}
+      <Button size="small" loading={retryEvidenceRefreshing} icon={<ReloadOutlined />} onClick={() => void refreshRetryEvidence()}>{t('refreshTaskEvidence')}</Button>
+      {retryEvidence.blocker && <Button size="small" onClick={() => openTask(retryEvidence.blocker!.id)}>{t('viewCurrentTask')}</Button>}
+      {retryEvidence.original && resourceLink(retryEvidence.original).path && <Button size="small" onClick={() => goToResource(retryEvidence.original!)}>{t('viewResource')}</Button>}
+    </Space>}
+    onClose={() => { setRetryRequestFailure(null); setRetryEvidenceItems([]); setRetryEvidenceError('') }}
+  /> : undefined
 
   return <>
     <PageHeader title={t('tasks')} description={t('tasksDescription')} />
     {listError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('taskListLoadFailed')} description={listError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {resourceDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('taskResourceDataLoadFailed')} description={resourceDataError} action={<Button size="small" onClick={() => void loadResources()}>{t('retry')}</Button>} />}
     {actionError && !taskID && <Alert className="instance-page-alert" type="error" showIcon closable message={t('taskActionFailed')} description={actionError} onClose={() => setActionError('')} />}
+    {retryRequestFailure && taskID !== retryRequestFailure.taskId && <div className="instance-page-alert">{retryRequestAlert}</div>}
     {showFilters && <Card className="table-filter-card task-filter-card"><div className="task-filter-toolbar"><Input.Search allowClear aria-label={t('tasksSearchLabel')} placeholder={t('tasksSearchPlaceholder')} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} className="task-filter-search" /><Select aria-label={t('status')} value={status} onChange={(value) => { setLoading(true); setStatus(value); setPage(1) }} className="task-filter-status" options={[{ value: '', label: t('taskStatusAll') }, ...['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('resource')} value={resourceType} onChange={(value) => { setLoading(true); setResourceType(value); setPage(1) }} className="task-filter-resource" options={[{ value: '', label: t('allResources') }, ...['instance', 'host', 'backup'].map((value) => ({ value, label: translateCode(t, value, 'resourceType') }))]} /><Typography.Text type="secondary" className="task-filter-count" aria-live="polite">{search ? t('taskFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('taskResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
     {showList && (compactLayout
       ? <Card className="task-mobile-list-card" title={!showFilters ? t('tasks') : undefined} extra={!showFilters ? listActions : undefined}>
@@ -281,6 +387,7 @@ export function TasksPage() {
     <Drawer title={selected ? <div className="task-drawer-title"><Typography.Text strong>{translateCode(t, selected.kind, 'taskKind')}</Typography.Text><Typography.Text code copyable={{ text: selected.id }}>{selected.id.slice(0, 8)}</Typography.Text></div> : t('taskDetails')} open={!!taskID} onClose={closeDetail} width={760} destroyOnHidden footer={drawerFooter}>
       {detailLoading ? <Card loading /> : detailError ? <Alert type="error" showIcon message={t('taskLoadFailed')} description={detailError} action={<Button size="small" onClick={() => taskID && void loadDetail(taskID, true)}>{t('retry')}</Button>} /> : selected && <div className="task-detail">
         {actionError && <Alert className="task-detail-alert" type="error" showIcon closable message={t('taskActionFailed')} description={actionError} onClose={() => setActionError('')} />}
+        {retryRequestFailure?.taskId === selected.id && retryRequestAlert}
         <div className={`task-detail-summary is-${selected.status}`}><div><Space><StatusTag value={selected.status} /><Typography.Text strong>{translateCode(t, selected.message, 'taskMessage')}</Typography.Text></Space><Typography.Paragraph type="secondary">{t('taskSummaryDescription', { operation: translateCode(t, selected.kind, 'taskKind'), resource: selectedResource?.label || '—' })}</Typography.Paragraph></div><Progress percent={selected.progress} status={selected.status === 'failed' ? 'exception' : selected.status === 'succeeded' ? 'success' : undefined} /></div>
         {selectedDeploymentJourney && selectedDeploymentDestination && <Alert
           className="task-detail-alert deployment-task-next-step"

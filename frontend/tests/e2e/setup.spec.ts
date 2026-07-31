@@ -1744,8 +1744,12 @@ test('initializes the platform and switches the embedded interface language', as
   const failedTaskID = '33333333-3333-4333-8333-333333333333'
   const retriedTaskID = '33333333-3333-4333-8333-333333333334'
   const healthFailureTaskID = '33333333-3333-4333-8333-333333333336'
+  const healthRetriedTaskID = '33333333-3333-4333-8333-333333333337'
+  const retryBlockerTaskID = '33333333-3333-4333-8333-333333333338'
   const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
   const healthFailureTask = { ...failedTask, id: healthFailureTaskID, kind: 'instance_restore', resourceId: '77777777-7777-4777-8777-777777777777', progress: 90, stage: 'health', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'database did not become healthy', createdAt: new Date(Date.now() - 480000).toISOString() }
+  const healthRetriedTask = { ...healthFailureTask, id: healthRetriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', payload: { operationId: healthFailureTaskID }, result: {}, errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
+  let retryBlockerTask = { ...healthFailureTask, id: retryBlockerTaskID, kind: 'instance_backup', status: 'running', progress: 42, stage: 'files', message: 'creating_backup_archive', payload: { operationId: retryBlockerTaskID }, result: {}, errorCode: '', errorMessage: '', attempts: 1, startedAt: new Date(Date.now() - 60000).toISOString(), finishedAt: undefined, createdAt: new Date(Date.now() - 90000).toISOString() }
   const restoreSuccessTask = { ...failedTask, id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceId: instanceID, progress: 100, stage: 'compose', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: 'Orders release baseline', backupCreatedAt: restoredBackupCreatedAt, backupSha256: 'a'.repeat(64), restoreOutcome: 'target_backup_applied', healthVerifiedAt: restoreHealthVerifiedAt, instanceStatus: 'running', desiredState: 'running', status: 'running' }, errorCode: '', errorMessage: '', createdAt: restoreHealthVerifiedAt, startedAt: restoreHealthVerifiedAt, finishedAt: restoreHealthVerifiedAt }
   let retriedTask: Record<string, unknown> = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
   const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
@@ -1771,6 +1775,10 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
   await page.route(`**/api/v1/tasks/${healthFailureTaskID}`, async (route) => route.fulfill({ json: healthFailureTask }))
   await page.route(`**/api/v1/tasks/${healthFailureTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 2, level: 'error', message: 'database did not become healthy', createdAt: healthFailureTask.finishedAt }] } }))
+  await page.route(`**/api/v1/tasks/${retryBlockerTaskID}`, async (route) => route.fulfill({ json: retryBlockerTask }))
+  await page.route(`**/api/v1/tasks/${retryBlockerTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/tasks/${healthRetriedTaskID}`, async (route) => route.fulfill({ json: healthRetriedTask }))
+  await page.route(`**/api/v1/tasks/${healthRetriedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/tasks/${restoreSuccessTaskID}`, async (route) => route.fulfill({ json: restoreSuccessTask }))
   await page.route(`**/api/v1/tasks/${restoreSuccessTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 3, level: 'info', message: 'task_completed', createdAt: restoreSuccessTask.finishedAt }] } }))
   await page.route(`**/api/v1/tasks/${backupDeleteTaskID}`, async (route) => route.fulfill({ json: taskCenterBackupTask }))
@@ -1778,6 +1786,15 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/tasks/${failedTaskID}/retry`, async (route) => {
     attentionItems = [{ resourceType: 'instance', resourceId: instanceID, resourceName: 'Orders DB', resourceStatus: 'failed', hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', updatedAt: new Date().toISOString() }]
     await route.fulfill({ status: 202, json: retriedTask })
+  })
+  let healthRetryRejected = true
+  await page.route(`**/api/v1/tasks/${healthFailureTaskID}/retry`, async (route) => {
+    if (healthRetryRejected) {
+      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: another operation is already queued or running for this resource' } } })
+      return
+    }
+    if (!taskCenterItems.some((task) => task.id === healthRetriedTaskID)) taskCenterItems.push(healthRetriedTask)
+    await route.fulfill({ status: 202, json: healthRetriedTask })
   })
   await page.route(`**/api/v1/tasks/${retriedTaskID}`, async (route) => route.fulfill({ json: retriedTask }))
   await page.route(`**/api/v1/tasks/${retriedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
@@ -1875,6 +1892,31 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(restoreFailureDrawer.getByText(/目标备份未生效；实例已恢复到本次操作前的数据和运行状态/)).toBeVisible()
   await expect(restoreFailureDrawer.getByText(/修复健康检查或资源问题后重试恢复/)).toBeVisible()
   await expect(restoreFailureDrawer.getByRole('button', { name: '重试任务' })).toBeVisible()
+  taskCenterItems.push(retryBlockerTask)
+  await restoreFailureDrawer.getByRole('button', { name: '重试任务' }).click()
+  await expect(restoreFailureDrawer.getByText('任务重试未进入队列')).toBeVisible()
+  await expect(restoreFailureDrawer.getByText('同一资源上的「备份数据库实例」仍在排队或执行。')).toBeVisible()
+  await expect(restoreFailureDrawer.getByText(/本次请求没有创建新的重试任务/)).toBeVisible()
+  await expect(restoreFailureDrawer.getByText('当前占用资源的任务')).toBeVisible()
+  await expect(restoreFailureDrawer.getByRole('button', { name: '重试任务' })).toBeDisabled()
+  await restoreFailureDrawer.getByRole('button', { name: '查看当前任务' }).click()
+  const blockerTaskDrawer = page.getByRole('dialog', { name: /备份数据库实例.*33333333/ })
+  await expect(blockerTaskDrawer).toBeVisible()
+  await expect(blockerTaskDrawer.getByText('42%', { exact: true })).toBeVisible()
+  await blockerTaskDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.getByText('任务重试未进入队列')).toBeVisible()
+  retryBlockerTask = { ...retryBlockerTask, status: 'succeeded', progress: 100, stage: 'completed', message: 'task_completed', finishedAt: new Date().toISOString() }
+  taskCenterItems[taskCenterItems.findIndex((task) => task.id === retryBlockerTaskID)] = retryBlockerTask
+  healthRetryRejected = false
+  await page.getByRole('button', { name: '刷新任务证据' }).click()
+  await expect(page.getByText(/证据已刷新，未发现新重试任务或进行中冲突/)).toBeVisible()
+  const recoveredHealthFailureRow = page.getByRole('row').filter({ hasText: '恢复数据库实例' })
+  await expect(recoveredHealthFailureRow.getByRole('button', { name: /重试/ })).toBeEnabled()
+  await page.getByRole('button', { name: '重试任务' }).click()
+  const healthRetriedDrawer = page.getByRole('dialog', { name: /恢复数据库实例.*33333333/ })
+  await expect(healthRetriedDrawer).toBeVisible()
+  await expect(healthRetriedDrawer.getByText('排队中', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('任务重试未进入队列')).toHaveCount(0)
   await page.goto(`/tasks?task=${restoreSuccessTaskID}`)
   const restoreSuccessDrawer = page.getByRole('dialog', { name: /恢复数据库实例/ })
   await expect(restoreSuccessDrawer.getByText('恢复结果可验证')).toBeVisible()
@@ -2045,6 +2087,11 @@ test('initializes the platform and switches the embedded interface language', as
   await page.unroute(`**/api/v1/tasks/${retriedTaskID}`)
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}`)
+  await page.unroute(`**/api/v1/tasks/${healthRetriedTaskID}/logs`)
+  await page.unroute(`**/api/v1/tasks/${healthRetriedTaskID}`)
+  await page.unroute(`**/api/v1/tasks/${retryBlockerTaskID}/logs`)
+  await page.unroute(`**/api/v1/tasks/${retryBlockerTaskID}`)
+  await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}/retry`)
   await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}`)
   await page.unroute(`**/api/v1/tasks/${restoreSuccessTaskID}/logs`)
