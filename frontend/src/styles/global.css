@@ -489,6 +489,11 @@ button { font: inherit; }
 .instance-mobile-summary .ant-tag { margin-inline-end: 0; }
 .instance-handoff-body { display: grid; gap: 16px; }
 .instance-handoff-body > .ant-typography { margin: 0; }
+.connection-handoff-context { margin-bottom: 18px; }
+.instance-handoff-body .connection-handoff-context { margin-bottom: 0; }
+.connection-handoff-context .ant-descriptions-header { margin-bottom: 10px; }
+.connection-handoff-context .ant-descriptions-item-label { color: #667085; }
+.connection-handoff-context .ant-descriptions-item-content { min-width: 0; overflow-wrap: anywhere; }
 .instance-handoff-error { display: grid; gap: 5px; }
 .instance-handoff-facts .ant-descriptions-item-label { width: 150px; color: #667085; }
 .instance-handoff-facts code { white-space: normal; overflow-wrap: anywhere; }

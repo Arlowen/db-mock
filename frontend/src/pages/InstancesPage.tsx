@@ -75,6 +75,7 @@ function batchActionErrorMessage(item: InstanceBatchRejected): string {
 
 function connectionHandoffText(
   item: Instance,
+  projectName: string | undefined,
   connection: Connection,
   verification: ReturnType<typeof restoreVerification>,
   t: TFunction,
@@ -85,7 +86,11 @@ function connectionHandoffText(
     instanceName: item.name,
     templateName: item.templateName,
     templateVersion: item.templateVersion,
+    project: projectName || t('noProject'),
     environment: translateCode(t, item.environment),
+    purpose: item.purpose || t('purposeMissing'),
+    owner: item.owner || t('ownerMissing'),
+    expectedExpiry: item.expiresAt ? formatDateTime(item.expiresAt, language, timezone) : t('retainIndefinitely'),
     status: translateCode(t, item.status),
     dataVersion: verification?.backupName || verification?.backupId.slice(0, 8),
     backupCreatedAt: verification?.backupCreatedAt ? formatDateTime(verification.backupCreatedAt, language, timezone) : undefined,
@@ -96,7 +101,11 @@ function connectionHandoffText(
     title: t('connectionHandoffTitle'),
     instance: t('connectionHandoffInstance'),
     template: t('template'),
+    project: t('project'),
     environment: t('environment'),
+    purpose: t('purpose'),
+    owner: t('owner'),
+    expectedExpiry: t('expectedExpiry'),
     status: t('status'),
     authentication: t('authentication'),
     dataVersion: t('connectionHandoffDataVersion'),
@@ -555,7 +564,8 @@ export function InstancesPage() {
       ])
       if (requestID !== handoffRequestID.current) return
       const verification = instanceHandoffRestoreVerification(handoffItem, taskResponse.items, backupResponse.items)
-      await copyText(connectionHandoffText(handoffItem, connection, verification, t, i18n.language, timezone))
+      const projectName = projects.find((project) => project.id === handoffItem.projectId)?.name
+      await copyText(connectionHandoffText(handoffItem, projectName, connection, verification, t, i18n.language, timezone))
       if (requestID !== handoffRequestID.current) return
       setHandoffResult({
         address: connection.address,
@@ -811,6 +821,20 @@ export function InstancesPage() {
     >
       <div className="instance-handoff-body">
         <Typography.Paragraph type="secondary">{t('quickConnectionHandoffIntro')}</Typography.Paragraph>
+        {handoffItem && <Descriptions
+          className="connection-handoff-context"
+          title={t('connectionHandoffContextTitle')}
+          size="small"
+          bordered
+          column={{ xs: 1, sm: 2 }}
+          items={[
+            { key: 'project', label: t('project'), children: projects.find((project) => project.id === handoffItem.projectId)?.name || t('noProject') },
+            { key: 'environment', label: t('environment'), children: translateCode(t, handoffItem.environment) },
+            { key: 'purpose', label: t('purpose'), span: 2, children: handoffItem.purpose || t('purposeMissing') },
+            { key: 'owner', label: t('owner'), children: handoffItem.owner || t('ownerMissing') },
+            { key: 'expiry', label: t('expectedExpiry'), children: handoffItem.expiresAt ? formatDateTime(handoffItem.expiresAt, i18n.language, timezone) : t('retainIndefinitely') },
+          ]}
+        />}
         {!handoffError && !handoffResult && <Alert
           type="info"
           showIcon
@@ -1597,6 +1621,20 @@ export function InstanceDetailPage() {
   />
   const connectionAuthentication = connection?.authentication || 'password'
   const connectionTab = <Card title={t('connectionCredentials')} className="connection-card">
+    <Descriptions
+      className="connection-handoff-context"
+      title={t('connectionHandoffContextTitle')}
+      size="small"
+      bordered
+      column={{ xs: 1, md: 2 }}
+      items={[
+        { key: 'project', label: t('project'), children: project?.name || t('noProject') },
+        { key: 'environment', label: t('environment'), children: translateCode(t, item.environment) },
+        { key: 'purpose', label: t('purpose'), span: 2, children: item.purpose || t('purposeMissing') },
+        { key: 'owner', label: t('owner'), children: item.owner || t('ownerMissing') },
+        { key: 'expiry', label: t('expectedExpiry'), children: item.expiresAt ? formatDateTime(item.expiresAt, i18n.language, timezone) : t('retainIndefinitely') },
+      ]}
+    />
     {restoreConnectionContext}
     {item.status !== 'running' && <Alert className="connection-status-alert" type="warning" showIcon message={t('connectionAvailabilityAffected')} description={t('connectionAvailabilityAffectedHint', { status: translateCode(t, item.status) })} />}
     {!canReadCredentials
@@ -1606,7 +1644,7 @@ export function InstanceDetailPage() {
         : <>
             {connectionErrorPanel}
             {connectionAuthentication !== 'password' && <Alert className="connection-authentication-alert" type="warning" showIcon message={t('nonPasswordAuthenticationTitle')} description={t(`nonPasswordAuthenticationHint_${connectionAuthentication}`)} />}
-            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffText(item, connection, latestRestoreVerification, t, i18n.language, timezone)).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
+            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffText(item, project?.name, connection, latestRestoreVerification, t, i18n.language, timezone)).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} items={[{ key: 'authentication', label: t('authentication'), children: t(`authenticationMode_${connectionAuthentication}`) },{ key: 'address', label: t('address'), children: <Typography.Text copyable={{ text: connection.address, icon: <CopyOutlined /> }}>{connection.address}</Typography.Text> },{ key: 'port', label: t('port'), children: <Typography.Text copyable={{ text: String(connection.port), icon: <CopyOutlined /> }}>{connection.port}</Typography.Text> },...(connection.username ? [{ key: 'username', label: t('username'), children: <Typography.Text copyable={{ text: connection.username, icon: <CopyOutlined /> }}>{connection.username}</Typography.Text> }] : []),...(connectionAuthentication === 'password' && connection.password ? [{ key: 'password', label: t('password'), children: <Typography.Text code copyable={{ text: connection.password, icon: <CopyOutlined /> }}>{connection.password}</Typography.Text> }] : []),...(connection.database ? [{ key: 'database', label: t('database'), children: <Typography.Text copyable={{ text: connection.database, icon: <CopyOutlined /> }}>{connection.database}</Typography.Text> }] : [])]} />
             <div className="connection-strings"><div className="connection-string"><Typography.Text type="secondary">{t('uri')}</Typography.Text><Typography.Text code copyable={{ text: connection.uri, icon: <CopyOutlined /> }}>{connection.uri}</Typography.Text></div>{connection.jdbc && <div className="connection-string"><Typography.Text type="secondary">{t('jdbc')}</Typography.Text><Typography.Text code copyable={{ text: connection.jdbc, icon: <CopyOutlined /> }}>{connection.jdbc}</Typography.Text></div>}</div>
           </>}

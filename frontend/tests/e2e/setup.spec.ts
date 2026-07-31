@@ -181,6 +181,9 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(projectDialog.getByLabel('描述')).toHaveValue('Must not leak into the next project')
   await projectDialog.getByRole('button', { name: /保\s*存/ }).click()
   await expect(page.getByRole('heading', { name: 'E2E Project' })).toBeVisible()
+  const e2eProjectsResponse = await page.request.get('/api/v1/projects')
+  const e2eProject = (await e2eProjectsResponse.json()).items.find((item: { name: string }) => item.name === 'E2E Project')
+  expect(e2eProject?.id).toEqual(expect.any(String))
   await expect(page.locator('.project-dot')).toHaveCSS('display', 'block')
   const e2eProjectCard = page.locator('.project-card').filter({ hasText: 'E2E Project' })
   await expect(e2eProjectCard.getByText('新建数据库时自动应用')).toBeVisible()
@@ -511,7 +514,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: upgradeRegistryID, name: 'Docker Hub mirror', url: 'https://docker.io', hasPassword: true, hasCaCertificate: false, status: 'online', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } }))
   const instanceResponse = () => ({
     id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555',
-    projectId: '77777777-7777-4777-8777-777777777777', environment: 'development', labels: { team: 'checkout' }, purpose: 'Orders release regression', owner: 'Orders QA', expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(), status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
+    projectId: e2eProject.id, environment: 'development', labels: { team: 'checkout' }, purpose: 'Orders release regression', owner: 'Orders QA', expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(), status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
     cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0',
     databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17',
     configuration: { extraEnvironment: { TZ: 'UTC' } }, statusMessage: instanceStatusMessage, hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
@@ -641,6 +644,13 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(directHandoffButton).toBeVisible()
   await directHandoffButton.click()
   const directHandoffDialog = page.getByRole('dialog', { name: '快速交付 · Orders DB' })
+  const directHandoffContext = directHandoffDialog.locator('.connection-handoff-context')
+  await expect(directHandoffContext.getByText('交付上下文')).toBeVisible()
+  await expect(directHandoffContext.getByText('E2E Project', { exact: true })).toBeVisible()
+  await expect(directHandoffContext.getByText('开发', { exact: true })).toBeVisible()
+  await expect(directHandoffContext.getByText('Orders release regression', { exact: true })).toBeVisible()
+  await expect(directHandoffContext.getByText('Orders QA', { exact: true })).toBeVisible()
+  await expect(directHandoffContext.getByText('预计到期时间', { exact: true })).toBeVisible()
   await expect(directHandoffDialog.getByText('连接凭据尚未读取')).toBeVisible()
   expect(connectionRequestCount).toBe(0)
   await directHandoffDialog.getByRole('button', { name: '显示并复制完整摘要' }).click()
@@ -979,6 +989,11 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(completedDeploymentRow.getByRole('button', { name: '前往连接信息' })).toBeVisible()
   await deploymentTaskDrawer.getByRole('button', { name: '前往连接信息' }).click()
   await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
+  let handoffContext = page.locator('.connection-handoff-context')
+  await expect(handoffContext.getByText('交付上下文')).toBeVisible()
+  await expect(handoffContext.getByText('E2E Project', { exact: true })).toBeVisible()
+  await expect(handoffContext.getByText('Orders release regression', { exact: true })).toBeVisible()
+  await expect(handoffContext.getByText('Orders QA', { exact: true })).toBeVisible()
   await expect(page.getByText('连接信息受保护')).toBeVisible()
   await page.getByRole('button', { name: '显示连接信息' }).click()
   await expect(page.getByText('用户名和密码', { exact: true })).toBeVisible()
@@ -1207,6 +1222,11 @@ test('initializes the platform and switches the embedded interface language', as
   await page.reload()
 
   await page.getByRole('tab', { name: '连接信息' }).click()
+  handoffContext = page.locator('.connection-handoff-context')
+  await expect(handoffContext.getByText('交付上下文')).toBeVisible()
+  await expect(handoffContext.getByText('E2E Project', { exact: true })).toBeVisible()
+  await expect(handoffContext.getByText('Orders release regression', { exact: true })).toBeVisible()
+  await expect(handoffContext.getByText('Orders QA', { exact: true })).toBeVisible()
   await expect(page.getByText('连接可用性受当前状态影响')).toHaveCount(0)
   await expect(page.getByText('连接信息受保护')).toBeVisible()
   failConnection = true
