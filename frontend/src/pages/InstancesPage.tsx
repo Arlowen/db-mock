@@ -31,7 +31,7 @@ import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, 
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { hasProjectDeploymentDefaults, parseLabelText, projectDeploymentValues } from '../lib/project-deployment-defaults'
+import { hasProjectDeploymentProfile, hasProjectLifecycleDefaults, parseLabelText, projectDeploymentProfileValues, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { restoreOutcome } from '../lib/restore-outcome'
 import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
@@ -50,6 +50,12 @@ interface CreateValues { name: string; projectId?: string; environment: string; 
 interface EditValues { name: string; projectId?: string; environment: string; purpose?: string; owner: string; expiresAt?: Dayjs; labels?: string }
 interface RuntimeValues { cpu: number; memoryGiB: number; diskGiB: number; extraEnvironment: string; autoRestart: boolean }
 interface BackupPolicyValues { enabled: boolean; frequency: 'daily' | 'weekly'; weekday: number; hour: number; minute: number; timezone: string; retentionCount: number }
+
+function selectableTemplateVersion(templates: DatabaseTemplate[], versionID?: string) {
+  if (!versionID) return undefined
+  return templates.flatMap((template) => template.versions).find((version) => version.id === versionID && version.selectable !== false)
+}
+
 function parseStringMap(value?: string): Record<string, string> | undefined {
   try {
     const parsed = JSON.parse(value?.trim() || '{}')
@@ -190,6 +196,10 @@ export function InstancesPage() {
   const requestedImageID = params.get('image')
   const requestedHostID = params.get('host')
   const requestedProjectFilter = params.get('project') || ''
+  const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
+  const requestedProjectProfile = useMemo(() => projectDeploymentProfileValues(requestedProject), [requestedProject])
+  const requestedProjectVersion = selectableTemplateVersion(templates, requestedProjectProfile?.templateVersionId)
+  const requestedProjectProfileAvailable = !!requestedProjectProfile && !!requestedProjectVersion
   const requestedCopySource = requestedCopyID ? items.find((item) => item.id === requestedCopyID) : undefined
   const requestedCopyTemplateAvailable = !!requestedCopySource && templates.some((template) => template.versions.some((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false))
   const requestedCopySourceUnavailable = !!requestedCopyID && !requestedCopySource
@@ -197,7 +207,7 @@ export function InstancesPage() {
   const requestedTemplateAvailable = !!requestedTemplateID && templates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
   const requestedVersion = templates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
   const requestedCopyVersion = requestedCopySource ? templates.flatMap((template) => template.versions).find((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false) : undefined
-  const requestedCreationVersion = requestedCopyTemplateAvailable ? requestedCopyVersion : requestedVersion
+  const requestedCreationVersion = requestedCopyTemplateAvailable ? requestedCopyVersion : requestedVersion || requestedProjectVersion
   const requestedImage = images.find((image) => image.id === requestedImageID)
   const requestedImageAvailable = !!requestedVersion && !!requestedImage && requestedImage.status === 'ready' && imageArtifactMatchesTemplate(requestedImage.imageRefs, requestedVersion) && imageArtifactSupportsAnyArchitecture(requestedImage.architectures, requestedVersion.architectures)
   const requestedCompatibleHosts = hosts.filter((host) => host.status === 'online' && !host.maintenance && (!requestedCreationVersion || requestedCreationVersion.architectures.includes(host.architecture || '')) && (!requestedImageAvailable || imageArtifactSupportsAnyArchitecture(requestedImage.architectures, [host.architecture || ''])))
@@ -223,17 +233,31 @@ export function InstancesPage() {
     const source = requestedCopyTemplateAvailable ? requestedCopySource : undefined
     copyPrefillApplied.current = false
     setCopySource(source)
-    setStep(source || requestedTemplateAvailable ? 1 : 0)
+    setStep(source || requestedTemplateAvailable || requestedProjectProfileAvailable ? 1 : 0)
     setCreateFailure(undefined)
     setCreateDraftDirty(false)
     form.resetFields()
-    const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
     form.setFieldsValue(source
       ? { ...deploymentCopyDraft(source, projects.map((project) => project.id)), ...lifecycleDefaults, hostId: requestedHostReady ? requestedHostID || undefined : undefined }
-      : { bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined, projectId: requestedProjectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(requestedProject), hostId: requestedHostReady ? requestedHostID || undefined : undefined })
+      : {
+          bindAddress: '0.0.0.0',
+          autoRestart: true,
+          imageSource: requestedImageAvailable ? 'offline' : 'public',
+          imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined,
+          templateVersionId: requestedTemplateAvailable
+            ? requestedTemplateID || undefined
+            : requestedProjectProfileAvailable
+              ? requestedProjectProfile.templateVersionId
+              : undefined,
+          projectId: requestedProjectFilter || undefined,
+          ...lifecycleDefaults,
+          ...projectDeploymentValues(requestedProject),
+          ...(requestedProjectProfileAvailable ? requestedProjectProfile : {}),
+          hostId: requestedHostReady ? requestedHostID || undefined : undefined,
+        })
     setAppliedProjectDefaultsID(source ? '' : requestedProject?.id || '')
     setDrawer(true)
-  }, [addRequiredHost, canOperate, createRequested, creationDataReady, drawer, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProjectFilter, requestedTemplateAvailable, requestedTemplateID, setParams])
+  }, [addRequiredHost, canOperate, createRequested, creationDataReady, drawer, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProject, requestedProjectFilter, requestedProjectProfile, requestedProjectProfileAvailable, requestedTemplateAvailable, requestedTemplateID, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
   const selectedProjectID = Form.useWatch('projectId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
@@ -249,6 +273,9 @@ export function InstancesPage() {
   const selectedAuthentication = selected ? templateAuthentication(selected.template, selected.version) : 'password'
   const frequentVersions = useMemo(() => frequentTemplateVersions(templates), [templates])
   const selectedProject = projects.find((project) => project.id === selectedProjectID)
+  const selectedProjectProfile = useMemo(() => projectDeploymentProfileValues(selectedProject), [selectedProject])
+  const selectedProjectProfileAvailable = !!selectedProjectProfile && !!selectableTemplateVersion(templates, selectedProjectProfile.templateVersionId)
+  const selectedProjectProfileApplied = !copySource && selectedProjectProfileAvailable && selectedProjectProfile.templateVersionId === selectedVersionID
   const selectedTemplateParameters = useMemo(() => templateParameters(selected?.version), [selected])
   const selectedResourceProfiles = useMemo(() => templateResourceProfiles(selected?.version), [selected])
   const templateCompatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && !host.maintenance && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
@@ -354,8 +381,16 @@ export function InstancesPage() {
     }
     const manifest = selected.version.manifest
     const profile = selectedResourceProfiles[0]
-    form.setFieldsValue({ cpu: profile?.cpu ?? selected.version.minCpu, memoryGiB: (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3, diskGiB: (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3, username: selectedAuthentication === 'none' ? '' : manifest.username, password: undefined, databaseName: manifest.database, templateParameters: templateParameterDefaults(selectedTemplateParameters) })
-  }, [copySource, form, projects, selected, selectedAuthentication, selectedResourceProfiles, selectedTemplateParameters])
+    form.setFieldsValue({
+      cpu: selectedProjectProfileApplied ? selectedProjectProfile!.cpu : profile?.cpu ?? selected.version.minCpu,
+      memoryGiB: selectedProjectProfileApplied ? selectedProjectProfile!.memoryGiB : (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3,
+      diskGiB: selectedProjectProfileApplied ? selectedProjectProfile!.diskGiB : (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3,
+      username: selectedAuthentication === 'none' ? '' : manifest.username,
+      password: undefined,
+      databaseName: manifest.database,
+      templateParameters: templateParameterDefaults(selectedTemplateParameters),
+    })
+  }, [copySource, form, projects, selected, selectedAuthentication, selectedProjectProfile, selectedProjectProfileApplied, selectedResourceProfiles, selectedTemplateParameters])
   useEffect(() => {
     if (!selected) return
     if (selectedHostID && !templateCompatibleHosts.some((host) => host.id === selectedHostID)) form.setFieldValue('hostId', undefined)
@@ -370,6 +405,15 @@ export function InstancesPage() {
     form.setFieldsValue(projectDeploymentValues(project))
     setAppliedProjectDefaultsID(project?.id || '')
   }
+  const applyProjectDeploymentProfile = (projectID?: string) => {
+    const project = projects.find((candidate) => candidate.id === projectID)
+    const profile = projectDeploymentProfileValues(project)
+    if (!profile || !selectableTemplateVersion(templates, profile.templateVersionId)) return
+    setCopySource(undefined)
+    copyPrefillApplied.current = false
+    form.setFieldsValue(profile)
+    setCreateDraftDirty(true)
+  }
   const chooseTemplateVersion = (value: string) => {
     form.setFieldValue('templateVersionId', value)
     setCreateDraftDirty(true)
@@ -378,7 +422,29 @@ export function InstancesPage() {
       applyProjectDefaults(selectedProjectID)
     }
   }
-  const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } const project = projects.find((candidate) => candidate.id === projectFilter); copyPrefillApplied.current = false; setCopySource(undefined); setDrawer(true); setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); setAppliedProjectDefaultsID(project?.id || ''); form.resetFields(); form.setFieldsValue({ bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', projectId: projectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(project) }) }
+  const openCreate = () => {
+    if (!hasOnlineHost) { addRequiredHost(); return }
+    const project = projects.find((candidate) => candidate.id === projectFilter)
+    const profile = projectDeploymentProfileValues(project)
+    const profileAvailable = !!profile && !!selectableTemplateVersion(templates, profile.templateVersionId)
+    copyPrefillApplied.current = false
+    setCopySource(undefined)
+    setDrawer(true)
+    setStep(profileAvailable ? 1 : 0)
+    setCreateFailure(undefined)
+    setCreateDraftDirty(false)
+    setAppliedProjectDefaultsID(project?.id || '')
+    form.resetFields()
+    form.setFieldsValue({
+      bindAddress: '0.0.0.0',
+      autoRestart: true,
+      imageSource: 'public',
+      projectId: projectFilter || undefined,
+      ...lifecycleDefaults,
+      ...projectDeploymentValues(project),
+      ...(profileAvailable ? profile : {}),
+    })
+  }
   const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
@@ -905,6 +971,13 @@ export function InstancesPage() {
       {requestedCopyTemplateUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentTemplateUnavailable')} description={t('copyDeploymentTemplateUnavailableHint')} />}
       <Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
       {step === 0 && <>
+        {requestedProjectProfile && !requestedProjectProfileAvailable && <Alert
+          className="project-defaults-banner"
+          type="warning"
+          showIcon
+          message={t('projectDefaultTemplateUnavailable')}
+          description={t('projectDefaultTemplateUnavailableHint', { name: requestedProject?.name })}
+        />}
         {frequentVersions.length > 0 && <section className="frequent-template-versions" aria-label={t('frequentTemplateVersions')}>
           <div className="frequent-template-versions-header">
             <Typography.Text strong>{t('frequentTemplateVersions')}</Typography.Text>
@@ -936,9 +1009,43 @@ export function InstancesPage() {
         {selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
       </>}
       {step === 1 && <>
-        {hasProjectDeploymentDefaults(selectedProject) && (copySource && appliedProjectDefaultsID !== selectedProject?.id
+        {hasProjectLifecycleDefaults(selectedProject) && (copySource && appliedProjectDefaultsID !== selectedProject?.id
           ? <Alert className="project-defaults-banner" type="info" showIcon message={t('projectDefaultsAvailableForCopy', { name: selectedProject?.name })} description={t('projectDefaultsAvailableForCopyHint')} action={<Button size="small" onClick={() => applyProjectDefaults(selectedProject?.id)}>{t('applyProjectDefaults')}</Button>} />
           : <Alert className="project-defaults-banner" type="success" showIcon message={t('projectDefaultsApplied', { name: selectedProject?.name })} description={t('projectDefaultsAppliedHint')} />)}
+        {hasProjectDeploymentProfile(selectedProject) && (selectedProjectProfileApplied
+          ? <Alert
+              className="project-defaults-banner"
+              type="success"
+              showIcon
+              message={t('projectDeploymentProfileApplied', { name: selectedProject?.name })}
+              description={t('projectDeploymentProfileAppliedHint', {
+                template: `${selectedProject?.defaultTemplateName} ${selectedProject?.defaultTemplateVersion}`,
+                cpu: selectedProjectProfile?.cpu,
+                memory: bytes(selectedProject?.defaultMemoryBytes),
+                disk: bytes(selectedProject?.defaultDiskBytes),
+              })}
+            />
+          : selectedProjectProfileAvailable
+            ? <Alert
+                className="project-defaults-banner"
+                type="info"
+                showIcon
+                message={t('projectDeploymentProfileAvailable', { name: selectedProject?.name })}
+                description={t('projectDeploymentProfileAvailableHint', {
+                  template: `${selectedProject?.defaultTemplateName} ${selectedProject?.defaultTemplateVersion}`,
+                  cpu: selectedProjectProfile?.cpu,
+                  memory: bytes(selectedProject?.defaultMemoryBytes),
+                  disk: bytes(selectedProject?.defaultDiskBytes),
+                })}
+                action={<Button size="small" onClick={() => applyProjectDeploymentProfile(selectedProject?.id)}>{t('applyProjectDeploymentProfile')}</Button>}
+              />
+            : <Alert
+                className="project-defaults-banner"
+                type="warning"
+                showIcon
+                message={t('projectDefaultTemplateUnavailable')}
+                description={t('projectDefaultTemplateUnavailableHint', { name: selectedProject?.name })}
+              />)}
         {requestedHostID && requestedHostReady && selectedHostID === requestedHostID && <Alert className="host-continuation-selection" type="success" showIcon message={t('continuationHostSelected', { name: requestedHost?.name })} description={t('continuationHostSelectedHint')} />}
         {requestedHostID && !requestedHostReady && !selectedHostID && <Alert className="host-continuation-selection" type="warning" showIcon message={t('continuationHostUnavailable')} description={t('continuationHostUnavailableHint')} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
         <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input size="large" autoFocus maxLength={120} /></Form.Item>

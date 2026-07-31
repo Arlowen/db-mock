@@ -504,7 +504,8 @@ func TestBatchCleanupDecisionUpdatesEligibleInstancesAndReportsPartialFailures(t
 	}
 
 	target := store.New(pool)
-	service := NewService(target, nil, nil, nil)
+	manager := tasks.New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
+	service := NewService(target, nil, nil, manager)
 	missingID := uuid.New()
 	outcomes, err := service.BatchCleanupDecision(ctx, "extend", 7,
 		[]uuid.UUID{fixture.instanceID, deletingID, missingID}, now)

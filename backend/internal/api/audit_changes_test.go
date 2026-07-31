@@ -26,13 +26,19 @@ func TestAddAuditTransitionOnlyRecordsChanges(t *testing.T) {
 func TestProjectAuditChangesIncludeDeploymentDefaults(t *testing.T) {
 	before := domain.Project{DefaultLabels: json.RawMessage(`{}`)}
 	environment, expiryDays := "testing", 14
+	versionID := uuid.New()
+	cpu, memoryBytes, diskBytes := 2.0, int64(4294967296), int64(21474836480)
 	after := domain.Project{
-		DefaultEnvironment: &environment,
-		DefaultExpiryDays:  &expiryDays,
-		DefaultLabels:      json.RawMessage(`{"team":"orders"}`),
+		DefaultEnvironment: &environment, DefaultExpiryDays: &expiryDays,
+		DefaultLabels:            json.RawMessage(`{"team":"orders"}`),
+		DefaultTemplateVersionID: &versionID, DefaultCPU: &cpu,
+		DefaultMemoryBytes: &memoryBytes, DefaultDiskBytes: &diskBytes,
 	}
 	changes := projectAuditChanges(before, after)
-	for _, key := range []string{"defaultEnvironment", "defaultExpiryDays", "defaultLabels"} {
+	for _, key := range []string{
+		"defaultEnvironment", "defaultExpiryDays", "defaultLabels", "defaultTemplateVersionId",
+		"defaultCpu", "defaultMemoryBytes", "defaultDiskBytes",
+	} {
 		if changes[key] == nil {
 			t.Fatalf("expected %s transition: %#v", key, changes)
 		}

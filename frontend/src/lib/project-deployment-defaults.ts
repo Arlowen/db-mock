@@ -22,11 +22,32 @@ export function labelText(labels?: Record<string, string>): string {
 }
 
 export function hasProjectDeploymentDefaults(project?: Project): boolean {
+  return hasProjectLifecycleDefaults(project) || hasProjectDeploymentProfile(project)
+}
+
+export function hasProjectLifecycleDefaults(project?: Project): boolean {
   return !!project && (
     !!project.defaultEnvironment
     || project.defaultExpiryDays !== undefined
     || Object.keys(project.defaultLabels || {}).length > 0
   )
+}
+
+export function hasProjectDeploymentProfile(project?: Project): boolean {
+  return !!project?.defaultTemplateVersionId
+    && project.defaultCpu !== undefined
+    && project.defaultMemoryBytes !== undefined
+    && project.defaultDiskBytes !== undefined
+}
+
+export function projectDeploymentProfileValues(project?: Project) {
+  if (!hasProjectDeploymentProfile(project)) return undefined
+  return {
+    templateVersionId: project!.defaultTemplateVersionId!,
+    cpu: project!.defaultCpu!,
+    memoryGiB: project!.defaultMemoryBytes! / 1024 ** 3,
+    diskGiB: project!.defaultDiskBytes! / 1024 ** 3,
+  }
 }
 
 export function projectDeploymentValues(project?: Project, now: Dayjs = dayjs()) {

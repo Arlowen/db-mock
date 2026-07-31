@@ -56,6 +56,10 @@ func projectAuditChanges(before, after domain.Project) map[string]any {
 	addAuditTransition(changes, "defaultEnvironment", before.DefaultEnvironment, after.DefaultEnvironment)
 	addAuditTransition(changes, "defaultExpiryDays", before.DefaultExpiryDays, after.DefaultExpiryDays)
 	addAuditTransition(changes, "defaultLabels", auditJSON(before.DefaultLabels), auditJSON(after.DefaultLabels))
+	addAuditTransition(changes, "defaultTemplateVersionId", auditUUID(before.DefaultTemplateVersionID), auditUUID(after.DefaultTemplateVersionID))
+	addAuditTransition(changes, "defaultCpu", before.DefaultCPU, after.DefaultCPU)
+	addAuditTransition(changes, "defaultMemoryBytes", before.DefaultMemoryBytes, after.DefaultMemoryBytes)
+	addAuditTransition(changes, "defaultDiskBytes", before.DefaultDiskBytes, after.DefaultDiskBytes)
 	return changes
 }
 

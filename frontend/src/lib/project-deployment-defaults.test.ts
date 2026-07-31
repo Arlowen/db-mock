@@ -1,6 +1,6 @@
 import dayjs from 'dayjs'
 import { describe, expect, it } from 'vitest'
-import { hasProjectDeploymentDefaults, labelText, parseLabelText, projectDeploymentValues } from './project-deployment-defaults'
+import { hasProjectDeploymentDefaults, hasProjectDeploymentProfile, hasProjectLifecycleDefaults, labelText, parseLabelText, projectDeploymentProfileValues, projectDeploymentValues } from './project-deployment-defaults'
 import type { Project } from './types'
 
 const project = (overrides: Partial<Project> = {}): Project => ({
@@ -23,6 +23,8 @@ describe('project deployment defaults', () => {
     expect(values.labels).toBe('')
     expect(values.expiresAt?.diff(dayjs('2026-07-27T08:00:00Z'), 'day')).toBe(7)
     expect(hasProjectDeploymentDefaults(project())).toBe(false)
+    expect(hasProjectLifecycleDefaults(project())).toBe(false)
+    expect(hasProjectDeploymentProfile(project())).toBe(false)
   })
 
   it('applies environment, lifetime and stable labels from the project', () => {
@@ -32,6 +34,7 @@ describe('project deployment defaults', () => {
     expect(values.expiresAt?.diff(dayjs('2026-07-27T08:00:00Z'), 'day')).toBe(14)
     expect(values.labels).toBe('managed=qa, team=orders')
     expect(hasProjectDeploymentDefaults(item)).toBe(true)
+    expect(hasProjectLifecycleDefaults(item)).toBe(true)
   })
 
   it('supports explicit indefinite retention and validates label input', () => {
@@ -39,5 +42,23 @@ describe('project deployment defaults', () => {
     expect(parseLabelText('team=orders, managed')).toEqual({ team: 'orders', managed: 'true' })
     expect(parseLabelText('=orders')).toBeUndefined()
     expect(labelText({ team: 'orders', managed: 'true' })).toBe('managed=true, team=orders')
+  })
+
+  it('converts a complete project deployment profile into create-form resources', () => {
+    const item = project({
+      defaultTemplateVersionId: 'postgres-17',
+      defaultCpu: 2,
+      defaultMemoryBytes: 4 * 1024 ** 3,
+      defaultDiskBytes: 20 * 1024 ** 3,
+    })
+    expect(projectDeploymentProfileValues(item)).toEqual({
+      templateVersionId: 'postgres-17',
+      cpu: 2,
+      memoryGiB: 4,
+      diskGiB: 20,
+    })
+    expect(hasProjectDeploymentDefaults(item)).toBe(true)
+    expect(hasProjectDeploymentProfile(item)).toBe(true)
+    expect(projectDeploymentProfileValues(project({ defaultTemplateVersionId: 'postgres-17' }))).toBeUndefined()
   })
 })

@@ -1,16 +1,18 @@
 import { CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SearchOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Card, Col, ColorPicker, Form, Grid, Input, Modal, Popconfirm, Row, Select, Space, Tag, Typography } from 'antd'
+import { Alert, App, Button, Card, Col, ColorPicker, Form, Grid, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState, PageHeader } from '../components/Common'
+import { DatabaseIcon } from '../components/DatabaseIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { hasProjectDeploymentDefaults, labelText, parseLabelText } from '../lib/project-deployment-defaults'
-import type { Project } from '../lib/types'
+import { hasProjectDeploymentDefaults, hasProjectDeploymentProfile, labelText, parseLabelText } from '../lib/project-deployment-defaults'
+import { localizedTemplateText, templateResourceProfiles } from '../lib/template-options'
+import { bytes, type DatabaseTemplate, type Project } from '../lib/types'
 
 interface ProjectForm {
   name: string
@@ -19,6 +21,10 @@ interface ProjectForm {
   defaultEnvironment?: string
   defaultExpiryDays?: number
   defaultLabels?: string
+  defaultTemplateVersionId?: string
+  defaultCpu?: number
+  defaultMemoryGiB?: number
+  defaultDiskGiB?: number
 }
 
 function projectDraftChanged(values: ProjectForm, baseline: ProjectForm | null) {
@@ -29,6 +35,10 @@ function projectDraftChanged(values: ProjectForm, baseline: ProjectForm | null) 
     || (values.defaultEnvironment || '') !== (baseline.defaultEnvironment || '')
     || values.defaultExpiryDays !== baseline.defaultExpiryDays
     || (values.defaultLabels || '') !== (baseline.defaultLabels || '')
+    || (values.defaultTemplateVersionId || '') !== (baseline.defaultTemplateVersionId || '')
+    || values.defaultCpu !== baseline.defaultCpu
+    || values.defaultMemoryGiB !== baseline.defaultMemoryGiB
+    || values.defaultDiskGiB !== baseline.defaultDiskGiB
 }
 
 export function ProjectsPage() {
@@ -40,8 +50,10 @@ export function ProjectsPage() {
   const { user } = useAuth()
   const { canOperate } = permissionsFor(user!)
   const [items, setItems] = useState<Project[]>([])
+  const [templates, setTemplates] = useState<DatabaseTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [templateLoadError, setTemplateLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState('')
@@ -52,6 +64,16 @@ export function ProjectsPage() {
   const [form] = Form.useForm<ProjectForm>()
   const draftBaseline = useRef<ProjectForm | null>(null)
   const projectName = Form.useWatch('name', form)
+  const defaultTemplateVersionID = Form.useWatch('defaultTemplateVersionId', form)
+  const defaultTemplateOptions = useMemo(() => templates.flatMap((template) => template.versions.map((version) => ({
+    value: version.id,
+    label: `${localizedTemplateText(template.name, template.nameZh, i18n.language)} ${version.version}`,
+    searchText: `${template.name} ${template.nameZh} ${template.slug} ${version.version}`,
+    disabled: version.selectable === false,
+    template,
+    version,
+  }))), [i18n.language, templates])
+  const selectedDefaultTemplate = defaultTemplateOptions.find((option) => option.value === defaultTemplateVersionID)
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase()
     return needle
@@ -61,15 +83,23 @@ export function ProjectsPage() {
 
   const load = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
-    try {
-      const response = await api<{ items: Project[] }>('/projects')
-      setItems(response.items)
+    const [projectResult, templateResult] = await Promise.allSettled([
+      api<{ items: Project[] }>('/projects'),
+      api<{ items: DatabaseTemplate[] }>('/templates'),
+    ])
+    if (projectResult.status === 'fulfilled') {
+      setItems(projectResult.value.items)
       setLoadError('')
-    } catch (error) {
-      setLoadError(errorMessage(error))
-    } finally {
-      setLoading(false)
+    } else {
+      setLoadError(errorMessage(projectResult.reason))
     }
+    if (templateResult.status === 'fulfilled') {
+      setTemplates(templateResult.value.items)
+      setTemplateLoadError('')
+    } else {
+      setTemplateLoadError(errorMessage(templateResult.reason))
+    }
+    setLoading(false)
   }, [])
 
   useEffect(() => { void load() }, [load])
@@ -83,8 +113,16 @@ export function ProjectsPage() {
           defaultEnvironment: item.defaultEnvironment,
           defaultExpiryDays: item.defaultExpiryDays,
           defaultLabels: labelText(item.defaultLabels),
+          defaultTemplateVersionId: item.defaultTemplateVersionId,
+          defaultCpu: item.defaultCpu,
+          defaultMemoryGiB: item.defaultMemoryBytes === undefined ? undefined : item.defaultMemoryBytes / 1024 ** 3,
+          defaultDiskGiB: item.defaultDiskBytes === undefined ? undefined : item.defaultDiskBytes / 1024 ** 3,
         }
-      : { name: '', description: '', color: '#2563eb', defaultEnvironment: undefined, defaultExpiryDays: undefined, defaultLabels: '' }
+      : {
+          name: '', description: '', color: '#2563eb', defaultEnvironment: undefined,
+          defaultExpiryDays: undefined, defaultLabels: '', defaultTemplateVersionId: undefined,
+          defaultCpu: undefined, defaultMemoryGiB: undefined, defaultDiskGiB: undefined,
+        }
     form.resetFields()
     setEditing(item ?? null)
     setSaveError('')
@@ -134,6 +172,14 @@ export function ProjectsPage() {
           defaultEnvironment: values.defaultEnvironment || null,
           defaultExpiryDays: values.defaultExpiryDays ?? null,
           defaultLabels,
+          defaultTemplateVersionId: values.defaultTemplateVersionId || null,
+          defaultCpu: values.defaultTemplateVersionId ? values.defaultCpu : null,
+          defaultMemoryBytes: values.defaultTemplateVersionId && values.defaultMemoryGiB !== undefined
+            ? Math.round(values.defaultMemoryGiB * 1024 ** 3)
+            : null,
+          defaultDiskBytes: values.defaultTemplateVersionId && values.defaultDiskGiB !== undefined
+            ? Math.round(values.defaultDiskGiB * 1024 ** 3)
+            : null,
         },
       })
       message.success(t('saved'))
@@ -144,6 +190,26 @@ export function ProjectsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const applyDefaultTemplate = (versionID?: string) => {
+    if (!versionID) {
+      form.setFieldsValue({
+        defaultTemplateVersionId: undefined,
+        defaultCpu: undefined,
+        defaultMemoryGiB: undefined,
+        defaultDiskGiB: undefined,
+      })
+      return
+    }
+    const selected = defaultTemplateOptions.find((option) => option.value === versionID)
+    const profile = templateResourceProfiles(selected?.version)[0]
+    form.setFieldsValue({
+      defaultTemplateVersionId: versionID,
+      defaultCpu: profile?.cpu ?? selected?.version.minCpu,
+      defaultMemoryGiB: selected ? (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3 : undefined,
+      defaultDiskGiB: selected ? (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3 : undefined,
+    })
   }
 
   const remove = async (item: Project) => {
@@ -163,6 +229,7 @@ export function ProjectsPage() {
     const deleteBlocked = item.hostCount + item.instanceCount > 0
     const defaultLabelCount = Object.keys(item.defaultLabels || {}).length
     const hasDeploymentDefaults = hasProjectDeploymentDefaults(item)
+    const hasDeploymentProfile = hasProjectDeploymentProfile(item)
     return <Col xs={24} md={12} xl={8} key={item.id}>
       <Card
         className="project-card"
@@ -202,6 +269,14 @@ export function ProjectsPage() {
             <Tag>{item.defaultExpiryDays === 0 ? t('retainIndefinitely') : t('daysCount', { count: item.defaultExpiryDays ?? 7 })}</Tag>
             {defaultLabelCount > 0 && <Tag>{t('defaultLabelCount', { count: defaultLabelCount })}</Tag>}
           </Space>
+          {hasDeploymentProfile && <Space className="project-deployment-profile-summary" size={[4, 4]} wrap>
+            <Tag color="blue">{item.defaultTemplateName} {item.defaultTemplateVersion}</Tag>
+            <Tag>{t('projectDefaultResourceSummary', {
+              cpu: item.defaultCpu,
+              memory: bytes(item.defaultMemoryBytes),
+              disk: bytes(item.defaultDiskBytes),
+            })}</Tag>
+          </Space>}
         </div>
         <div className="project-resource-stats">
           <button type="button" onClick={() => navigate(`/hosts?project=${item.id}`)}>
@@ -316,6 +391,89 @@ export function ProjectsPage() {
           >
             <Input placeholder={t('labelsPlaceholder')} />
           </Form.Item>
+          <div className="project-deployment-profile-editor">
+            <Typography.Text strong>{t('defaultDeploymentProfile')}</Typography.Text>
+            <Typography.Paragraph type="secondary">{t('defaultDeploymentProfileHint')}</Typography.Paragraph>
+            {templateLoadError && <Alert
+              className="form-save-alert"
+              type="warning"
+              showIcon
+              message={t('projectTemplateDataUnavailable')}
+              description={templateLoadError}
+              action={<Button size="small" loading={loading} onClick={() => void load(true)}>{t('retry')}</Button>}
+            />}
+            <Form.Item
+              name="defaultTemplateVersionId"
+              label={t('defaultTemplateVersion')}
+              extra={t('defaultTemplateVersionHint')}
+              rules={[{
+                validator: (_, value?: string) => {
+                  if (!value || !selectedDefaultTemplate || selectedDefaultTemplate.version.selectable !== false) return Promise.resolve()
+                  return Promise.reject(new Error(t('projectDefaultTemplateUnavailable')))
+                },
+              }]}
+            >
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="searchText"
+                loading={loading}
+                disabled={!!templateLoadError && defaultTemplateOptions.length === 0}
+                placeholder={t('noDefaultDeploymentProfile')}
+                options={defaultTemplateOptions}
+                onChange={(value) => applyDefaultTemplate(value)}
+                optionRender={(option) => <Space>
+                  <DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" />
+                  <span>{option.label}</span>
+                </Space>}
+              />
+            </Form.Item>
+            {defaultTemplateVersionID && <div className="project-resource-default-grid">
+              <Form.Item
+                name="defaultCpu"
+                label={t('cpu')}
+                rules={[
+                  { required: true },
+                  {
+                    validator: (_, value?: number) => !selectedDefaultTemplate || value === undefined || value >= selectedDefaultTemplate.version.minCpu
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(t('projectDefaultResourceBelowMinimum'))),
+                  },
+                ]}
+              >
+                <InputNumber min={selectedDefaultTemplate?.version.minCpu || 0.1} step={0.5} precision={2} />
+              </Form.Item>
+              <Form.Item
+                name="defaultMemoryGiB"
+                label={`${t('memory')} GiB`}
+                rules={[
+                  { required: true },
+                  {
+                    validator: (_, value?: number) => !selectedDefaultTemplate || value === undefined || value * 1024 ** 3 >= selectedDefaultTemplate.version.minMemoryBytes
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(t('projectDefaultResourceBelowMinimum'))),
+                  },
+                ]}
+              >
+                <InputNumber min={(selectedDefaultTemplate?.version.minMemoryBytes || 1) / 1024 ** 3} step={0.5} />
+              </Form.Item>
+              <Form.Item
+                name="defaultDiskGiB"
+                label={`${t('disk')} GiB`}
+                rules={[
+                  { required: true },
+                  {
+                    validator: (_, value?: number) => !selectedDefaultTemplate || value === undefined || value * 1024 ** 3 >= selectedDefaultTemplate.version.minDiskBytes
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(t('projectDefaultResourceBelowMinimum'))),
+                  },
+                ]}
+              >
+                <InputNumber min={(selectedDefaultTemplate?.version.minDiskBytes || 1) / 1024 ** 3} step={1} />
+              </Form.Item>
+            </div>}
+            <Alert type="info" showIcon message={t('projectDefaultHostDynamic')} />
+          </div>
         </Card>
       </Form>
     </Modal>

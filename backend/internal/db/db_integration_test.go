@@ -45,6 +45,7 @@ func TestUserRoleMigrationPreservesLegacyAccessAndDefaultsNewUsersToViewer(t *te
 		"012_template_version_selectability.sql", "013_host_delete_history.sql",
 		"014_instance_lifecycle.sql", "015_reuse_deleted_instance_ports.sql",
 		"016_project_deployment_defaults.sql", "017_task_instance_scope.sql",
+		"018_project_deployment_profiles.sql",
 	} {
 		if _, err = admin.Exec(ctx, `INSERT INTO `+schema+`.schema_migrations(name) VALUES($1)`, name); err != nil {
 			t.Fatal(err)
@@ -127,7 +128,7 @@ func TestTemplateVersionSelectabilityMigrationDisablesBrokenOpenGaussImage(t *te
 		"008_instance_backups.sql", "009_host_preflight.sql", "010_instance_backup_policies.sql",
 		"011_user_roles.sql", "013_host_delete_history.sql", "014_instance_lifecycle.sql",
 		"015_reuse_deleted_instance_ports.sql", "016_project_deployment_defaults.sql",
-		"017_task_instance_scope.sql",
+		"017_task_instance_scope.sql", "018_project_deployment_profiles.sql",
 	} {
 		if _, err = admin.Exec(ctx, `INSERT INTO `+schema+`.schema_migrations(name) VALUES($1)`, name); err != nil {
 			t.Fatal(err)

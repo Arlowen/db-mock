@@ -220,12 +220,16 @@ func (s *Server) projectRoutes(r chi.Router) {
 }
 
 type projectRequest struct {
-	Name               string            `json:"name"`
-	Description        string            `json:"description"`
-	Color              string            `json:"color"`
-	DefaultEnvironment *string           `json:"defaultEnvironment"`
-	DefaultExpiryDays  *int              `json:"defaultExpiryDays"`
-	DefaultLabels      map[string]string `json:"defaultLabels"`
+	Name                     string            `json:"name"`
+	Description              string            `json:"description"`
+	Color                    string            `json:"color"`
+	DefaultEnvironment       *string           `json:"defaultEnvironment"`
+	DefaultExpiryDays        *int              `json:"defaultExpiryDays"`
+	DefaultLabels            map[string]string `json:"defaultLabels"`
+	DefaultTemplateVersionID *uuid.UUID        `json:"defaultTemplateVersionId"`
+	DefaultCPU               *float64          `json:"defaultCpu"`
+	DefaultMemoryBytes       *int64            `json:"defaultMemoryBytes"`
+	DefaultDiskBytes         *int64            `json:"defaultDiskBytes"`
 }
 
 func projectStoreInput(input projectRequest) store.ProjectInput {
@@ -233,7 +237,9 @@ func projectStoreInput(input projectRequest) store.ProjectInput {
 	return store.ProjectInput{
 		Name: input.Name, Description: input.Description, Color: input.Color,
 		DefaultEnvironment: input.DefaultEnvironment, DefaultExpiryDays: input.DefaultExpiryDays,
-		DefaultLabels: labels,
+		DefaultLabels: labels, DefaultTemplateVersionID: input.DefaultTemplateVersionID,
+		DefaultCPU: input.DefaultCPU, DefaultMemoryBytes: input.DefaultMemoryBytes,
+		DefaultDiskBytes: input.DefaultDiskBytes,
 	}
 }
 

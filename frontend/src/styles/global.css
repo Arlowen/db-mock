@@ -684,6 +684,7 @@ button { font: inherit; }
 .project-deployment-defaults > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .project-deployment-defaults > div .ant-typography-secondary { text-align: right; font-size: 11px; }
 .project-deployment-defaults .ant-tag { margin-inline-end: 0; }
+.project-deployment-profile-summary { padding-top: 7px; border-top: 1px solid #e5ebf4; }
 .project-resource-stats { margin-top: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .project-resource-stats button { min-width: 0; min-height: 56px; padding: 9px 12px; border: 1px solid #e4e9f0; border-radius: 10px; color: #475467; background: #fafcff; display: flex; align-items: center; gap: 9px; cursor: pointer; text-align: left; transition: border-color 150ms ease, background 150ms ease; }
 .project-resource-stats button:hover { border-color: #9bbcf0; background: #f4f8ff; }
@@ -696,6 +697,11 @@ button { font: inherit; }
 .project-defaults-editor { margin-top: 8px; }
 .project-defaults-editor .ant-card-body { padding-bottom: 4px; }
 .project-defaults-editor .ant-typography { margin-bottom: 14px; }
+.project-deployment-profile-editor { margin-top: 16px; padding-top: 16px; border-top: 1px solid #e7ebf1; }
+.project-deployment-profile-editor > .ant-typography:first-child { display: block; margin-bottom: 4px; }
+.project-deployment-profile-editor > .ant-alert { margin-bottom: 16px; }
+.project-resource-default-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; }
+.project-resource-default-grid .ant-input-number { width: 100%; }
 .project-defaults-banner, .host-continuation-selection { margin-bottom: 16px; }
 .user-permission-note { margin-bottom: 18px; }
 .user-table-card .ant-card-body { padding: 0; }
@@ -962,6 +968,7 @@ button { font: inherit; }
   .project-toolbar > .ant-typography { margin-left: 0; }
   .project-grid { padding: 12px; }
   .project-card .ant-card-body { min-height: 0; padding: 18px; }
+  .project-resource-default-grid { grid-template-columns: minmax(0, 1fr); }
   .host-table-card .embedded-toolbar { align-items: stretch; flex-direction: column; }
   .host-filter-controls { width: 100%; margin-left: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .host-search { width: 100%; grid-column: 1 / -1; }
