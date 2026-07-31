@@ -462,6 +462,12 @@ test('initializes the platform and switches the embedded interface language', as
   let submittedBackupPolicyBody: Record<string, unknown> | undefined
   let submittedRestoreBody: Record<string, unknown> | undefined
   let submittedBackupDeleteBody: Record<string, unknown> | undefined
+  let failBackupCreateRequest = true
+  let failBackupRestoreRequest = true
+  let failBackupDeleteRequest = true
+  let backupCreateRequestCount = 0
+  let backupRestoreRequestCount = 0
+  let backupDeleteRequestCount = 0
   let instanceBackups: Array<Record<string, unknown>> = []
   let failBackupInventory = false
   let failTaskInventory = false
@@ -517,16 +523,22 @@ test('initializes the platform and switches the embedded interface language', as
       return route.fulfill({ json: { items: instanceBackups } })
     }
     submittedBackupBody = route.request().postDataJSON()
+    backupCreateRequestCount += 1
+    if (failBackupCreateRequest) return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: backup request state changed during audit' } } })
     const backup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: String(submittedBackupBody?.name || 'Generated backup'), creationType: 'manual', status: 'creating', sizeBytes: 0, createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     instanceBackups = [backup]
     await route.fulfill({ status: 202, json: { backup, task: { id: '61616161-6161-4161-8161-616161616161', kind: 'instance.backup', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
   })
   await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`, async (route) => {
     submittedRestoreBody = route.request().postDataJSON()
+    backupRestoreRequestCount += 1
+    if (failBackupRestoreRequest) return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: restore request state changed during audit' } } })
     await route.fulfill({ status: 202, json: { backup: { ...instanceBackups[0], status: 'restoring' }, task: { id: '62626262-6262-4262-8262-626262626262', kind: 'instance.restore', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
   })
   await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
     submittedBackupDeleteBody = route.request().postDataJSON()
+    backupDeleteRequestCount += 1
+    if (failBackupDeleteRequest) return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: delete request state changed during audit' } } })
     instanceBackups = [{ ...instanceBackups[0], status: 'deleting' }]
     const task = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 0, stage: 'queued', message: '', payload: { instanceId: instanceID, backupId: backupID }, cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
     relatedTasks = [task, ...relatedTasks]
@@ -733,6 +745,23 @@ test('initializes the platform and switches the embedded interface language', as
   await createBackupDialog.getByLabel('\u5907\u4efd\u540d\u79f0').fill('\u53d1\u5e03\u524d\u5907\u4efd')
   await createBackupDialog.getByRole('button', { name: /\u521b\s*\u5efa\s*\u5907\s*\u4efd/ }).click()
   await expect.poll(() => submittedBackupBody).toEqual({ name: '\u53d1\u5e03\u524d\u5907\u4efd' })
+  await expect.poll(() => backupCreateRequestCount).toBe(1)
+  await expect(createBackupDialog.getByText('创建备份未排队')).toBeVisible()
+  await expect(createBackupDialog.getByText('本次请求未创建备份或任务；实例不会因本次请求停机，现有数据和运行状态保持不变。')).toBeVisible()
+  await expect(createBackupDialog.getByText(/页面已刷新；请核对当前状态/)).toBeVisible()
+  await page.waitForTimeout(3200)
+  await expect(createBackupDialog.getByText('创建备份未排队')).toBeVisible()
+  await createBackupDialog.getByRole('button', { name: /取\s*消/ }).click()
+  const createBackupFailure = page.locator('.backup-request-alert')
+  await expect(createBackupFailure.getByText('创建备份未排队')).toBeVisible()
+  await expect(createBackupFailure.getByRole('button', { name: '刷新状态' })).toBeVisible()
+  await expect(createBackupFailure.getByRole('button', { name: '查看实例日志' })).toBeVisible()
+  await createBackupFailure.getByRole('button', { name: '重新确认并创建备份' }).click()
+  await expect(createBackupDialog.getByLabel('\u5907\u4efd\u540d\u79f0')).toHaveValue('\u53d1\u5e03\u524d\u5907\u4efd')
+  failBackupCreateRequest = false
+  await createBackupDialog.getByRole('button', { name: /\u521b\s*\u5efa\s*\u5907\s*\u4efd/ }).click()
+  await expect.poll(() => backupCreateRequestCount).toBe(2)
+  await expect(page.locator('.backup-request-alert')).toHaveCount(0)
   instanceBackups = [{ ...instanceBackups[0], status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), completedAt: new Date().toISOString() }]
   await page.reload()
   await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
@@ -759,6 +788,21 @@ test('initializes the platform and switches the embedded interface language', as
   await restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d').fill('Orders DB')
   await restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ }).click()
   await expect.poll(() => submittedRestoreBody).toEqual({ confirmName: 'Orders DB' })
+  await expect.poll(() => backupRestoreRequestCount).toBe(1)
+  await expect(restoreBackupDialog.getByText('恢复未排队')).toBeVisible()
+  await expect(restoreBackupDialog.getByText('本次请求未创建恢复任务，也没有覆盖当前数据；现有数据库数据和运行状态保持不变。')).toBeVisible()
+  await expect(restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d')).toHaveValue('')
+  await expect(restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ })).toBeDisabled()
+  await restoreBackupDialog.getByRole('button', { name: /取\s*消/ }).click()
+  const restoreBackupFailure = page.locator('.backup-request-alert')
+  await expect(restoreBackupFailure.getByRole('button', { name: '重新确认并恢复' })).toBeVisible()
+  await restoreBackupFailure.getByRole('button', { name: '重新确认并恢复' }).click()
+  await expect(restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d')).toHaveValue('')
+  await restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d').fill('Orders DB')
+  failBackupRestoreRequest = false
+  await restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ }).click()
+  await expect.poll(() => backupRestoreRequestCount).toBe(2)
+  await expect(page.locator('.backup-request-alert')).toHaveCount(0)
   await page.reload()
   await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
   await page.getByRole('row').filter({ hasText: '\u53d1\u5e03\u524d\u5907\u4efd' }).getByRole('button', { name: '\u5220\u9664' }).click()
@@ -766,6 +810,19 @@ test('initializes the platform and switches the embedded interface language', as
   await deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664').fill('\u53d1\u5e03\u524d\u5907\u4efd')
   await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
   await expect.poll(() => submittedBackupDeleteBody).toEqual({ confirmName: '\u53d1\u5e03\u524d\u5907\u4efd' })
+  await expect.poll(() => backupDeleteRequestCount).toBe(1)
+  await expect(deleteBackupDialog.getByText('删除未排队')).toBeVisible()
+  await expect(deleteBackupDialog.getByText('本次请求未创建删除任务，备份归档仍保留在主机上；当前数据库不受影响。')).toBeVisible()
+  await expect(deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664')).toHaveValue('')
+  await deleteBackupDialog.getByRole('button', { name: /取\s*消/ }).click()
+  const deleteBackupFailure = page.locator('.backup-request-alert')
+  await expect(deleteBackupFailure.getByRole('button', { name: '重新确认并删除' })).toBeVisible()
+  await expect(deleteBackupFailure.getByRole('button', { name: '查看实例日志' })).toHaveCount(0)
+  await deleteBackupFailure.getByRole('button', { name: '重新确认并删除' }).click()
+  await deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664').fill('\u53d1\u5e03\u524d\u5907\u4efd')
+  failBackupDeleteRequest = false
+  await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
+  await expect.poll(() => backupDeleteRequestCount).toBe(2)
   await expect(cleanupContinuation.getByText('备份或实例操作仍在执行；完成后本页会自动重新检查清理条件。')).toBeVisible()
   instanceBackups = [{ ...instanceBackups[0], status: 'ready', errorMessage: 'remote command failed: permission denied while deleting archive' }]
   relatedTasks = [{

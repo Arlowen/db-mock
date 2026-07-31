@@ -17,6 +17,7 @@ import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import appI18n from '../i18n'
 import { ApiError, api, errorMessage } from '../lib/api'
 import { failedBackupDeleteRecoveries } from '../lib/backup-delete-recovery'
+import { backupRequestRecoveryKey, canRetryBackupRequest, type BackupRequestAction } from '../lib/backup-request-recovery'
 import { cleanupContinuationPhase, cleanupEvidenceState, hasActiveBackupOperation, type CleanupEvidenceState } from '../lib/cleanup-continuation'
 import { connectionHandoffSummary } from '../lib/connection-handoff'
 import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
@@ -1027,6 +1028,7 @@ export function InstanceDetailPage() {
   const [backupName, setBackupName] = useState('')
   const [backupAction, setBackupAction] = useState<{ type: 'restore' | 'delete'; backup: InstanceBackup }>()
   const [backupConfirm, setBackupConfirm] = useState('')
+  const [backupRequestFailure, setBackupRequestFailure] = useState<{ action: BackupRequestAction; code: string; message: string; backupId?: string; backupName: string }>()
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [actioning, setActioning] = useState('')
@@ -1100,6 +1102,7 @@ export function InstanceDetailPage() {
     setCleanupRetryError('')
     setLifecycleConfirmAction(undefined)
     setLifecycleRequestFailure(undefined)
+    setBackupRequestFailure(undefined)
     void load()
   }, [load])
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
@@ -1161,6 +1164,7 @@ export function InstanceDetailPage() {
   const createBackup = async () => {
     try {
       setActioning('backup-create')
+      setBackupRequestFailure(undefined)
       const result = await api<{ backup: InstanceBackup; task: Task }>(`/instances/${id}/backups`, { method: 'POST', body: { name: backupName } })
       setBackups((current) => [result.backup, ...current.filter((backup) => backup.id !== result.backup.id)])
       setTasks((current) => [result.task, ...current])
@@ -1168,23 +1172,43 @@ export function InstanceDetailPage() {
       setBackupCreateOpen(false)
       setBackupName('')
       await load()
-    } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+    } catch (error) {
+      setBackupRequestFailure({
+        action: 'create',
+        code: error instanceof ApiError ? error.code : 'unknown',
+        message: errorMessage(error),
+        backupName,
+      })
+      await load()
+    } finally { setActioning('') }
   }
   const submitBackupAction = async () => {
     if (!backupAction || !item) return
-    const expected = backupAction.type === 'restore' ? item.name : backupAction.backup.name
+    const submittedAction = backupAction
+    const expected = submittedAction.type === 'restore' ? item.name : submittedAction.backup.name
     if (backupConfirm !== expected) return
-    const actionKey = `backup-${backupAction.type}`
+    const actionKey = `backup-${submittedAction.type}`
     try {
       setActioning(actionKey)
-      const result = await api<{ backup: InstanceBackup; task: Task }>(`/instances/${id}/backups/${backupAction.backup.id}/${backupAction.type}`, { method: 'POST', body: { confirmName: backupConfirm } })
+      setBackupRequestFailure(undefined)
+      const result = await api<{ backup: InstanceBackup; task: Task }>(`/instances/${id}/backups/${submittedAction.backup.id}/${submittedAction.type}`, { method: 'POST', body: { confirmName: backupConfirm } })
       setBackups((current) => current.map((backup) => backup.id === result.backup.id ? result.backup : backup))
       setTasks((current) => [result.task, ...current])
       notifyTask(result.task)
       setBackupAction(undefined)
       setBackupConfirm('')
       await load()
-    } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+    } catch (error) {
+      setBackupRequestFailure({
+        action: submittedAction.type,
+        code: error instanceof ApiError ? error.code : 'unknown',
+        message: errorMessage(error),
+        backupId: submittedAction.backup.id,
+        backupName: submittedAction.backup.name,
+      })
+      setBackupConfirm('')
+      await load()
+    } finally { setActioning('') }
   }
   const loadConnection = async () => {
     try {
@@ -1502,6 +1526,67 @@ export function InstanceDetailPage() {
   const canUpgrade = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
   const canReconfigure = !operationTask && ['running', 'stopped', 'degraded'].includes(item.status)
   const canCreateBackup = !operationTask && ['running', 'stopped'].includes(item.status)
+  const canRestoreBackup = (backup: InstanceBackup) => canRetryBackupRequest({
+    action: 'restore',
+    instanceStatus: item.status,
+    hasActiveOperation,
+    backupStatus: backup.status,
+    sameTemplateVersion: backup.templateVersionId === item.templateVersionId,
+  })
+  const backupRequestBackup = backupRequestFailure?.backupId
+    ? backups.find((backup) => backup.id === backupRequestFailure.backupId)
+    : undefined
+  const backupRequestEvidenceReady = !pageError && backupInventoryState === 'ready' && taskInventoryState === 'ready'
+  const backupRequestCanRetry = !!backupRequestFailure && canOperate && backupRequestEvidenceReady && canRetryBackupRequest({
+    action: backupRequestFailure.action,
+    instanceStatus: item.status,
+    hasActiveOperation,
+    backupStatus: backupRequestBackup?.status,
+    sameTemplateVersion: backupRequestBackup?.templateVersionId === item.templateVersionId,
+    errorCode: backupRequestFailure.code,
+  })
+  const backupRequestActionLabel = backupRequestFailure
+    ? t(backupRequestFailure.action === 'create' ? 'createBackup' : backupRequestFailure.action)
+    : ''
+  const backupRequestModalOpen = !!backupRequestFailure && (
+    (backupRequestFailure.action === 'create' && backupCreateOpen) ||
+    (backupRequestFailure.action !== 'create' && backupAction?.type === backupRequestFailure.action &&
+      backupAction.backup.id === backupRequestFailure.backupId)
+  )
+  const backupRequestFailureDetails = backupRequestFailure && <div className="instance-action-request-description">
+    <div><Typography.Text type="secondary">{t('failureCause')}</Typography.Text><Typography.Text>{backupRequestFailure.message}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{t('failureImpact')}</Typography.Text><Typography.Text>{t(`backupRequestImpact_${backupRequestFailure.action}`)}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{t('recoveryAdvice')}</Typography.Text><Typography.Text>{t(backupRequestRecoveryKey(backupRequestFailure.code))}</Typography.Text></div>
+  </div>
+  const refreshBackupRequestState = async () => {
+    try {
+      setActioning('refresh-backup-request-state')
+      await load()
+    } finally {
+      setActioning('')
+    }
+  }
+  const retryBackupRequest = () => {
+    if (!backupRequestFailure || !backupRequestCanRetry) return
+    if (backupRequestFailure.action === 'create') {
+      setBackupName(backupRequestFailure.backupName)
+      setBackupCreateOpen(true)
+      return
+    }
+    if (!backupRequestBackup) return
+    setBackupConfirm('')
+    setBackupAction({ type: backupRequestFailure.action, backup: backupRequestBackup })
+  }
+  const openBackupCreate = () => {
+    setBackupRequestFailure(undefined)
+    setBackupName('')
+    setBackupCreateOpen(true)
+  }
+  const openBackupAction = (type: 'restore' | 'delete', backup: InstanceBackup) => {
+    setBackupRequestFailure(undefined)
+    setBackupConfirm('')
+    setBackupAction({ type, backup })
+  }
   const backupScheduleTime = backupPolicy ? `${String(backupPolicy.hour).padStart(2, '0')}:${String(backupPolicy.minute).padStart(2, '0')}` : ''
   const backupScheduleSummary = backupPolicy?.enabled
     ? backupPolicy.frequency === 'weekly'
@@ -1589,6 +1674,20 @@ export function InstanceDetailPage() {
       </Space>
     </div>}
   />
+  const backupRequestFailurePanel = backupRequestFailure && !backupRequestModalOpen && <Alert
+    className="backup-request-alert instance-action-request-alert"
+    type="error"
+    showIcon
+    message={t('backupRequestFailed', { action: backupRequestActionLabel })}
+    description={backupRequestFailureDetails}
+    action={<Space wrap className="instance-action-request-actions">
+      <Button size="small" icon={<ReloadOutlined />} loading={actioning === 'refresh-backup-request-state'} disabled={!!actioning && actioning !== 'refresh-backup-request-state'} onClick={() => void refreshBackupRequestState()}>{t('refreshStatus')}</Button>
+      {backupRequestFailure.action !== 'delete' && <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>}
+      {backupRequestFailure.code === 'not_found' && <Button size="small" onClick={() => navigate('/instances')}>{t('backToInstances')}</Button>}
+      {backupRequestCanRetry && <Button size="small" type="primary" disabled={!!actioning} onClick={retryBackupRequest}>{t('retryBackupRequest', { action: backupRequestActionLabel })}</Button>}
+      <Button size="small" type="text" onClick={() => setBackupRequestFailure(undefined)}>{t('dismiss')}</Button>
+    </Space>}
+  />
   const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'cleanup', icon: <SafetyCertificateOutlined />, label: t('reviewCleanup'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
   const showBackupActions = canOperate || failedBackupDeletes.length > 0
   const backupColumns = [
@@ -1607,12 +1706,13 @@ export function InstanceDetailPage() {
       const failedDeleteTask = failedBackupDeleteTaskByBackupID.get(backup.id)
       return <Space>
         {failedDeleteTask && <Button size="small" onClick={() => navigate(`/tasks?task=${failedDeleteTask.id}`)}>{t('viewTask')}</Button>}
-        {canOperate && <><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !!operationTask || backup.status !== 'ready' || backup.templateVersionId !== item.templateVersionId} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'restore', backup }) }}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'delete', backup }) }}>{t('delete')}</Button></>}
+        {canOperate && <><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !canRestoreBackup(backup)} onClick={() => openBackupAction('restore', backup)}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => openBackupAction('delete', backup)}>{t('delete')}</Button></>}
       </Space>
     } }] : []),
   ]
-  const backupsTab = <Card title={t('backups')} extra={canOperate ? <Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={() => { setBackupName(''); setBackupCreateOpen(true) }}>{t('createBackup')}</Button> : undefined}>
+  const backupsTab = <Card title={t('backups')} extra={canOperate ? <Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={openBackupCreate}>{t('createBackup')}</Button> : undefined}>
     {cleanupContinuationPanel}
+    {backupRequestFailurePanel}
     <Alert className="backup-storage-alert" type="info" showIcon message={t('coldBackupNotice')} description={t('coldBackupNoticeHint')} />
     <Card size="small" className="backup-policy-card">
       <div className="backup-policy-summary">
@@ -1748,13 +1848,15 @@ export function InstanceDetailPage() {
         <Alert type={backupPolicyEnabled ? 'info' : 'success'} showIcon message={backupPolicyEnabled ? t('backupPolicyEnabledHint') : t('backupPolicyDisabledHint')} description={backupPolicyEnabled ? t('backupRetentionOnlyScheduledHint') : undefined} />
       </Form>
     </Modal>
-    <Modal title={t('createBackup')} open={backupCreateOpen} onCancel={() => { if (!actioning) { setBackupCreateOpen(false); setBackupName('') } }} onOk={() => void createBackup()} confirmLoading={actioning === 'backup-create'} okText={t('createBackup')}>
+    <Modal title={t('createBackup')} open={backupCreateOpen} onCancel={() => { if (!actioning) { setBackupCreateOpen(false); setBackupName('') } }} onOk={() => void createBackup()} confirmLoading={actioning === 'backup-create'} okText={t('createBackup')} okButtonProps={{ disabled: !canCreateBackup || (backupRequestFailure?.action === 'create' && !backupRequestCanRetry) }}>
       <Alert className="backup-modal-alert" type="warning" showIcon message={t('backupDowntimeWarning')} description={t('backupDowntimeWarningHint')} />
+      {backupRequestFailure?.action === 'create' && <Alert className="backup-modal-alert backup-request-modal-alert" type="error" showIcon message={t('backupRequestFailed', { action: backupRequestActionLabel })} description={backupRequestFailureDetails} />}
       <Typography.Paragraph type="secondary">{t('backupNameHint')}</Typography.Paragraph>
       <Input autoFocus aria-label={t('backupName')} value={backupName} maxLength={120} onChange={(event) => setBackupName(event.target.value)} placeholder={t('backupNamePlaceholder')} />
     </Modal>
-    <Modal title={backupAction?.type === 'restore' ? t('restoreBackup') : t('deleteBackup')} open={!!backupAction} onCancel={() => { if (!actioning) { setBackupAction(undefined); setBackupConfirm('') } }} onOk={() => void submitBackupAction()} confirmLoading={actioning === `backup-${backupAction?.type}`} okText={backupAction?.type === 'restore' ? t('restore') : t('delete')} okButtonProps={{ danger: true, disabled: !backupAction || backupConfirm !== (backupAction.type === 'restore' ? item.name : backupAction.backup.name) }}>
+    <Modal title={backupAction?.type === 'restore' ? t('restoreBackup') : t('deleteBackup')} open={!!backupAction} onCancel={() => { if (!actioning) { setBackupAction(undefined); setBackupConfirm('') } }} onOk={() => void submitBackupAction()} confirmLoading={actioning === `backup-${backupAction?.type}`} okText={backupAction?.type === 'restore' ? t('restore') : t('delete')} okButtonProps={{ danger: true, disabled: !backupAction || backupConfirm !== (backupAction.type === 'restore' ? item.name : backupAction.backup.name) || (!!backupRequestFailure && backupRequestFailure.action === backupAction.type && backupRequestFailure.backupId === backupAction.backup.id && !backupRequestCanRetry) }}>
       {backupAction?.type === 'restore' ? <Alert className="backup-modal-alert" type="error" showIcon message={t('restoreBackupWarning')} description={t('restoreBackupWarningHint', { name: backupAction.backup.name })} /> : <Alert className="backup-modal-alert" type="warning" showIcon message={t('deleteBackupWarning')} description={t('deleteBackupWarningHint')} />}
+      {backupRequestFailure && backupAction && backupRequestFailure.action === backupAction.type && backupRequestFailure.backupId === backupAction.backup.id && <Alert className="backup-modal-alert backup-request-modal-alert" type="error" showIcon message={t('backupRequestFailed', { action: backupRequestActionLabel })} description={backupRequestFailureDetails} />}
       {backupAction && <Typography.Paragraph>{backupAction.type === 'restore' ? t('restoreBackupConfirmHint', { name: item.name }) : t('deleteBackupConfirmHint', { name: backupAction.backup.name })}</Typography.Paragraph>}
       <Input autoFocus aria-label={backupAction?.type === 'restore' ? t('restoreBackupConfirmLabel') : t('deleteBackupConfirmLabel')} value={backupConfirm} onChange={(event) => setBackupConfirm(event.target.value)} />
     </Modal>

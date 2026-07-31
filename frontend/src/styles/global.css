@@ -205,7 +205,7 @@ button { font: inherit; }
 .workflow-modal-footer, .workflow-drawer-footer { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .instance-page-alert { margin-bottom: 16px; }
 .instance-action-request-alert .ant-alert-content { min-width: 0; }
-.instance-action-request-alert .ant-alert-action { align-self: center; }
+.instance-action-request-alert .ant-alert-actions { align-self: center; }
 .instance-action-request-description { display: grid; gap: 5px; line-height: 1.5; }
 .instance-action-request-description > div { min-width: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
 .instance-action-request-actions { justify-content: flex-end; }
@@ -252,7 +252,7 @@ button { font: inherit; }
 .upgrade-source-options { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .upgrade-source-options .ant-radio-button-wrapper { padding-inline: 8px; text-align: center; }
 .upgrade-source-panel > .ant-select { width: 100%; }
-.cleanup-continuation-alert, .backup-storage-alert, .backup-modal-alert { margin-bottom: 16px; }
+.cleanup-continuation-alert, .backup-request-alert, .backup-storage-alert, .backup-modal-alert { margin-bottom: 16px; }
 .cleanup-continuation-body { display: flex; flex-direction: column; gap: 10px; }
 .cleanup-continuation-actions { margin-top: 2px; }
 .cleanup-backup-failure-list { display: grid; gap: 10px; }
@@ -781,6 +781,10 @@ button { font: inherit; }
   .header-language-label, .desktop-only { display: none; }
   .instance-operation, .instance-operation.is-failed { grid-template-columns: 1fr; gap: 12px; }
   .instance-operation-actions { justify-self: start; }
+  .instance-action-request-alert { align-items: flex-start; flex-wrap: wrap; }
+  .instance-action-request-alert .ant-alert-section { flex: 1 1 calc(100% - 32px); }
+  .instance-action-request-alert .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 12px; }
+  .instance-action-request-actions { justify-content: flex-start; }
   .instance-bulk-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
   .instance-bulk-result .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 10px; }
   .cleanup-batch-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
@@ -805,9 +809,6 @@ button { font: inherit; }
   .instance-delete-outcome-facts { grid-template-columns: 1fr; }
   .restore-verification-actions { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .restore-verification-actions .ant-btn { width: 100%; }
-  .instance-action-request-alert { align-items: flex-start; }
-  .instance-action-request-alert .ant-alert-action { width: 100%; margin: 12px 0 0; }
-  .instance-action-request-actions { justify-content: flex-start; }
   .task-failure-guidance-grid { grid-template-columns: 1fr; }
   .backup-policy-summary { align-items: flex-start; flex-wrap: wrap; }
   .backup-policy-copy { min-width: calc(100% - 56px); }
