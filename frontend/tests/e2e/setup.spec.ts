@@ -522,6 +522,10 @@ test('initializes the platform and switches the embedded interface language', as
   let restoreRetryCount = 0
   let submittedUpgradeBody: Record<string, unknown> | undefined
   let submittedRuntimeBody: Record<string, unknown> | undefined
+  let failUpgradeRequest = true
+  let failRuntimeRequest = true
+  let upgradeRequestCount = 0
+  let runtimeRequestCount = 0
   let submittedBackupBody: Record<string, unknown> | undefined
   let submittedBackupPolicyBody: Record<string, unknown> | undefined
   let submittedRestoreBody: Record<string, unknown> | undefined
@@ -617,12 +621,19 @@ test('initializes the platform and switches the embedded interface language', as
   })
   await page.route(`**/api/v1/instances/${instanceID}/actions/upgrade`, async (route) => {
     submittedUpgradeBody = route.request().postDataJSON()
+    upgradeRequestCount += 1
+    if (failUpgradeRequest) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary upgrade queue outage during audit' } } })
     const task = { id: '59595959-5959-4595-8595-595959595959', kind: 'instance.upgrade', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
     relatedTasks = [task]
     await route.fulfill({ status: 202, json: task })
   })
   await page.route(`**/api/v1/instances/${instanceID}/actions/reconfigure`, async (route) => {
     submittedRuntimeBody = route.request().postDataJSON()
+    runtimeRequestCount += 1
+    if (failRuntimeRequest) {
+      relatedTasks = [{ id: '64646464-6464-4464-8464-646464646463', kind: 'instance.restart', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 40, stage: 'compose', message: 'task_started', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
+      return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'another instance operation is already running' } } })
+    }
     await route.fulfill({ status: 202, json: { id: '64646464-6464-4464-8464-646464646464', kind: 'instance.reconfigure', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
   })
   await page.route(`**/api/v1/instances/${instanceID}/actions/restart`, async (route) => {
@@ -771,7 +782,28 @@ test('initializes the platform and switches the embedded interface language', as
   await runtimeDialog.getByLabel('额外环境变量（JSON）').fill('{"TZ":"Asia/Shanghai"}')
   await expect(runtimeDialog.getByText('容量校验通过')).toBeVisible()
   await runtimeDialog.getByRole('button', { name: '应用配置' }).click()
+  await expect(runtimeDialog.getByText('变更运行配置未排队')).toBeVisible()
+  await expect(runtimeDialog.getByText('CPU、内存、磁盘预留、环境变量和自动重启策略均未因本次请求改变。', { exact: false })).toBeVisible()
+  await expect(runtimeDialog.getByText('本次变更请求未创建另一条任务', { exact: false })).toBeVisible()
+  await expect(runtimeDialog.getByLabel('CPU')).toHaveValue(/^3(?:\.00)?$/)
+  await expect(runtimeDialog.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
+  await expect(runtimeDialog.getByRole('switch', { name: '异常自动重启' })).not.toBeChecked()
+  await expect(runtimeDialog.getByRole('button', { name: '查看当前任务' })).toBeVisible()
+  await expect(runtimeDialog.getByRole('button', { name: '应用配置' })).toBeDisabled()
+  expect(runtimeRequestCount).toBe(1)
+  failRuntimeRequest = false
+  relatedTasks = []
+  await runtimeDialog.getByRole('button', { name: '刷新状态' }).click()
+  await expect(runtimeDialog.getByRole('button', { name: '应用配置' })).toBeEnabled()
+  await runtimeDialog.getByRole('button', { name: /取\s*消/ }).click()
+  await expect(page.getByText('变更运行配置未排队')).toBeVisible()
+  await page.getByRole('button', { name: '检查并重新变更运行配置' }).click()
+  await expect(runtimeDialog.getByLabel('CPU')).toHaveValue(/^3(?:\.00)?$/)
+  await expect(runtimeDialog.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
+  await expect(runtimeDialog.getByRole('switch', { name: '异常自动重启' })).not.toBeChecked()
+  await runtimeDialog.getByRole('button', { name: '应用配置' }).click()
   await expect.poll(() => submittedRuntimeBody).toEqual({ cpu: 3, memoryBytes: 4294967296, diskBytes: 21474836480, extraEnvironment: { TZ: 'Asia/Shanghai' }, autoRestart: false })
+  expect(runtimeRequestCount).toBe(2)
   await page.getByRole('button', { name: '更多操作' }).click()
   await page.getByRole('menuitem', { name: '升级' }).click()
   const upgradeDialog = page.getByRole('dialog', { name: '升级' })
@@ -790,7 +822,21 @@ test('initializes the platform and switches the embedded interface language', as
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await upgradeDialog.getByRole('button', { name: /确\s*定/ }).click()
+  await expect(upgradeDialog.getByText('升级未排队')).toBeVisible()
+  await expect(upgradeDialog.getByText('数据库没有因本次请求停机、创建升级快照或切换模板与镜像', { exact: false })).toBeVisible()
+  await expect(upgradeDialog.getByText('控制服务暂时无法接受变更请求', { exact: false })).toBeVisible()
+  await expect(upgradeDialog.getByText('PostgreSQL 17.1 offline', { exact: false })).toBeVisible()
+  await expect(upgradeDialog.getByRole('button', { name: /确\s*定/ })).toBeEnabled()
+  expect(upgradeRequestCount).toBe(1)
+  failUpgradeRequest = false
+  await upgradeDialog.getByRole('button', { name: /取\s*消/ }).click()
+  await expect(page.getByText('升级未排队')).toBeVisible()
+  await page.getByRole('button', { name: '检查并重新升级' }).click()
+  await expect(upgradeDialog.getByText('PostgreSQL 17.1 offline', { exact: false })).toBeVisible()
+  await expect(upgradeDialog.getByRole('radio', { name: '离线镜像' })).toBeChecked()
+  await upgradeDialog.getByRole('button', { name: /确\s*定/ }).click()
   await expect.poll(() => submittedUpgradeBody).toEqual({ templateVersionId: upgradeVersionID, imageSource: 'offline', imageArtifactId: upgradeImageID, registryId: null })
+  expect(upgradeRequestCount).toBe(2)
   relatedTasks = []
   await page.reload()
 

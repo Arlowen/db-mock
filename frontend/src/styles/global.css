@@ -215,6 +215,9 @@ button { font: inherit; }
 .instance-action-request-alert .ant-alert-actions { align-self: center; }
 .instance-action-request-description { display: grid; gap: 5px; line-height: 1.5; }
 .instance-action-request-description > div { min-width: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+.instance-change-request-alert { margin: 0 0 16px; }
+.instance-change-request-modal-description { display: grid; gap: 12px; }
+.instance-change-modal .ant-modal-body { max-height: calc(100vh - 240px); padding-inline-end: 4px; overflow-y: auto; }
 .instance-action-request-actions { justify-content: flex-end; }
 .instance-lifecycle-cell { min-width: 0; display: grid; justify-items: start; gap: 4px; }
 .instance-lifecycle-cell .ant-tag { margin: 0; }

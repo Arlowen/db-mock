@@ -27,6 +27,7 @@ import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, ima
 import { deploymentCopyDraft } from '../lib/instance-copy'
 import { instanceTemplateDraftAction } from '../lib/instance-create-draft'
 import { canRetryInstanceCreateRequest, instanceCreateRecoveryKey, type InstanceCreateRequestFailure } from '../lib/instance-create-recovery'
+import { canRetryInstanceChangeRequest, instanceChangeRequestImpactKey, instanceChangeRequestRecoveryKey, isInstanceChangeRequestAction, type InstanceChangeRequestFailure } from '../lib/instance-change-request-recovery'
 import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from '../lib/instance-handoff'
 import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
@@ -1286,6 +1287,7 @@ export function InstanceDetailPage() {
   const [taskCancellationFailure, setTaskCancellationFailure] = useState<{ taskId: string; message: string }>()
   const [lifecycleConfirmAction, setLifecycleConfirmAction] = useState<InstanceLifecycleAction>()
   const [lifecycleRequestFailure, setLifecycleRequestFailure] = useState<{ action: InstanceLifecycleAction; code: string; message: string }>()
+  const [changeRequestFailure, setChangeRequestFailure] = useState<InstanceChangeRequestFailure>()
   const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab || '') ? requestedTab! : 'overview')
   const [editForm] = Form.useForm<EditValues>()
   const [runtimeForm] = Form.useForm<RuntimeValues>()
@@ -1353,6 +1355,7 @@ export function InstanceDetailPage() {
     setCleanupRetryError('')
     setLifecycleConfirmAction(undefined)
     setLifecycleRequestFailure(undefined)
+    setChangeRequestFailure(undefined)
     setBackupRequestFailure(undefined)
     void load()
   }, [load])
@@ -1369,10 +1372,12 @@ export function InstanceDetailPage() {
   }
   const run = async (action: string, body: Record<string, unknown> = {}) => {
     const lifecycleAction = isInstanceLifecycleAction(action) ? action : undefined
+    const changeRequestAction = isInstanceChangeRequestAction(action) ? action : undefined
     let accepted = false
     try {
       setActioning(action)
       if (lifecycleAction) setLifecycleRequestFailure(undefined)
+      if (changeRequestAction) setChangeRequestFailure(undefined)
       const task = await api<Task>(`/instances/${id}/actions/${action}`, { method: 'POST', body })
       setTasks((current) => [task, ...current])
       notifyTask(task)
@@ -1384,6 +1389,13 @@ export function InstanceDetailPage() {
       if (lifecycleAction) {
         setLifecycleRequestFailure({
           action: lifecycleAction,
+          code: error instanceof ApiError ? error.code : 'unknown',
+          message: errorMessage(error),
+        })
+        await load()
+      } else if (changeRequestAction) {
+        setChangeRequestFailure({
+          action: changeRequestAction,
           code: error instanceof ApiError ? error.code : 'unknown',
           message: errorMessage(error),
         })
@@ -1407,6 +1419,14 @@ export function InstanceDetailPage() {
   const refreshLifecycleState = async () => {
     try {
       setActioning('refresh-lifecycle-state')
+      await load()
+    } finally {
+      setActioning('')
+    }
+  }
+  const refreshChangeRequestState = async () => {
+    try {
+      setActioning('refresh-change-request-state')
       await load()
     } finally {
       setActioning('')
@@ -1485,21 +1505,27 @@ export function InstanceDetailPage() {
   }, [activeTab])
   const showEdit = () => { if (!item) return; editForm.resetFields(); editForm.setFieldsValue({ name: item.name, projectId: item.projectId, environment: item.environment, purpose: item.purpose, owner: item.owner || user?.displayName || user?.username || '', expiresAt: item.expiresAt ? dayjs(item.expiresAt) : undefined, labels: Object.entries(item.labels || {}).map(([key, value]) => `${key}=${value}`).join(', ') }); setEditOpen(true) }
   const showUpgrade = () => {
-    setUpgradeVersion(undefined)
-    setUpgradeImageSource('public')
-    setUpgradeImageArtifactID(undefined)
-    setUpgradeRegistryID(undefined)
+    if (changeRequestFailure?.action !== 'upgrade') {
+      setChangeRequestFailure(undefined)
+      setUpgradeVersion(undefined)
+      setUpgradeImageSource('public')
+      setUpgradeImageArtifactID(undefined)
+      setUpgradeRegistryID(undefined)
+    }
     setUpgradeOpen(true)
   }
   const showRuntimeConfiguration = () => {
     if (!item) return
-    runtimeForm.setFieldsValue({
-      cpu: item.cpu,
-      memoryGiB: item.memoryBytes / 1024 ** 3,
-      diskGiB: item.reservedDiskBytes / 1024 ** 3,
-      extraEnvironment: JSON.stringify(item.configuration?.extraEnvironment || {}, null, 2),
-      autoRestart: item.autoRestart,
-    })
+    if (changeRequestFailure?.action !== 'reconfigure') {
+      setChangeRequestFailure(undefined)
+      runtimeForm.setFieldsValue({
+        cpu: item.cpu,
+        memoryGiB: item.memoryBytes / 1024 ** 3,
+        diskGiB: item.reservedDiskBytes / 1024 ** 3,
+        extraEnvironment: JSON.stringify(item.configuration?.extraEnvironment || {}, null, 2),
+        autoRestart: item.autoRestart,
+      })
+    }
     setRuntimeOpen(true)
   }
   const showBackupPolicy = () => {
@@ -1554,7 +1580,7 @@ export function InstanceDetailPage() {
     imageArtifactMatchesTemplate(image.imageRefs, upgradeTarget) && (!instanceHost?.architecture || image.architectures.includes(instanceHost.architecture)))
   const upgradeCompatibleRegistries = registries.filter((registry) => !!upgradeTarget && registryMatchesTemplate(registry.url, upgradeTarget))
   const upgradeRegistry = upgradeCompatibleRegistries.find((registry) => registry.id === upgradeRegistryID)
-  const upgradeReady = !!upgradeVersion && (upgradeImageSource === 'public' ||
+  const upgradeReady = !!upgradeTarget && (upgradeImageSource === 'public' ||
     (upgradeImageSource === 'offline' && !!upgradeImageArtifactID) || (upgradeImageSource === 'registry' && !!upgradeRegistryID))
   const submitUpgrade = () => {
     if (!upgradeReady || !upgradeVersion) return
@@ -1590,6 +1616,63 @@ export function InstanceDetailPage() {
   const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
   const lifecycleRequestCanRetry = lifecycleRequestFailure && !operationTask &&
     canRetryInstanceLifecycleAction(lifecycleRequestFailure.action, item.status, lifecycleRequestFailure.code)
+  const changeRequestEvidenceReady = !pageError && instanceInventoryReady && taskInventoryState === 'ready' &&
+    !!instanceHost && !!currentVersion
+  const changeRequestCanRetry = !!changeRequestFailure && canOperate && changeRequestEvidenceReady &&
+    canRetryInstanceChangeRequest(changeRequestFailure.action, item.status, changeRequestFailure.code, !!operationTask)
+  const changeRequestActionLabel = changeRequestFailure
+    ? t(changeRequestFailure.action === 'reconfigure' ? 'runtimeConfiguration' : 'upgrade')
+    : ''
+  const changeRequestFailureDetails = changeRequestFailure && <div className="instance-action-request-description">
+    <div><Typography.Text type="secondary">{t('failureCause')}</Typography.Text><Typography.Text>{changeRequestFailure.message}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{t('failureImpact')}</Typography.Text><Typography.Text>{t(instanceChangeRequestImpactKey(changeRequestFailure.action))}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{t('recoveryAdvice')}</Typography.Text><Typography.Text>{t(instanceChangeRequestRecoveryKey(changeRequestFailure.code))}</Typography.Text></div>
+    {operationTask && <div><Typography.Text type="secondary">{t('currentTask')}</Typography.Text><Typography.Text>{t('instanceChangeRequestActiveTaskHint', { task: translateCode(t, operationTask.kind, 'taskKind'), status: translateCode(t, operationTask.status) })}</Typography.Text></div>}
+  </div>
+  const closeChangeRequestModal = () => {
+    setUpgradeOpen(false)
+    setRuntimeOpen(false)
+  }
+  const inspectChangeRequestLogs = () => {
+    closeChangeRequestModal()
+    changeTab('logs')
+  }
+  const openChangeRequestDraft = () => {
+    if (!changeRequestFailure) return
+    if (changeRequestFailure.action === 'reconfigure') showRuntimeConfiguration()
+    else showUpgrade()
+  }
+  const changeRequestFailureActions = changeRequestFailure && <Space wrap className="instance-action-request-actions">
+    <Button size="small" icon={<ReloadOutlined />} loading={actioning === 'refresh-change-request-state'} disabled={!!actioning && actioning !== 'refresh-change-request-state'} onClick={() => void refreshChangeRequestState()}>{t('refreshStatus')}</Button>
+    {operationTask && <Button size="small" onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewCurrentTask')}</Button>}
+    <Button size="small" onClick={inspectChangeRequestLogs}>{t('viewInstanceLogs')}</Button>
+    {changeRequestFailure.code === 'not_found' && <Button size="small" onClick={() => navigate('/instances')}>{t('backToInstances')}</Button>}
+    {changeRequestCanRetry && <Button size="small" type="primary" disabled={!!actioning} onClick={openChangeRequestDraft}>{t('reviewInstanceChange', { action: changeRequestActionLabel })}</Button>}
+    <Button size="small" type="text" onClick={() => setChangeRequestFailure(undefined)}>{t('dismiss')}</Button>
+  </Space>
+  const changeRequestFailurePanel = changeRequestFailure && !runtimeOpen && !upgradeOpen && <Alert
+    className="instance-page-alert instance-action-request-alert"
+    type="error"
+    showIcon
+    message={t('instanceChangeRequestFailed', { action: changeRequestActionLabel })}
+    description={changeRequestFailureDetails}
+    action={changeRequestFailureActions}
+  />
+  const changeRequestModalFailure = changeRequestFailure && <Alert
+    className="instance-change-request-alert"
+    type="error"
+    showIcon
+    message={t('instanceChangeRequestFailed', { action: changeRequestActionLabel })}
+    description={<div className="instance-change-request-modal-description">
+      {changeRequestFailureDetails}
+      <Space wrap className="instance-action-request-actions">
+        <Button size="small" icon={<ReloadOutlined />} loading={actioning === 'refresh-change-request-state'} disabled={!!actioning && actioning !== 'refresh-change-request-state'} onClick={() => void refreshChangeRequestState()}>{t('refreshStatus')}</Button>
+        {operationTask && <Button size="small" onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewCurrentTask')}</Button>}
+        <Button size="small" onClick={inspectChangeRequestLogs}>{t('viewInstanceLogs')}</Button>
+        {changeRequestFailure.code === 'not_found' && <Button size="small" onClick={() => navigate('/instances')}>{t('backToInstances')}</Button>}
+      </Space>
+    </div>}
+  />
   const retryTask = async (task = failedTask) => {
     if (!task) return
     try {
@@ -2000,7 +2083,7 @@ export function InstanceDetailPage() {
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{changeRequestFailurePanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal
       title={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmTitle' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: item.name }) : ''}
       open={!!lifecycleConfirmAction}
@@ -2046,8 +2129,9 @@ export function InstanceDetailPage() {
         <Form.Item name="labels" label={t('labels')} rules={[{ validator: (_, value?: string) => parseLabelText(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidLabels'))) }]}><Input placeholder={t('labelsPlaceholder')} /></Form.Item>
       </Form>
     </Modal>
-    <Modal title={t('runtimeConfiguration')} open={runtimeOpen} onCancel={() => { if (!actioning) setRuntimeOpen(false) }} onOk={() => void submitRuntimeConfiguration()} confirmLoading={actioning === 'reconfigure'} okText={t('applyConfiguration')} okButtonProps={{ disabled: !runtimeReady }} width={680} destroyOnHidden>
+    <Modal className="instance-change-modal" title={t('runtimeConfiguration')} open={runtimeOpen} onCancel={() => { if (!actioning) setRuntimeOpen(false) }} onOk={() => void submitRuntimeConfiguration()} confirmLoading={actioning === 'reconfigure'} okText={t('applyConfiguration')} okButtonProps={{ disabled: !runtimeReady || !!operationTask || (!!changeRequestFailure && changeRequestFailure.action === 'reconfigure' && !changeRequestCanRetry) }} width={680} destroyOnHidden>
       <Alert className="backup-modal-alert" type={item.status === 'stopped' ? 'info' : 'warning'} showIcon message={item.status === 'stopped' ? t('runtimeStoppedNotice') : t('runtimeDowntimeNotice')} description={t('runtimeRecoveryNotice')} />
+      {changeRequestFailure?.action === 'reconfigure' && changeRequestModalFailure}
       <Form form={runtimeForm} layout="vertical" requiredMark={false}>
         <Row gutter={16}>
           <Col span={8}><Form.Item name="cpu" label={t('cpu')} rules={[{ required: true }]}><InputNumber min={currentVersion?.minCpu || .25} step={.25} style={{ width: '100%' }} /></Form.Item></Col>
@@ -2073,8 +2157,9 @@ export function InstanceDetailPage() {
       onChanged={load}
       onDeleteQueued={(task) => navigate(`/tasks?task=${encodeURIComponent(task.id)}`)}
     />
-    <Modal title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={submitUpgrade} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeReady }} destroyOnHidden>
+    <Modal className="instance-change-modal" title={t('upgrade')} open={upgradeOpen} onCancel={() => { if (!actioning) setUpgradeOpen(false) }} onOk={submitUpgrade} confirmLoading={actioning === 'upgrade'} okButtonProps={{ disabled: !upgradeReady || !!operationTask || (!!changeRequestFailure && changeRequestFailure.action === 'upgrade' && !changeRequestCanRetry) }} destroyOnHidden>
       <Typography.Paragraph type="secondary">{t('upgradeHint')}</Typography.Paragraph>
+      {changeRequestFailure?.action === 'upgrade' && changeRequestModalFailure}
       <div className="upgrade-field">
         <Typography.Text strong>{t('version')}</Typography.Text>
         <Select aria-label={t('version')} style={{ width: '100%' }} options={upgradeOptions} value={upgradeVersion} onChange={(value) => { setUpgradeVersion(value); setUpgradeImageArtifactID(undefined); setUpgradeRegistryID(undefined) }} placeholder={t('version')} />
