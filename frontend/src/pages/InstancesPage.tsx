@@ -1590,8 +1590,9 @@ export function InstanceDetailPage() {
     </div>}
   />
   const moreActions = [{ key: 'reconfigure', icon: <EditOutlined />, label: t('runtimeConfiguration'), disabled: !canReconfigure || !!actioning },{ key: 'upgrade', icon: <RocketOutlined />, label: t('upgrade'), disabled: !canUpgrade || !!actioning },{ type: 'divider' as const },{ key: 'cleanup', icon: <SafetyCertificateOutlined />, label: t('reviewCleanup'), danger: true, disabled: item.status === 'provisioning' || !!actioning }]
+  const showBackupActions = canOperate || failedBackupDeletes.length > 0
   const backupColumns = [
-    { title: t('name'), dataIndex: 'name', ellipsis: true, render: (value: string, backup: InstanceBackup) => {
+    { title: t('name'), dataIndex: 'name', width: 220, ellipsis: true, render: (value: string, backup: InstanceBackup) => {
       const failedDeleteTask = failedBackupDeleteTaskByBackupID.get(backup.id)
       return <><Typography.Text strong>{value}</Typography.Text>{failedDeleteTask ? <><br /><Typography.Text type="danger">{t('backupDeleteFailedInline')}</Typography.Text></> : backup.errorMessage && <><br /><Typography.Text type="danger">{translateCode(t, backup.errorMessage, 'statusMessage')}</Typography.Text></>}</>
     } },
@@ -1602,13 +1603,13 @@ export function InstanceDetailPage() {
     { title: t('sha256'), dataIndex: 'sha256', width: 165, render: (value: string) => value ? <Typography.Text code copyable={{ text: value }}>{value.slice(0, 12)}…</Typography.Text> : '—' },
     { title: t('createdBy'), dataIndex: 'createdByUsername', width: 130 },
     { title: t('createdAt'), dataIndex: 'createdAt', width: 180, render: (value: string) => formatDateTime(value, i18n.language, timezone) },
-    { title: '', width: 260, align: 'right' as const, render: (_: unknown, backup: InstanceBackup) => {
+    ...(showBackupActions ? [{ title: '', width: 260, align: 'right' as const, fixed: 'right' as const, render: (_: unknown, backup: InstanceBackup) => {
       const failedDeleteTask = failedBackupDeleteTaskByBackupID.get(backup.id)
       return <Space>
         {failedDeleteTask && <Button size="small" onClick={() => navigate(`/tasks?task=${failedDeleteTask.id}`)}>{t('viewTask')}</Button>}
         {canOperate && <><Button size="small" icon={<UndoOutlined />} disabled={!!actioning || !!operationTask || backup.status !== 'ready' || backup.templateVersionId !== item.templateVersionId} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'restore', backup }) }}>{t('restore')}</Button><Button size="small" danger icon={<DeleteOutlined />} disabled={!!actioning || !['ready', 'failed'].includes(backup.status)} onClick={() => { setBackupConfirm(''); setBackupAction({ type: 'delete', backup }) }}>{t('delete')}</Button></>}
       </Space>
-    } },
+    } }] : []),
   ]
   const backupsTab = <Card title={t('backups')} extra={canOperate ? <Button type="primary" icon={<SaveOutlined />} disabled={!canCreateBackup || !!actioning} onClick={() => { setBackupName(''); setBackupCreateOpen(true) }}>{t('createBackup')}</Button> : undefined}>
     {cleanupContinuationPanel}
@@ -1630,7 +1631,7 @@ export function InstanceDetailPage() {
       ]} />}
       {backupPolicy?.lastStatus === 'failed' && <Alert className="backup-policy-error" type="error" showIcon message={t('lastScheduledBackupFailed')} description={backupPolicy.lastError || t('viewTaskForDetails')} action={backupPolicy.lastTaskId ? <Button size="small" onClick={() => navigate(`/tasks?task=${backupPolicy.lastTaskId}`)}>{t('viewTask')}</Button> : undefined} />}
     </Card>
-    <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: 1240 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
+    <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: showBackupActions ? 1380 : 1120 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
