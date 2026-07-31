@@ -206,19 +206,27 @@ test('initializes the platform and switches the embedded interface language', as
   await page.goto('/instances')
   await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从目录选择模板部署。')).toBeVisible()
   await expect(page.getByRole('button', { name: '接入主机' })).toHaveCount(1)
+  let deploymentHostDrifted = false
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [
-    { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
+    { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: deploymentHostDrifted ? 'offline' : 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
     { id: '22222222-2222-4222-8222-222222222222', name: 'E2E Staging', status: 'offline', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
     { id: '33333333-3333-4333-8333-333333333333', name: 'E2E Constrained', status: 'online', architecture: 'arm64', cpuCount: 1, memoryBytes: 1073741824, diskFreeBytes: 10737418240, portStart: 21000, portEnd: 21999 },
   ] } }))
   let submittedInstanceBody: Record<string, unknown> | undefined
+  let instanceCreateAttempt = 0
   const listInstances = [
     { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: { team: 'checkout' }, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 1, memoryBytes: 1073741824, reservedDiskBytes: 10737418240, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString() },
     { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Staging Cache', hostId: '22222222-2222-4222-8222-222222222222', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'staging', labels: { team: 'platform' }, status: 'stopped', desiredState: 'stopped', autoRestart: true, restartFailures: 0, cpu: 1, memoryBytes: 1073741824, reservedDiskBytes: 10737418240, hostPort: 26379, containerPort: 6379, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'cache', templateSlug: 'redis', templateName: 'Redis', templateVersion: '8', hostName: 'E2E Staging', connectionAddress: '10.0.0.9', createdAt: new Date().toISOString() },
   ]
   await page.route('**/api/v1/instances', async (route) => {
     if (route.request().method() !== 'POST') { await route.fulfill({ json: { items: listInstances } }); return }
+    instanceCreateAttempt += 1
     submittedInstanceBody = route.request().postDataJSON() as Record<string, unknown>
+    if (instanceCreateAttempt === 1) {
+      deploymentHostDrifted = true
+      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: deployment capacity changed during review' } } })
+      return
+    }
     await route.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'invalid input: e2e submission stopped' } } })
   })
   const batchStopBodies: Array<{ instanceIds: string[] }> = []
@@ -429,6 +437,23 @@ test('initializes the platform and switches the embedded interface language', as
   expect(Number(submittedInstanceBody?.memoryBytes)).toBeGreaterThan(0)
   expect(Number(submittedInstanceBody?.diskBytes)).toBeGreaterThan(0)
   await expect(createInstanceDrawer.getByText('数据库创建请求未提交')).toBeVisible()
+  await expect(createInstanceDrawer.getByText('服务器已明确拒绝本次请求；没有创建新的实例或任务。当前部署草稿已保留。')).toBeVisible()
+  await expect(createInstanceDrawer.getByText('resource_conflict', { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/instances\?create=1/)
+  await expect(createInstanceDrawer).toBeVisible()
+  await expect(createInstanceDrawer.getByRole('button', { name: /创\s*建/ })).toBeDisabled()
+  await expect(createInstanceDrawer.getByRole('button', { name: '调整资源与主机' })).toBeVisible()
+  deploymentHostDrifted = false
+  await createInstanceDrawer.getByRole('button', { name: '刷新部署状态' }).click()
+  await expect(createInstanceDrawer.getByText('已使用最新资源状态重新校验；草稿仍有效，可以再次提交。')).toBeVisible()
+  await expect(createInstanceDrawer.getByRole('button', { name: /创\s*建/ })).toBeEnabled()
+  await createInstanceDrawer.getByRole('button', { name: /创\s*建/ }).click()
+  await expect(createInstanceDrawer.getByText('invalid_input', { exact: true })).toBeVisible()
+  await expect(createInstanceDrawer.getByText('最新状态已刷新，但本次错误不允许直接重试。请按恢复建议处理后再提交。')).toBeVisible()
+  await expect(createInstanceDrawer.getByRole('button', { name: /创\s*建/ })).toBeDisabled()
+  await createInstanceDrawer.getByRole('button', { name: '检查基础信息' }).click()
+  await expect(createInstanceDrawer.getByLabel('名称')).toHaveValue('E2E Database')
+  await expect(createInstanceDrawer.getByLabel('用途')).toHaveValue('Release candidate regression')
   await createInstanceDrawer.getByRole('button', { name: /取\s*消/ }).click()
   await expect(discardInstanceDraftDialog).toBeVisible()
   await discardInstanceDraftDialog.getByRole('button', { name: '放弃更改' }).click()

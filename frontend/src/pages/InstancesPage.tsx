@@ -25,6 +25,7 @@ import { frequentTemplateVersions } from '../lib/frequent-template-versions'
 import { hostCanAccept, hostCanReconfigure, hostDeploymentReadiness, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
+import { canRetryInstanceCreateRequest, instanceCreateRecoveryKey, type InstanceCreateRequestFailure } from '../lib/instance-create-recovery'
 import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from '../lib/instance-handoff'
 import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
@@ -112,7 +113,7 @@ function connectionHandoffText(
 }
 
 export function InstancesPage() {
-  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createError, setCreateError] = useState(''); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
   const [bulkAction, setBulkAction] = useState<InstanceBatchAction>()
   const [rowActionInstance, setRowActionInstance] = useState<Instance>()
@@ -206,7 +207,7 @@ export function InstancesPage() {
   }, [items])
   useEffect(() => { if (!drawer) setProjectFilter(requestedProjectFilter) }, [drawer, requestedProjectFilter])
   useEffect(() => {
-    if (loading || loadError || !creationDataReady || !createRequested) return
+    if (drawer || loading || loadError || !creationDataReady || !createRequested) return
     if (!canOperate) { setParams({}, { replace: true }); return }
     if (!requestedCopySourceUnavailable && !requestedCopyTemplateUnavailable && (requestedCreationVersion ? requestedCompatibleHosts.length === 0 : !hasOnlineHost)) { addRequiredHost(); return }
     if (requestedImageAvailable && !requestedImageHostAvailable) { addRequiredHost(); return }
@@ -214,7 +215,7 @@ export function InstancesPage() {
     copyPrefillApplied.current = false
     setCopySource(source)
     setStep(source || requestedTemplateAvailable ? 1 : 0)
-    setCreateError('')
+    setCreateFailure(undefined)
     setCreateDraftDirty(false)
     form.resetFields()
     const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
@@ -223,7 +224,7 @@ export function InstancesPage() {
       : { bindAddress: '0.0.0.0', autoRestart: true, imageSource: requestedImageAvailable ? 'offline' : 'public', imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined, templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined, projectId: requestedProjectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(requestedProject), hostId: requestedHostReady ? requestedHostID || undefined : undefined })
     setAppliedProjectDefaultsID(source ? '' : requestedProject?.id || '')
     setDrawer(true)
-  }, [addRequiredHost, canOperate, createRequested, creationDataReady, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProjectFilter, requestedTemplateAvailable, requestedTemplateID, setParams])
+  }, [addRequiredHost, canOperate, createRequested, creationDataReady, drawer, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProjectFilter, requestedTemplateAvailable, requestedTemplateID, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
   const selectedProjectID = Form.useWatch('projectId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
@@ -266,6 +267,74 @@ export function InstancesPage() {
   const compatibleRegistries = useMemo(() => registries.filter((registry) => !!selected && registryMatchesTemplate(registry.url, selected.version)), [registries, selected])
   const selectedRegistry = compatibleRegistries.find((registry) => registry.id === selectedRegistryID)
   const imageSourceReady = imageSourceSelectionReady(imageSource, selectedRegistryID, selectedImageArtifactID)
+  const refreshCreateContext = async (failure = createFailure) => {
+    if (!failure) return
+    const values = form.getFieldsValue(true) as CreateValues
+    setRefreshingCreateContext(true)
+    setCreateFailure({ ...failure, contextStatus: 'checking', existingInstanceId: undefined, existingInstanceName: undefined })
+    try {
+      const [instanceResponse, templateResponse, hostResponse, projectResponse, imageResponse, registryResponse] = await Promise.allSettled([
+        api<{ items: Instance[] }>('/instances'),
+        api<{ items: DatabaseTemplate[] }>('/templates'),
+        api<{ items: Host[] }>('/hosts'),
+        api<{ items: Project[] }>('/projects'),
+        api<{ items: ImageArtifact[] }>('/images'),
+        api<{ items: Registry[] }>('/registries'),
+      ])
+      if (instanceResponse.status === 'fulfilled') setItems(instanceResponse.value.items)
+      if (templateResponse.status === 'fulfilled') setTemplates(templateResponse.value.items)
+      if (hostResponse.status === 'fulfilled') setHosts(hostResponse.value.items)
+      if (projectResponse.status === 'fulfilled') setProjects(projectResponse.value.items)
+      if (imageResponse.status === 'fulfilled') setImages(imageResponse.value.items)
+      if (registryResponse.status === 'fulfilled') setRegistries(registryResponse.value.items)
+      const coreReady = instanceResponse.status === 'fulfilled' && templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled'
+      const relevantSourcesReady =
+        (!values.projectId || projectResponse.status === 'fulfilled') &&
+        (values.imageSource !== 'offline' || imageResponse.status === 'fulfilled') &&
+        (values.imageSource !== 'registry' || registryResponse.status === 'fulfilled')
+      const normalizedName = values.name?.trim().toLocaleLowerCase()
+      const existing = instanceResponse.status === 'fulfilled' && normalizedName
+        ? instanceResponse.value.items.find((item) => item.name.trim().toLocaleLowerCase() === normalizedName)
+        : undefined
+      setCreationDataReady(templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled')
+      setCreateFailure((current) => current ? {
+        ...current,
+        contextStatus: coreReady && relevantSourcesReady ? 'ready' : 'failed',
+        existingInstanceId: existing?.id,
+        existingInstanceName: existing?.name,
+      } : current)
+    } finally {
+      setRefreshingCreateContext(false)
+    }
+  }
+  const selectedProjectReady = !selectedProjectID || !!selectedProject
+  const selectedHostReady = !selectedHostID || !!selectedHost
+  const selectedImageSourceReady = imageSource === 'offline'
+    ? !!selectedImage
+    : imageSource === 'registry'
+      ? !!selectedRegistry && !['offline', 'degraded'].includes(selectedRegistry.status)
+      : true
+  const createDraftReady = creationDataReady &&
+    !!selected &&
+    selectedProjectReady &&
+    selectedHostReady &&
+    resourceRequestReady &&
+    capacityCandidates.length > 0 &&
+    imageSourceReady &&
+    selectedImageSourceReady
+  const createRetryAllowed = !!createFailure && canRetryInstanceCreateRequest({
+    ...createFailure,
+    draftReady: createDraftReady,
+  })
+  const createRecoveryStep = !selected
+    ? 0
+    : !selectedProjectReady || createFailure?.code === 'invalid_input'
+      ? 1
+      : !resourceRequestReady || capacityCandidates.length === 0 || !selectedHostReady
+        ? 2
+        : !imageSourceReady || !selectedImageSourceReady
+          ? 3
+          : 4
   useEffect(() => {
     if (!selected) return
     if (copySource && selected.version.id === copySource.templateVersionId && !copyPrefillApplied.current) {
@@ -300,8 +369,8 @@ export function InstancesPage() {
       applyProjectDefaults(selectedProjectID)
     }
   }
-  const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } const project = projects.find((candidate) => candidate.id === projectFilter); copyPrefillApplied.current = false; setCopySource(undefined); setDrawer(true); setStep(0); setCreateError(''); setCreateDraftDirty(false); setAppliedProjectDefaultsID(project?.id || ''); form.resetFields(); form.setFieldsValue({ bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', projectId: projectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(project) }) }
-  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; setStep(0); setCreateError(''); setCreateDraftDirty(false); form.resetFields() }
+  const openCreate = () => { if (!hasOnlineHost) { addRequiredHost(); return } const project = projects.find((candidate) => candidate.id === projectFilter); copyPrefillApplied.current = false; setCopySource(undefined); setDrawer(true); setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); setAppliedProjectDefaultsID(project?.id || ''); form.resetFields(); form.setFieldsValue({ bindAddress: '0.0.0.0', autoRestart: true, imageSource: 'public', projectId: projectFilter || undefined, ...lifecycleDefaults, ...projectDeploymentValues(project) }) }
+  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
     if (!createDraftDirty) { finishCloseCreate(); return }
@@ -322,14 +391,14 @@ export function InstancesPage() {
       if (step === 2 && capacityCandidates.length === 0) return
       if (step === 3 && !imageSourceReady) return
       if (step === 3 && imageSource === 'offline' && selectedImage && capacityCandidates.length === 0) return
-      setCreateError('')
+      setCreateFailure(undefined)
       setStep(Math.min(step + 1, 4))
     } catch { /* form marks errors */ }
   }
   const create = async () => {
     try {
       setCreating(true)
-      setCreateError('')
+      setCreateFailure(undefined)
       await form.validateFields()
       const values = form.getFieldsValue(true) as CreateValues
       const labels = parseLabelText(values.labels) || {}
@@ -341,7 +410,16 @@ export function InstancesPage() {
       finishCloseCreate()
       navigate(`/instances/${result.instance.id}`)
     } catch (e) {
-      if (e instanceof Error) setCreateError(errorMessage(e))
+      if (e instanceof Error) {
+        const failure: InstanceCreateRequestFailure = {
+          code: e instanceof ApiError ? e.code : 'network_error',
+          message: errorMessage(e),
+          serverRejected: e instanceof ApiError,
+          contextStatus: 'checking',
+        }
+        setCreateFailure(failure)
+        await refreshCreateContext(failure)
+      }
     } finally { setCreating(false) }
   }
   const selectedInstances = useMemo(() => {
@@ -797,7 +875,7 @@ export function InstancesPage() {
         {bulkRequestError && <Alert type="error" showIcon message={rowActionInstance ? t('instanceActionRequestFailed', { action: bulkAction ? t(bulkAction) : '' }) : t('batchRequestFailed')} description={<div className="instance-action-request-error"><Typography.Text>{bulkRequestError}</Typography.Text>{rowActionInstance && <Typography.Text type="secondary">{t('instanceActionRequestFailedHint')}</Typography.Text>}</div>} />}
       </div>
     </Modal>
-    <Drawer title={copySource ? t('copyDeploymentTitle', { name: copySource.name }) : t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateError(''); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && (!imageSourceReady || (imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0)))} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
+    <Drawer title={copySource ? t('copyDeploymentTitle', { name: copySource.name }) : t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateFailure(undefined); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && (!imageSourceReady || (imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0))) || (step === 4 && !!createFailure && !createRetryAllowed)} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
       {copySource && <Alert className="copy-deployment-banner" type="success" showIcon message={t('copyDeploymentPrepared', { name: copySource.name })} description={t('copyDeploymentPreparedHint')} />}
       {requestedCopySourceUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentSourceUnavailable')} description={t('copyDeploymentSourceUnavailableHint')} />}
       {requestedCopyTemplateUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentTemplateUnavailable')} description={t('copyDeploymentTemplateUnavailableHint')} />}
@@ -876,7 +954,7 @@ export function InstancesPage() {
         </Form.Item>
         {resourceRequestReady && <Alert className="wizard-capacity-alert" type={capacityCandidates.length ? 'success' : 'warning'} showIcon message={capacityCandidates.length ? selectedHost ? t('selectedHostCapacityReady', { name: selectedHost.name }) : t('automaticHostCapacityReady', { fit: capacityCandidates.length, total: resourceHostScope.length }) : t('hostCapacityUnavailable')} description={capacityRemaining && capacityPreviewHost ? t(requestedHostPort ? 'hostCapacityPreviewWithPort' : 'hostCapacityPreview', { name: capacityPreviewHost.name, cpu: capacityRemaining.cpu.toFixed(capacityRemaining.cpu % 1 ? 1 : 0), memory: bytes(capacityRemaining.memory), disk: bytes(capacityRemaining.disk), port: requestedHostPort }) : t('hostCapacityUnavailableHint')} />}
       </>}
-      {step === 3 && <>{selectedTemplateParameters.length > 0 && <Card size="small" title={t('templateParameters')}><Typography.Paragraph type="secondary">{t('templateParametersHint')}</Typography.Paragraph>{selectedTemplateParameters.map((parameter) => <Form.Item key={parameter.key} name={['templateParameters', parameter.key]} label={localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)} extra={localizedTemplateText(parameter.description, parameter.descriptionZh, i18n.language)} valuePropName={parameter.type === 'boolean' ? 'checked' : 'value'} rules={[parameterRequiredRule(parameter)]}>{parameterInput(parameter)}</Form.Item>)}</Card>}{selectedAuthentication !== 'password' && <Alert className="wizard-authentication-alert" type="warning" showIcon message={t('nonPasswordAuthenticationTitle')} description={t(`nonPasswordAuthenticationHint_${selectedAuthentication}`)} />}<div className="form-grid">{selectedAuthentication !== 'none' && <Form.Item name="username" label={t('username')}><Input /></Form.Item>}<Form.Item name="databaseName" label={t('databaseName')}><Input /></Form.Item></div>{selectedAuthentication === 'password' && <Form.Item name="password" label={t('password')} tooltip={t('passwordGenerateHint')}><Input.Password placeholder={t('automaticallyGenerated')} /></Form.Item>}<Form.Item name="imageSource" label={t('imageSource')}><Radio.Group className="wizard-choice-group" optionType="button" buttonStyle="solid" options={[{ value: 'public', label: t('publicRegistry') }, { value: 'registry', label: t('configuredRegistry') }, { value: 'offline', label: t('offlineImage') }]} onChange={() => { form.setFieldsValue({ imageArtifactId: undefined, registryId: undefined }); setCreateError('') }} /></Form.Item>{imageSource === 'public' && <Alert type="info" showIcon message={t('pullTemplateImage')} description={selected ? templateImageReferences(selected.version).join(' · ') : undefined} />}{imageSource === 'registry' && <><Form.Item name="registryId" label={t('registry')} rules={[{ required: true }]}><Select placeholder={t('selectRegistryForHost', { host: selected ? imageRegistryHost(selected.version.imageReference) : '—' })} options={compatibleRegistries.map((registry) => ({ value: registry.id, disabled: ['offline', 'degraded'].includes(registry.status), label: <Space><span>{registry.name}</span><StatusTag value={registry.status} /></Space> }))} /></Form.Item>{compatibleRegistries.length === 0 ? <Alert type="warning" showIcon message={t('noMatchingRegistries')} description={<Space direction="vertical" size={2}><span>{t('noMatchingRegistriesHint', { host: selected ? imageRegistryHost(selected.version.imageReference || '') : '—' })}</span><span>{t('imageSourceSetupHint')}</span></Space>} action={<Space direction="vertical" size={4}><Button size="small" type="primary" icon={<ExportOutlined />} href="/images?tab=registries" target="_blank" rel="noreferrer">{t('setupRegistryInNewWindow')}</Button><Button size="small" type="link" loading={refreshingSources} onClick={() => void refreshImageSources()}>{t('refreshImageSources')}</Button></Space>} /> : selectedRegistry && <Alert type={selectedRegistry.status === 'online' ? 'success' : 'info'} showIcon message={t('registryMatchesImageSource', { host: imageRegistryHost(selected?.version.imageReference || '') })} description={selectedRegistry.statusMessage ? t(selectedRegistry.statusMessage) : t('registryWillBeVerifiedOnTarget')} />}</>}{imageSource === 'offline' && <><Form.Item name="imageArtifactId" label={t('offlineImage')} rules={[{ required: true }]}><Select placeholder={t('selectCompatibleImage')} options={compatibleImages.map((item) => ({ value: item.id, label: `${item.name} · ${bytes(item.sizeBytes)} · ${item.architectures.join(' / ')}` }))} /></Form.Item>{compatibleImages.length === 0 && <Alert type="warning" showIcon message={t('noCompatibleImages')} description={<Space direction="vertical" size={2}><span>{t('noCompatibleImagesHint', { image: selected ? templateImageReferences(selected.version).join(' · ') : '—' })}</span><span>{t('imageSourceSetupHint')}</span></Space>} action={<Space direction="vertical" size={4}><Button size="small" type="primary" icon={<ExportOutlined />} href="/images" target="_blank" rel="noreferrer">{t('setupImageInNewWindow')}</Button><Button size="small" type="link" loading={refreshingSources} onClick={() => void refreshImageSources()}>{t('refreshImageSources')}</Button></Space>} />}{selectedImage && capacityCandidates.length === 0 && <Alert type="warning" showIcon message={t('hostCapacityUnavailable')} description={t('hostCapacityUnavailableHint')} />}</>}<Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item><Form.Item name="extraEnvironment" label={t('extraEnvironment')} rules={[{ validator: (_, value?: string) => { if (!value?.trim()) return Promise.resolve(); try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.values(parsed).every((item) => typeof item === 'string') ? Promise.resolve() : Promise.reject(new Error(t('invalidJSONObject'))) } catch { return Promise.reject(new Error(t('invalidJSONObject'))) } } }]}><Input.TextArea rows={5} placeholder={'{\n  "TZ": "Asia/Shanghai"\n}'} /></Form.Item></>}
+      {step === 3 && <>{selectedTemplateParameters.length > 0 && <Card size="small" title={t('templateParameters')}><Typography.Paragraph type="secondary">{t('templateParametersHint')}</Typography.Paragraph>{selectedTemplateParameters.map((parameter) => <Form.Item key={parameter.key} name={['templateParameters', parameter.key]} label={localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)} extra={localizedTemplateText(parameter.description, parameter.descriptionZh, i18n.language)} valuePropName={parameter.type === 'boolean' ? 'checked' : 'value'} rules={[parameterRequiredRule(parameter)]}>{parameterInput(parameter)}</Form.Item>)}</Card>}{selectedAuthentication !== 'password' && <Alert className="wizard-authentication-alert" type="warning" showIcon message={t('nonPasswordAuthenticationTitle')} description={t(`nonPasswordAuthenticationHint_${selectedAuthentication}`)} />}<div className="form-grid">{selectedAuthentication !== 'none' && <Form.Item name="username" label={t('username')}><Input /></Form.Item>}<Form.Item name="databaseName" label={t('databaseName')}><Input /></Form.Item></div>{selectedAuthentication === 'password' && <Form.Item name="password" label={t('password')} tooltip={t('passwordGenerateHint')}><Input.Password placeholder={t('automaticallyGenerated')} /></Form.Item>}<Form.Item name="imageSource" label={t('imageSource')}><Radio.Group className="wizard-choice-group" optionType="button" buttonStyle="solid" options={[{ value: 'public', label: t('publicRegistry') }, { value: 'registry', label: t('configuredRegistry') }, { value: 'offline', label: t('offlineImage') }]} onChange={() => { form.setFieldsValue({ imageArtifactId: undefined, registryId: undefined }); setCreateFailure(undefined) }} /></Form.Item>{imageSource === 'public' && <Alert type="info" showIcon message={t('pullTemplateImage')} description={selected ? templateImageReferences(selected.version).join(' · ') : undefined} />}{imageSource === 'registry' && <><Form.Item name="registryId" label={t('registry')} rules={[{ required: true }]}><Select placeholder={t('selectRegistryForHost', { host: selected ? imageRegistryHost(selected.version.imageReference) : '—' })} options={compatibleRegistries.map((registry) => ({ value: registry.id, disabled: ['offline', 'degraded'].includes(registry.status), label: <Space><span>{registry.name}</span><StatusTag value={registry.status} /></Space> }))} /></Form.Item>{compatibleRegistries.length === 0 ? <Alert type="warning" showIcon message={t('noMatchingRegistries')} description={<Space direction="vertical" size={2}><span>{t('noMatchingRegistriesHint', { host: selected ? imageRegistryHost(selected.version.imageReference || '') : '—' })}</span><span>{t('imageSourceSetupHint')}</span></Space>} action={<Space direction="vertical" size={4}><Button size="small" type="primary" icon={<ExportOutlined />} href="/images?tab=registries" target="_blank" rel="noreferrer">{t('setupRegistryInNewWindow')}</Button><Button size="small" type="link" loading={refreshingSources} onClick={() => void refreshImageSources()}>{t('refreshImageSources')}</Button></Space>} /> : selectedRegistry && <Alert type={selectedRegistry.status === 'online' ? 'success' : 'info'} showIcon message={t('registryMatchesImageSource', { host: imageRegistryHost(selected?.version.imageReference || '') })} description={selectedRegistry.statusMessage ? t(selectedRegistry.statusMessage) : t('registryWillBeVerifiedOnTarget')} />}</>}{imageSource === 'offline' && <><Form.Item name="imageArtifactId" label={t('offlineImage')} rules={[{ required: true }]}><Select placeholder={t('selectCompatibleImage')} options={compatibleImages.map((item) => ({ value: item.id, label: `${item.name} · ${bytes(item.sizeBytes)} · ${item.architectures.join(' / ')}` }))} /></Form.Item>{compatibleImages.length === 0 && <Alert type="warning" showIcon message={t('noCompatibleImages')} description={<Space direction="vertical" size={2}><span>{t('noCompatibleImagesHint', { image: selected ? templateImageReferences(selected.version).join(' · ') : '—' })}</span><span>{t('imageSourceSetupHint')}</span></Space>} action={<Space direction="vertical" size={4}><Button size="small" type="primary" icon={<ExportOutlined />} href="/images" target="_blank" rel="noreferrer">{t('setupImageInNewWindow')}</Button><Button size="small" type="link" loading={refreshingSources} onClick={() => void refreshImageSources()}>{t('refreshImageSources')}</Button></Space>} />}{selectedImage && capacityCandidates.length === 0 && <Alert type="warning" showIcon message={t('hostCapacityUnavailable')} description={t('hostCapacityUnavailableHint')} />}</>}<Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item><Form.Item name="extraEnvironment" label={t('extraEnvironment')} rules={[{ validator: (_, value?: string) => { if (!value?.trim()) return Promise.resolve(); try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.values(parsed).every((item) => typeof item === 'string') ? Promise.resolve() : Promise.reject(new Error(t('invalidJSONObject'))) } catch { return Promise.reject(new Error(t('invalidJSONObject'))) } } }]}><Input.TextArea rows={5} placeholder={'{\n  "TZ": "Asia/Shanghai"\n}'} /></Form.Item></>}
       {step === 4 && <div className="create-review">
         <div className="create-review-header">
           <DatabaseIcon slug={selected?.template.slug || 'database'} name={selected?.template.name || t('database')} />
@@ -922,7 +1000,32 @@ export function InstancesPage() {
           ]} />
         </Card>
         <Alert className="create-review-alert" type="info" showIcon message={t('configurationReady')} description={t('createTaskHint')} />
-        {createError && <Alert className="wizard-submit-error" type="error" showIcon message={t('instanceCreateFailed')} description={createError} />}
+        {createFailure && <Alert
+          className="wizard-submit-error instance-create-request-alert"
+          type="error"
+          showIcon
+          message={t('instanceCreateFailed')}
+          description={<div className="instance-create-request-description">
+            <Typography.Text>{createFailure.message}</Typography.Text>
+            <div><strong>{t('failureImpact')}</strong><span>{t(createFailure.existingInstanceId ? 'instanceCreateExistingImpact' : createFailure.serverRejected ? 'instanceCreateRejectedImpact' : 'instanceCreateAmbiguousImpact')}</span></div>
+            <div><strong>{t('recoveryAdvice')}</strong><span>{t(instanceCreateRecoveryKey(createFailure), { name: createFailure.existingInstanceName || form.getFieldValue('name') })}</span></div>
+            <div><strong>{t('requestErrorCode')}</strong><Typography.Text code>{createFailure.code}</Typography.Text></div>
+            <Typography.Text type="secondary">{t(createFailure.contextStatus === 'checking'
+              ? 'instanceCreateContextChecking'
+              : createFailure.contextStatus === 'failed'
+                ? 'instanceCreateContextFailed'
+                : createFailure.existingInstanceId
+                  ? 'instanceCreateContextExisting'
+                  : createRetryAllowed
+                    ? 'instanceCreateContextRetryReady'
+                    : 'instanceCreateContextReviewRequired')}</Typography.Text>
+          </div>}
+          action={<Space className="instance-create-request-actions" size={[8, 8]} wrap>
+            {createFailure.existingInstanceId && <Button size="small" type="primary" onClick={() => { const id = createFailure.existingInstanceId; finishCloseCreate(); navigate(`/instances/${id}`) }}>{t('openExistingInstance')}</Button>}
+            {!createFailure.existingInstanceId && createRecoveryStep < 4 && <Button size="small" type="primary" onClick={() => { setCreateFailure(undefined); setStep(createRecoveryStep) }}>{t(`reviewCreateStep_${createRecoveryStep}`)}</Button>}
+            <Button size="small" icon={<ReloadOutlined />} loading={refreshingCreateContext} onClick={() => void refreshCreateContext()}>{t('refreshDeploymentContext')}</Button>
+          </Space>}
+        />}
       </div>}
     </Form></Drawer>
   </>
