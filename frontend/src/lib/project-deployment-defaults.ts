@@ -50,6 +50,21 @@ export function projectDeploymentProfileValues(project?: Project) {
   }
 }
 
+export function projectDeploymentProfileMatches(
+  profile: ReturnType<typeof projectDeploymentProfileValues>,
+  values: {
+    templateVersionId?: string
+    cpu?: number
+    memoryGiB?: number
+    diskGiB?: number
+  },
+): boolean {
+  if (!profile || profile.templateVersionId !== values.templateVersionId) return false
+  return profile.cpu === values.cpu
+    && Math.round(profile.memoryGiB * 1024 ** 3) === Math.round((values.memoryGiB || 0) * 1024 ** 3)
+    && Math.round(profile.diskGiB * 1024 ** 3) === Math.round((values.diskGiB || 0) * 1024 ** 3)
+}
+
 export function projectDeploymentValues(project?: Project, now: Dayjs = dayjs()) {
   const expiryDays = project?.defaultExpiryDays ?? 7
   return {

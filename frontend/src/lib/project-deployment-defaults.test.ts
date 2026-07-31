@@ -1,6 +1,6 @@
 import dayjs from 'dayjs'
 import { describe, expect, it } from 'vitest'
-import { hasProjectDeploymentDefaults, hasProjectDeploymentProfile, hasProjectLifecycleDefaults, labelText, parseLabelText, projectDeploymentProfileValues, projectDeploymentValues } from './project-deployment-defaults'
+import { hasProjectDeploymentDefaults, hasProjectDeploymentProfile, hasProjectLifecycleDefaults, labelText, parseLabelText, projectDeploymentProfileMatches, projectDeploymentProfileValues, projectDeploymentValues } from './project-deployment-defaults'
 import type { Project } from './types'
 
 const project = (overrides: Partial<Project> = {}): Project => ({
@@ -60,5 +60,26 @@ describe('project deployment defaults', () => {
     expect(hasProjectDeploymentDefaults(item)).toBe(true)
     expect(hasProjectDeploymentProfile(item)).toBe(true)
     expect(projectDeploymentProfileValues(project({ defaultTemplateVersionId: 'postgres-17' }))).toBeUndefined()
+  })
+
+  it('only reports the project deployment profile as applied while all resources still match', () => {
+    const profile = projectDeploymentProfileValues(project({
+      defaultTemplateVersionId: 'postgres-17',
+      defaultCpu: 2,
+      defaultMemoryBytes: 4 * 1024 ** 3,
+      defaultDiskBytes: 20 * 1024 ** 3,
+    }))
+    expect(projectDeploymentProfileMatches(profile, {
+      templateVersionId: 'postgres-17',
+      cpu: 2,
+      memoryGiB: 4,
+      diskGiB: 20,
+    })).toBe(true)
+    expect(projectDeploymentProfileMatches(profile, {
+      templateVersionId: 'postgres-17',
+      cpu: 3,
+      memoryGiB: 6,
+      diskGiB: 30,
+    })).toBe(false)
   })
 })

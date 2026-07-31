@@ -25,13 +25,14 @@ import { frequentTemplateVersions } from '../lib/frequent-template-versions'
 import { hostCanAccept, hostCanReconfigure, hostDeploymentReadiness, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageRegistryHost, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
 import { deploymentCopyDraft } from '../lib/instance-copy'
+import { instanceTemplateDraftAction } from '../lib/instance-create-draft'
 import { canRetryInstanceCreateRequest, instanceCreateRecoveryKey, type InstanceCreateRequestFailure } from '../lib/instance-create-recovery'
 import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from '../lib/instance-handoff'
 import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { hasProjectDeploymentProfile, hasProjectLifecycleDefaults, parseLabelText, projectDeploymentProfileValues, projectDeploymentValues } from '../lib/project-deployment-defaults'
+import { hasProjectDeploymentProfile, hasProjectLifecycleDefaults, parseLabelText, projectDeploymentProfileMatches, projectDeploymentProfileValues, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { restoreOutcome } from '../lib/restore-outcome'
 import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
@@ -128,7 +129,7 @@ function connectionHandoffText(
 }
 
 export function InstancesPage() {
-  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const initializedTemplateVersionID = useRef(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
   const [bulkAction, setBulkAction] = useState<InstanceBatchAction>()
   const [rowActionInstance, setRowActionInstance] = useState<Instance>()
@@ -232,6 +233,7 @@ export function InstancesPage() {
     if (requestedImageAvailable && !requestedImageHostAvailable) { addRequiredHost(); return }
     const source = requestedCopyTemplateAvailable ? requestedCopySource : undefined
     copyPrefillApplied.current = false
+    initializedTemplateVersionID.current = ''
     setCopySource(source)
     setStep(source || requestedTemplateAvailable || requestedProjectProfileAvailable ? 1 : 0)
     setCreateFailure(undefined)
@@ -275,7 +277,13 @@ export function InstancesPage() {
   const selectedProject = projects.find((project) => project.id === selectedProjectID)
   const selectedProjectProfile = useMemo(() => projectDeploymentProfileValues(selectedProject), [selectedProject])
   const selectedProjectProfileAvailable = !!selectedProjectProfile && !!selectableTemplateVersion(templates, selectedProjectProfile.templateVersionId)
-  const selectedProjectProfileApplied = !copySource && selectedProjectProfileAvailable && selectedProjectProfile.templateVersionId === selectedVersionID
+  const selectedProjectProfileSelected = !copySource && selectedProjectProfileAvailable && selectedProjectProfile.templateVersionId === selectedVersionID
+  const selectedProjectProfileApplied = selectedProjectProfileSelected && projectDeploymentProfileMatches(selectedProjectProfile, {
+    templateVersionId: selectedVersionID,
+    cpu: requestedCPU,
+    memoryGiB: requestedMemoryGiB,
+    diskGiB: requestedDiskGiB,
+  })
   const selectedTemplateParameters = useMemo(() => templateParameters(selected?.version), [selected])
   const selectedResourceProfiles = useMemo(() => templateResourceProfiles(selected?.version), [selected])
   const templateCompatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && !host.maintenance && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
@@ -373,7 +381,15 @@ export function InstancesPage() {
           : 4
   useEffect(() => {
     if (!selected) return
-    if (copySource && selected.version.id === copySource.templateVersionId && !copyPrefillApplied.current) {
+    const action = instanceTemplateDraftAction({
+      initializedTemplateVersionId: initializedTemplateVersionID.current,
+      selectedTemplateVersionId: selected.version.id,
+      copySourceTemplateVersionId: copySource?.templateVersionId,
+      copyPrefillApplied: copyPrefillApplied.current,
+    })
+    if (action === 'preserve' || action === 'wait') return
+    initializedTemplateVersionID.current = selected.version.id
+    if (action === 'copy' && copySource) {
       copyPrefillApplied.current = true
       const draft = deploymentCopyDraft(copySource, projects.map((project) => project.id))
       form.setFieldsValue({ ...draft, username: selectedAuthentication === 'none' ? '' : draft.username, password: undefined })
@@ -382,15 +398,15 @@ export function InstancesPage() {
     const manifest = selected.version.manifest
     const profile = selectedResourceProfiles[0]
     form.setFieldsValue({
-      cpu: selectedProjectProfileApplied ? selectedProjectProfile!.cpu : profile?.cpu ?? selected.version.minCpu,
-      memoryGiB: selectedProjectProfileApplied ? selectedProjectProfile!.memoryGiB : (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3,
-      diskGiB: selectedProjectProfileApplied ? selectedProjectProfile!.diskGiB : (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3,
+      cpu: selectedProjectProfileSelected ? selectedProjectProfile!.cpu : profile?.cpu ?? selected.version.minCpu,
+      memoryGiB: selectedProjectProfileSelected ? selectedProjectProfile!.memoryGiB : (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3,
+      diskGiB: selectedProjectProfileSelected ? selectedProjectProfile!.diskGiB : (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3,
       username: selectedAuthentication === 'none' ? '' : manifest.username,
       password: undefined,
       databaseName: manifest.database,
       templateParameters: templateParameterDefaults(selectedTemplateParameters),
     })
-  }, [copySource, form, projects, selected, selectedAuthentication, selectedProjectProfile, selectedProjectProfileApplied, selectedResourceProfiles, selectedTemplateParameters])
+  }, [copySource, form, projects, selected, selectedAuthentication, selectedProjectProfile, selectedProjectProfileSelected, selectedResourceProfiles, selectedTemplateParameters])
   useEffect(() => {
     if (!selected) return
     if (selectedHostID && !templateCompatibleHosts.some((host) => host.id === selectedHostID)) form.setFieldValue('hostId', undefined)
@@ -428,6 +444,7 @@ export function InstancesPage() {
     const profile = projectDeploymentProfileValues(project)
     const profileAvailable = !!profile && !!selectableTemplateVersion(templates, profile.templateVersionId)
     copyPrefillApplied.current = false
+    initializedTemplateVersionID.current = ''
     setCopySource(undefined)
     setDrawer(true)
     setStep(profileAvailable ? 1 : 0)
@@ -445,7 +462,7 @@ export function InstancesPage() {
       ...(profileAvailable ? profile : {}),
     })
   }
-  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
+  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
     if (!createDraftDirty) { finishCloseCreate(); return }
