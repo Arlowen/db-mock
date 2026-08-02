@@ -1837,13 +1837,22 @@ test('initializes the platform and switches the embedded interface language', as
   recoveryHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
   await expect(recoveryHostDialog.getByText('重试已完成，请确认实例状态')).toBeVisible()
   relatedTasks = [retriedTask]
+  instanceStatus = 'degraded'
+  instanceStatusMessage = 'Container health check is starting'
   await recoveryHostDialog.getByRole('button', { name: '返回实例确认状态' }).click()
   await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}\\?recoveryTask=${retriedTaskID}$`))
   const recoveryConfirmation = page.locator('.recovery-confirmation-alert')
-  await expect(recoveryConfirmation.getByText('恢复任务已完成，已核对当前实例状态')).toBeVisible()
+  await expect(recoveryConfirmation.getByText('恢复任务已完成，健康状态正在收敛')).toBeVisible()
+  await expect(recoveryConfirmation.getByText(/页面每 10 秒自动刷新/)).toBeVisible()
   await expect(recoveryConfirmation.getByText('创建数据库实例', { exact: true })).toBeVisible()
-  await expect(recoveryConfirmation.getByText('运行中', { exact: true })).toBeVisible()
+  await expect(recoveryConfirmation.getByText('健康验证中', { exact: true })).toBeVisible()
   await expect(recoveryConfirmation.getByRole('button', { name: '查看本次恢复任务' })).toBeVisible()
+  await expect(recoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
+  instanceStatus = 'running'
+  instanceStatusMessage = ''
+  await recoveryConfirmation.getByRole('button', { name: '刷新健康状态' }).click()
+  await expect(recoveryConfirmation.getByText('恢复任务已完成，已核对当前实例状态')).toBeVisible()
+  await expect(recoveryConfirmation.getByText('运行中', { exact: true })).toBeVisible()
   await expect(recoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' })).toBeVisible()
   await expect(page.getByText('数据库已部署，可交付连接信息')).toHaveCount(0)
   await recoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' }).click()

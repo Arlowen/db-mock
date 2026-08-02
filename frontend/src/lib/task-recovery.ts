@@ -1,9 +1,25 @@
-import type { Host, Task } from './types'
+import type { Host, Instance, Task } from './types'
 
 const activeTaskStatuses = new Set(['queued', 'running', 'retrying'])
 const retryableTaskStatuses = new Set(['failed', 'canceled', 'interrupted'])
 
 export type HostTaskRecoveryPhase = 'mismatch' | 'active' | 'succeeded' | 'ready' | 'needs_host' | 'unavailable'
+export type RecoveryConfirmationPhase = 'ready' | 'stopped' | 'converging' | 'review'
+
+function normalizeStatusMessage(value?: string): string {
+  return value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ''
+}
+
+export function recoveryConfirmationPhase(instance: Pick<Instance, 'status' | 'statusMessage' | 'desiredState'>): RecoveryConfirmationPhase {
+  if (instance.status === 'running') return 'ready'
+  if (instance.status === 'stopped') return 'stopped'
+  if (
+    instance.status === 'degraded' &&
+    instance.desiredState === 'running' &&
+    normalizeStatusMessage(instance.statusMessage) === 'container_health_check_is_starting'
+  ) return 'converging'
+  return 'review'
+}
 
 export function taskHostRecoveryPath(hostID?: string, taskID?: string): string | undefined {
   if (!hostID?.trim() || !taskID?.trim()) return undefined

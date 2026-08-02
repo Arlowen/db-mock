@@ -38,7 +38,7 @@ import { hasProjectDeploymentProfile, hasProjectLifecycleDefaults, parseLabelTex
 import { restoreOutcome } from '../lib/restore-outcome'
 import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
-import { selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
+import { recoveryConfirmationPhase, selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { canCancelTask, canReviewIncompleteDeploymentCleanup, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { useTaskRetryRequest } from '../lib/use-task-retry-request'
@@ -1624,6 +1624,7 @@ export function InstanceDetailPage() {
   const restoreOutcomeTask = latestRestoreOutcome ? mostRecentRestoreTask : undefined
   const deploymentHandoff = selectDeploymentHandoff(instanceTasks, item.status)
   const recoveryConfirmationTask = selectRecoveryConfirmationTask(instanceTasks, item.id, requestedRecoveryTaskID)
+  const recoveryPhase = recoveryConfirmationPhase(item)
   const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
   const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
   const lifecycleRequestCanRetry = lifecycleRequestFailure && !operationTask &&
@@ -1855,22 +1856,23 @@ export function InstanceDetailPage() {
           />
         : !operationTask && <Alert
             className="recovery-confirmation-alert"
-            type={item.status === 'running' || item.status === 'stopped' ? 'success' : 'warning'}
+            type={recoveryPhase === 'ready' || recoveryPhase === 'stopped' ? 'success' : recoveryPhase === 'converging' ? 'info' : 'warning'}
             showIcon
-            message={t('recoveryConfirmationTitle')}
+            message={t(recoveryPhase === 'converging' ? 'recoveryConfirmationConvergingTitle' : 'recoveryConfirmationTitle')}
             description={<div className="recovery-confirmation-body">
-              <Typography.Text>{t(item.status === 'running' ? 'recoveryConfirmationHint_running' : item.status === 'stopped' ? 'recoveryConfirmationHint_stopped' : 'recoveryConfirmationHint_review', { operation: translateCode(t, recoveryConfirmationTask.kind, 'taskKind'), status: translateCode(t, item.status) })}</Typography.Text>
-              {!canReadCredentials && item.status === 'running' && <Typography.Text type="secondary">{t('recoveryConfirmationRestricted')}</Typography.Text>}
+              <Typography.Text>{t(`recoveryConfirmationHint_${recoveryPhase}`, { operation: translateCode(t, recoveryConfirmationTask.kind, 'taskKind'), status: translateCode(t, item.status) })}</Typography.Text>
+              {!canReadCredentials && recoveryPhase === 'ready' && <Typography.Text type="secondary">{t('recoveryConfirmationRestricted')}</Typography.Text>}
               <div className="recovery-confirmation-facts">
                 <div><Typography.Text type="secondary">{t('recoveryConfirmationOperation')}</Typography.Text><Typography.Text strong>{translateCode(t, recoveryConfirmationTask.kind, 'taskKind')}</Typography.Text></div>
                 <div><Typography.Text type="secondary">{t('recoveryConfirmationTaskResult')}</Typography.Text><StatusTag value={recoveryConfirmationTask.status} /></div>
-                <div><Typography.Text type="secondary">{t('recoveryConfirmationCurrentState')}</Typography.Text><StatusTag value={item.status} /></div>
+                <div><Typography.Text type="secondary">{t('recoveryConfirmationCurrentState')}</Typography.Text>{recoveryPhase === 'converging' ? <Tag color="processing">{t('recoveryConfirmationHealthChecking')}</Tag> : <StatusTag value={item.status} />}</div>
                 <div><Typography.Text type="secondary">{t('recoveryConfirmationLastHealthy')}</Typography.Text><Typography.Text strong>{item.lastHealthyAt ? formatDateTime(item.lastHealthyAt, i18n.language, timezone) : t('notReported')}</Typography.Text></div>
               </div>
               <Space wrap className="recovery-confirmation-actions">
-                {canReadCredentials && item.status === 'running' && <Button type="primary" size="small" icon={<CopyOutlined />} loading={connectionLoading} onClick={showConnectionHandoff}>{t('showConnectionHandoff')}</Button>}
+                {canReadCredentials && recoveryPhase === 'ready' && <Button type="primary" size="small" icon={<CopyOutlined />} loading={connectionLoading} onClick={showConnectionHandoff}>{t('showConnectionHandoff')}</Button>}
+                {recoveryPhase === 'converging' && <Button type="primary" size="small" icon={<ReloadOutlined />} loading={actioning === 'refresh-lifecycle-state'} disabled={!!actioning && actioning !== 'refresh-lifecycle-state'} onClick={() => void refreshLifecycleState()}>{t('refreshHealthStatus')}</Button>}
                 <Button size="small" onClick={() => navigate(`/tasks?task=${encodeURIComponent(recoveryConfirmationTask.id)}`)}>{t('viewRecoveryTask')}</Button>
-                {item.status !== 'running' && <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>}
+                {recoveryPhase !== 'ready' && <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>}
                 <Button size="small" type="text" onClick={finishRecoveryConfirmation}>{t('finishRecoveryConfirmation')}</Button>
               </Space>
             </div>}

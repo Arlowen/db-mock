@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryConfirmationPath, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from './task-recovery'
+import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, recoveryConfirmationPhase, selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryConfirmationPath, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from './task-recovery'
 import type { Host, Task } from './types'
 
 const host = { id: 'host-id', status: 'online', maintenance: false } as Host
@@ -43,6 +43,26 @@ describe('task recovery helpers', () => {
     expect(selectRecoveryConfirmationTask([{ ...succeeded, status: 'failed' }], 'instance-id', 'retry task')).toBeUndefined()
     expect(selectRecoveryConfirmationTask([succeeded], 'another-instance', 'retry task')).toBeUndefined()
     expect(selectRecoveryConfirmationTask([succeeded], 'instance-id', 'missing')).toBeUndefined()
+  })
+
+  it('distinguishes expected health convergence from a recovery that still needs investigation', () => {
+    expect(recoveryConfirmationPhase({ status: 'running', desiredState: 'running' })).toBe('ready')
+    expect(recoveryConfirmationPhase({ status: 'stopped', desiredState: 'stopped' })).toBe('stopped')
+    expect(recoveryConfirmationPhase({
+      status: 'degraded',
+      desiredState: 'running',
+      statusMessage: 'Container health check is starting',
+    })).toBe('converging')
+    expect(recoveryConfirmationPhase({
+      status: 'degraded',
+      desiredState: 'running',
+      statusMessage: 'Container health check is failing',
+    })).toBe('review')
+    expect(recoveryConfirmationPhase({
+      status: 'degraded',
+      desiredState: 'stopped',
+      statusMessage: 'Container health check is starting',
+    })).toBe('review')
   })
 
   it('requires a ready host before retry and follows the retried task state', () => {
