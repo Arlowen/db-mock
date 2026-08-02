@@ -249,6 +249,15 @@ button { font: inherit; }
 .restore-verification-facts > div { min-width: 0; padding: 10px 12px; border: 1px solid rgba(22, 119, 255, .16); border-radius: 9px; background: rgba(255, 255, 255, .72); display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
 .restore-verification-facts .ant-typography-secondary { font-size: 12px; font-weight: 600; }
 .restore-verification-actions { justify-content: flex-start; }
+.recovery-confirmation-alert { margin-bottom: 16px; border-radius: 12px; }
+.recovery-confirmation-alert .ant-alert-content { min-width: 0; width: 100%; }
+.recovery-confirmation-body { display: grid; gap: 12px; line-height: 1.5; }
+.recovery-confirmation-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.recovery-confirmation-facts > div { min-width: 0; padding: 10px 12px; border: 1px solid rgba(82, 196, 26, .2); border-radius: 9px; background: rgba(255, 255, 255, .72); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; overflow-wrap: anywhere; }
+.recovery-confirmation-alert.ant-alert-warning .recovery-confirmation-facts > div { border-color: rgba(217, 119, 6, .22); }
+.recovery-confirmation-facts .ant-typography-secondary { font-size: 12px; font-weight: 600; }
+.recovery-confirmation-facts .ant-tag { margin: 0; }
+.recovery-confirmation-actions { justify-content: flex-start; }
 .instance-delete-outcome-alert { border-radius: 12px; }
 .instance-delete-outcome-alert .ant-alert-content { min-width: 0; width: 100%; }
 .instance-delete-outcome-body { display: grid; gap: 12px; line-height: 1.5; }
@@ -819,6 +828,7 @@ button { font: inherit; }
   .instance-action-request-alert .ant-alert-section { flex: 1 1 calc(100% - 32px); }
   .instance-action-request-alert .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 12px; }
   .instance-action-request-actions { justify-content: flex-start; }
+  .recovery-confirmation-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .instance-bulk-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
   .instance-bulk-result .ant-alert-actions { flex: 0 0 100%; margin-inline-start: 0; padding-top: 10px; }
   .cleanup-batch-result .ant-alert-section { flex: 1 1 calc(100% - 32px); }
@@ -843,6 +853,9 @@ button { font: inherit; }
   .instance-delete-outcome-facts { grid-template-columns: 1fr; }
   .restore-verification-actions { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .restore-verification-actions .ant-btn { width: 100%; }
+  .recovery-confirmation-facts { grid-template-columns: 1fr; }
+  .recovery-confirmation-actions { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .recovery-confirmation-actions .ant-btn { width: 100%; }
   .task-failure-guidance-grid { grid-template-columns: 1fr; }
   .backup-policy-summary { align-items: flex-start; flex-wrap: wrap; }
   .backup-policy-copy { min-width: calc(100% - 56px); }

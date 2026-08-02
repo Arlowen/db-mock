@@ -35,6 +35,19 @@ export function taskRecoveryResourcePath(task?: Task): string | undefined {
   return undefined
 }
 
+export function taskRecoveryConfirmationPath(task?: Task): string | undefined {
+  const instanceID = taskRecoveryInstanceID(task)
+  if (!task?.id?.trim() || task.resourceType !== 'instance' || !instanceID) return undefined
+  const params = new URLSearchParams({ recoveryTask: task.id })
+  return `/instances/${encodeURIComponent(instanceID)}?${params.toString()}`
+}
+
+export function selectRecoveryConfirmationTask(tasks: Task[], instanceID: string, requestedTaskID?: string): Task | undefined {
+  const taskID = requestedTaskID?.trim()
+  if (!taskID) return undefined
+  return tasks.find((task) => task.id === taskID && task.status === 'succeeded' && task.resourceType === 'instance' && taskRecoveryInstanceID(task) === instanceID)
+}
+
 export function isRecoveryTaskActive(task?: Task): boolean {
   return Boolean(task && activeTaskStatuses.has(task.status))
 }

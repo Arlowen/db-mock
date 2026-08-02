@@ -38,7 +38,7 @@ import { hasProjectDeploymentProfile, hasProjectLifecycleDefaults, parseLabelTex
 import { restoreOutcome } from '../lib/restore-outcome'
 import { latestRestoreTask, restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
-import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
+import { selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { canCancelTask, canReviewIncompleteDeploymentCleanup, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { useTaskRetryRequest } from '../lib/use-task-retry-request'
@@ -132,7 +132,7 @@ function connectionHandoffText(
 }
 
 export function InstancesPage() {
-  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const initializedTemplateVersionID = useRef(''); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const initializedTemplateVersionID = useRef(''); const suppressRequestedCreateRef = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
   const [bulkAction, setBulkAction] = useState<InstanceBatchAction>()
   const [rowActionInstance, setRowActionInstance] = useState<Instance>()
@@ -230,7 +230,8 @@ export function InstancesPage() {
   }, [items])
   useEffect(() => { if (!drawer) setProjectFilter(requestedProjectFilter) }, [drawer, requestedProjectFilter])
   useEffect(() => {
-    if (drawer || loading || loadError || !creationDataReady || !createRequested) return
+    if (!createRequested) { suppressRequestedCreateRef.current = false; return }
+    if (suppressRequestedCreateRef.current || drawer || loading || loadError || !creationDataReady) return
     if (!canOperate) { setParams({}, { replace: true }); return }
     if (!requestedCopySourceUnavailable && !requestedCopyTemplateUnavailable && (requestedCreationVersion ? requestedCompatibleHosts.length === 0 : !hasOnlineHost)) { addRequiredHost(); return }
     if (requestedImageAvailable && !requestedImageHostAvailable) { addRequiredHost(); return }
@@ -465,7 +466,7 @@ export function InstancesPage() {
       ...(profileAvailable ? profile : {}),
     })
   }
-  const finishCloseCreate = () => { setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
+  const finishCloseCreate = () => { suppressRequestedCreateRef.current = true; setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
     if (!createDraftDirty) { finishCloseCreate(); return }
@@ -1238,6 +1239,7 @@ export function InstanceDetailPage() {
   const notifyTask = useTaskNotification()
   const [detailParams, setDetailParams] = useSearchParams()
   const requestedTab = detailParams.get('tab')
+  const requestedRecoveryTaskID = detailParams.get('recoveryTask')?.trim()
   const [item, setItem] = useState<Instance | null>(null)
   const [pageLoading, setPageLoading] = useState(true)
   const [pageError, setPageError] = useState('')
@@ -1372,6 +1374,11 @@ export function InstanceDetailPage() {
     else next.set('tab', tab)
     if (tab !== 'backups') next.delete('cleanup')
     setActiveTab(tab)
+    setDetailParams(next, { replace: true })
+  }
+  const finishRecoveryConfirmation = () => {
+    const next = new URLSearchParams(detailParams)
+    next.delete('recoveryTask')
     setDetailParams(next, { replace: true })
   }
   const run = async (action: string, body: Record<string, unknown> = {}) => {
@@ -1616,6 +1623,7 @@ export function InstanceDetailPage() {
   const latestRestoreVerification = restoreVerification(mostRecentRestoreTask, backups, item)
   const restoreOutcomeTask = latestRestoreOutcome ? mostRecentRestoreTask : undefined
   const deploymentHandoff = selectDeploymentHandoff(instanceTasks, item.status)
+  const recoveryConfirmationTask = selectRecoveryConfirmationTask(instanceTasks, item.id, requestedRecoveryTaskID)
   const failedGuidance = failedTask ? taskFailureGuidance(failedTask) : undefined
   const failedHostRecoveryPath = failedTask && failedGuidance?.inspectHost ? taskHostRecoveryPath(item.hostId, failedTask.id) : undefined
   const lifecycleRequestCanRetry = lifecycleRequestFailure && !operationTask &&
@@ -1819,7 +1827,55 @@ export function InstanceDetailPage() {
       </Space>
     </div>}
   />
-  const deploymentReadyPanel = !operationTask && !latestRestoreOutcome && !latestRestoreVerification && activeTab === 'overview' && deploymentHandoff?.state === 'ready' && <div className="instance-operation is-ready">
+  const recoveryConfirmationPanel = requestedRecoveryTaskID && activeTab === 'overview' && (taskInventoryState === 'loading'
+    ? <Alert
+        className="recovery-confirmation-alert"
+        type="info"
+        showIcon
+        message={t('recoveryConfirmationLoadingTitle')}
+        description={t('recoveryConfirmationLoadingHint')}
+      />
+    : taskInventoryState === 'error'
+      ? <Alert
+          className="recovery-confirmation-alert"
+          type="warning"
+          showIcon
+          message={t('recoveryConfirmationLoadFailedTitle')}
+          description={t('recoveryConfirmationLoadFailedHint')}
+          action={<Space wrap><Button size="small" loading={pageLoading} onClick={() => void load()}>{t('retry')}</Button><Button size="small" type="text" onClick={finishRecoveryConfirmation}>{t('finishRecoveryConfirmation')}</Button></Space>}
+        />
+      : !recoveryConfirmationTask
+        ? <Alert
+            className="recovery-confirmation-alert"
+            type="warning"
+            showIcon
+            message={t('recoveryConfirmationUnavailableTitle')}
+            description={t('recoveryConfirmationUnavailableHint')}
+            action={<Button size="small" onClick={finishRecoveryConfirmation}>{t('finishRecoveryConfirmation')}</Button>}
+          />
+        : !operationTask && <Alert
+            className="recovery-confirmation-alert"
+            type={item.status === 'running' || item.status === 'stopped' ? 'success' : 'warning'}
+            showIcon
+            message={t('recoveryConfirmationTitle')}
+            description={<div className="recovery-confirmation-body">
+              <Typography.Text>{t(item.status === 'running' ? 'recoveryConfirmationHint_running' : item.status === 'stopped' ? 'recoveryConfirmationHint_stopped' : 'recoveryConfirmationHint_review', { operation: translateCode(t, recoveryConfirmationTask.kind, 'taskKind'), status: translateCode(t, item.status) })}</Typography.Text>
+              {!canReadCredentials && item.status === 'running' && <Typography.Text type="secondary">{t('recoveryConfirmationRestricted')}</Typography.Text>}
+              <div className="recovery-confirmation-facts">
+                <div><Typography.Text type="secondary">{t('recoveryConfirmationOperation')}</Typography.Text><Typography.Text strong>{translateCode(t, recoveryConfirmationTask.kind, 'taskKind')}</Typography.Text></div>
+                <div><Typography.Text type="secondary">{t('recoveryConfirmationTaskResult')}</Typography.Text><StatusTag value={recoveryConfirmationTask.status} /></div>
+                <div><Typography.Text type="secondary">{t('recoveryConfirmationCurrentState')}</Typography.Text><StatusTag value={item.status} /></div>
+                <div><Typography.Text type="secondary">{t('recoveryConfirmationLastHealthy')}</Typography.Text><Typography.Text strong>{item.lastHealthyAt ? formatDateTime(item.lastHealthyAt, i18n.language, timezone) : t('notReported')}</Typography.Text></div>
+              </div>
+              <Space wrap className="recovery-confirmation-actions">
+                {canReadCredentials && item.status === 'running' && <Button type="primary" size="small" icon={<CopyOutlined />} loading={connectionLoading} onClick={showConnectionHandoff}>{t('showConnectionHandoff')}</Button>}
+                <Button size="small" onClick={() => navigate(`/tasks?task=${encodeURIComponent(recoveryConfirmationTask.id)}`)}>{t('viewRecoveryTask')}</Button>
+                {item.status !== 'running' && <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>}
+                <Button size="small" type="text" onClick={finishRecoveryConfirmation}>{t('finishRecoveryConfirmation')}</Button>
+              </Space>
+            </div>}
+          />)
+  const deploymentReadyPanel = !requestedRecoveryTaskID && !operationTask && !latestRestoreOutcome && !latestRestoreVerification && activeTab === 'overview' && deploymentHandoff?.state === 'ready' && <div className="instance-operation is-ready">
     <div className="instance-operation-copy">
       <Space wrap><StatusTag value={deploymentHandoff.task.status} /><Typography.Text strong>{t('deploymentReadyTitle')}</Typography.Text></Space>
       <Typography.Paragraph type="secondary">{t(canReadCredentials ? 'deploymentReadyHint' : 'deploymentReadyRestrictedHint')}</Typography.Paragraph>
@@ -2109,7 +2165,7 @@ export function InstanceDetailPage() {
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{changeRequestFailurePanel}{taskRetryRequestPanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{changeRequestFailurePanel}{taskRetryRequestPanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{recoveryConfirmationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal
       title={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmTitle' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: item.name }) : ''}
       open={!!lifecycleConfirmAction}

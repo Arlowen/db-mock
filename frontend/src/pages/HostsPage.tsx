@@ -13,7 +13,7 @@ import { reservationForHost } from '../lib/host-capacity'
 import { dockerManagementReady, hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { hostTaskRecoveryPhase, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from '../lib/task-recovery'
+import { hostTaskRecoveryPhase, taskRecoveryConfirmationPath, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from '../lib/task-recovery'
 import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { useTaskRetryRequest } from '../lib/use-task-retry-request'
@@ -406,7 +406,9 @@ export function HostsPage() {
       : <>{canOperate && failedTask && !activeTask && taskRetry.failure?.taskId !== failedTask.id && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}<Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button></>}</Space>
   </div>
   const recoveryPhase = detail && recoveryTask ? hostTaskRecoveryPhase(recoveryTask, detail, Boolean(activeTask)) : undefined
-  const recoveryResourcePath = taskRecoveryResourcePath(recoveryTask)
+  const recoveryResourcePath = recoveryPhase === 'succeeded'
+    ? taskRecoveryConfirmationPath(recoveryTask) || taskRecoveryResourcePath(recoveryTask)
+    : taskRecoveryResourcePath(recoveryTask)
   const recoveryInstanceID = taskRecoveryInstanceID(recoveryTask)
   const recoveryResourceName = recoveryInstanceID
     ? instances.find((instance) => instance.id === recoveryInstanceID)?.name || recoveryInstanceID

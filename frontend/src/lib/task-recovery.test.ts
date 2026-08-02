@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from './task-recovery'
+import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryConfirmationPath, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from './task-recovery'
 import type { Host, Task } from './types'
 
 const host = { id: 'host-id', status: 'online', maintenance: false } as Host
@@ -32,6 +32,17 @@ describe('task recovery helpers', () => {
     expect(taskRecoveryInstanceID(backupTask)).toBe('instance id')
     expect(taskRecoveryResourcePath(backupTask)).toBe('/instances/instance%20id?tab=backups&cleanup=review')
     expect(taskRecoveryResourcePath({ ...backupTask, payload: {} })).toBeUndefined()
+  })
+
+  it('builds and validates an instance-scoped recovery confirmation', () => {
+    const succeeded = { ...task, id: 'retry task', status: 'succeeded' }
+
+    expect(taskRecoveryConfirmationPath(succeeded)).toBe('/instances/instance-id?recoveryTask=retry+task')
+    expect(taskRecoveryConfirmationPath({ ...succeeded, resourceType: 'backup' })).toBeUndefined()
+    expect(selectRecoveryConfirmationTask([succeeded], 'instance-id', 'retry task')).toEqual(succeeded)
+    expect(selectRecoveryConfirmationTask([{ ...succeeded, status: 'failed' }], 'instance-id', 'retry task')).toBeUndefined()
+    expect(selectRecoveryConfirmationTask([succeeded], 'another-instance', 'retry task')).toBeUndefined()
+    expect(selectRecoveryConfirmationTask([succeeded], 'instance-id', 'missing')).toBeUndefined()
   })
 
   it('requires a ready host before retry and follows the retried task state', () => {
