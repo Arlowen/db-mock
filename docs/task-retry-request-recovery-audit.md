@@ -73,5 +73,5 @@ Key files:
 
 - The walkthrough proves control-plane state and UI behavior only. It does not validate real SSH, Compose, database restart, backup timing, or company network policy.
 - The automated flow uses routed synthetic responses for conflict, blocker completion, and accepted retry; the runtime visual check uses isolated PostgreSQL metadata.
-- Cross-entry consistency on the Dashboard, instance recovery panel, and host recovery panel remains a later audit item; this slice establishes the canonical Task Center evidence model first.
+- Dashboard, instance detail, and host recovery now reuse this canonical evidence model; the cross-entry baseline and validation are recorded in [Cross-entry Task Retry Recovery Audit](cross-entry-task-retry-recovery-audit-2026-08-02.md).
 - A real disposable host is still required to validate the time between a blocking operation finishing and a retry worker starting under normal company load.

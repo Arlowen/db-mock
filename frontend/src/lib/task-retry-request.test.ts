@@ -76,6 +76,7 @@ describe('task retry request evidence', () => {
     for (const code of ['forbidden', 'unauthorized', 'not_found', 'invalid_input']) {
       expect(taskRetryRequestEvidence({ ...rejectedFailure, code }, [original])).toMatchObject({ phase: 'unavailable', canRetry: false })
     }
+    expect(taskRetryRequestEvidence({ ...rejectedFailure, code: 'not_found' }, [])).toMatchObject({ phase: 'unavailable', canRetry: false })
     expect(taskRetryRequestEvidence(rejectedFailure, [{ ...original, status: 'succeeded' }])).toMatchObject({ phase: 'unavailable', canRetry: false })
     expect(taskRetryRequestEvidence(rejectedFailure, [])).toMatchObject({ phase: 'stale', canRetry: false })
   })

@@ -7,6 +7,7 @@ import { EmptyState, PageHeader, StatusTag } from '../components/Common'
 import { CleanupBatchDecisionModal } from '../components/CleanupBatchDecisionModal'
 import { InstanceCleanupReviewModal } from '../components/InstanceCleanupReview'
 import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
+import { TaskRetryRequestRecovery } from '../components/TaskRetryRequestRecovery'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
@@ -16,9 +17,10 @@ import { dashboardAttentionCanRetry, dashboardAttentionGuidance, dashboardAttent
 import { lifecycleCounts } from '../lib/instance-lifecycle'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { taskHostRecoveryPath } from '../lib/task-recovery'
+import { taskHostRecoveryPath, taskRecoveryResourcePath } from '../lib/task-recovery'
 import { useTaskNotification } from '../lib/task-notification'
-import type { Dashboard, DashboardAttentionItem, DashboardInstance, Task } from '../lib/types'
+import { useTaskRetryRequest } from '../lib/use-task-retry-request'
+import type { Dashboard, DashboardInstance, Task } from '../lib/types'
 
 function total(values: Record<string, number>) {
   return Object.values(values).reduce((sum, value) => sum + value, 0)
@@ -34,8 +36,6 @@ export function DashboardPage() {
   const [dashboard, setDashboard] = useState<Dashboard>()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [attentionActionError, setAttentionActionError] = useState('')
-  const [retryingTaskID, setRetryingTaskID] = useState('')
   const [cleanupInstance, setCleanupInstance] = useState<DashboardInstance>()
   const [cleanupFilter, setCleanupFilter] = useState<CleanupCandidateFilter>('all')
   const [selectedCleanupIDs, setSelectedCleanupIDs] = useState<string[]>([])
@@ -43,6 +43,7 @@ export function DashboardPage() {
   const [cleanupBatchSubmitting, setCleanupBatchSubmitting] = useState(false)
   const [cleanupBatchRequestError, setCleanupBatchRequestError] = useState('')
   const [cleanupBatchResult, setCleanupBatchResult] = useState<BatchCleanupDecisionResponse>()
+  const taskRetry = useTaskRetryRequest()
 
   const load = useCallback(async () => {
     try {
@@ -96,19 +97,18 @@ export function DashboardPage() {
     { title: t('openAlerts'), value: dashboard?.openAlerts || 0, icon: <AlertOutlined />, path: '/alerts' },
   ]
 
-  const retryAttention = async (item: DashboardAttentionItem) => {
-    if (!item.taskId) return
-    try {
-      setRetryingTaskID(item.taskId)
-      setAttentionActionError('')
-      const retried = await api<Task>(`/tasks/${item.taskId}/retry`, { method: 'POST', body: {} })
+  const retryTask = async (task: Pick<Task, 'id'>) => {
+    const retried = await taskRetry.request(task)
+    if (retried) {
       notifyTask(retried)
-      await load()
-    } catch (error) {
-      setAttentionActionError(errorMessage(error))
-    } finally {
-      setRetryingTaskID('')
     }
+    await load()
+  }
+
+  const refreshTaskRetryEvidence = async () => {
+    const retried = await taskRetry.refresh()
+    if (retried) notifyTask(retried)
+    await load()
   }
 
   const toggleVisibleCleanupCandidates = (checked: boolean) => {
@@ -186,7 +186,19 @@ export function DashboardPage() {
       title={<Space wrap><span>{t('attentionQueue')}</span>{Boolean(dashboard?.attentionItems.length) && <Typography.Text type="danger">{t('attentionCount', { count: dashboard?.attentionItems.length })}</Typography.Text>}</Space>}
       extra={<Space><Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>{t('refresh')}</Button><Button icon={<RightOutlined />} onClick={() => navigate('/tasks')}>{t('viewAllTasks')}</Button></Space>}
     >
-      {attentionActionError && <Alert className="workbench-attention-alert" type="error" showIcon message={t('taskActionFailed')} description={attentionActionError} closable onClose={() => setAttentionActionError('')} />}
+      {taskRetry.failure && taskRetry.evidence && <TaskRetryRequestRecovery
+        className="workbench-attention-alert"
+        failure={taskRetry.failure}
+        evidence={taskRetry.evidence}
+        refreshError={taskRetry.refreshError}
+        refreshing={taskRetry.refreshing}
+        submittingTaskID={taskRetry.submittingTaskID}
+        onRetry={(task) => void retryTask(task)}
+        onRefresh={() => void refreshTaskRetryEvidence()}
+        onOpenTask={(task) => navigate(`/tasks?task=${encodeURIComponent(task.id)}`)}
+        onOpenResource={(task) => { const path = taskRecoveryResourcePath(task); if (path) navigate(path) }}
+        onClose={taskRetry.clear}
+      />}
       {dashboard?.attentionItems.length ? <List
         dataSource={dashboard.attentionItems}
         renderItem={(item) => {
@@ -213,7 +225,7 @@ export function DashboardPage() {
                 {recoveryHostPath && <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(recoveryHostPath)}>{t('inspectFailedHost')}</Button>}
                 {item.taskId && <Button onClick={() => navigate(`/tasks?task=${item.taskId}`)}>{t('viewTask')}</Button>}
                 {resourcePath && <Button onClick={() => navigate(resourcePath)}>{t('viewResource')}</Button>}
-                {canOperate && !recoveryHostPath && dashboardAttentionCanRetry(item) && <Button type="primary" icon={<RedoOutlined />} loading={retryingTaskID === item.taskId} onClick={() => void retryAttention(item)}>{t('retryTask')}</Button>}
+                {canOperate && !recoveryHostPath && dashboardAttentionCanRetry(item) && item.taskId && taskRetry.failure?.taskId !== item.taskId && <Button type="primary" icon={<RedoOutlined />} loading={taskRetry.submittingTaskID === item.taskId} disabled={Boolean(taskRetry.submittingTaskID && taskRetry.submittingTaskID !== item.taskId)} onClick={() => void retryTask({ id: item.taskId! })}>{t('retryTask')}</Button>}
               </Space>
             </div>
           </List.Item>

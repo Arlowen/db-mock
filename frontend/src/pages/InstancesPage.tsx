@@ -12,6 +12,7 @@ import { InstanceCleanupReviewModal } from '../components/InstanceCleanupReview'
 import { RestoreVerificationFacts } from '../components/RestoreVerificationFacts'
 import { TaskFailureGuidance } from '../components/TaskFailureGuidance'
 import { InstanceLifecycleTag } from '../components/InstanceLifecycle'
+import { TaskRetryRequestRecovery } from '../components/TaskRetryRequestRecovery'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import appI18n from '../i18n'
@@ -40,6 +41,7 @@ import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPath, taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { canCancelTask, canReviewIncompleteDeploymentCleanup, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
+import { useTaskRetryRequest } from '../lib/use-task-retry-request'
 import { templateAuthentication } from '../lib/template-authentication'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
 import { commonTimezones, isValidTimezone } from '../lib/timezone'
@@ -1289,6 +1291,7 @@ export function InstanceDetailPage() {
   const [lifecycleRequestFailure, setLifecycleRequestFailure] = useState<{ action: InstanceLifecycleAction; code: string; message: string }>()
   const [changeRequestFailure, setChangeRequestFailure] = useState<InstanceChangeRequestFailure>()
   const [activeTab, setActiveTab] = useState(['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab || '') ? requestedTab! : 'overview')
+  const taskRetry = useTaskRetryRequest()
   const [editForm] = Form.useForm<EditValues>()
   const [runtimeForm] = Form.useForm<RuntimeValues>()
   const [backupPolicyForm] = Form.useForm<BackupPolicyValues>()
@@ -1357,8 +1360,9 @@ export function InstanceDetailPage() {
     setLifecycleRequestFailure(undefined)
     setChangeRequestFailure(undefined)
     setBackupRequestFailure(undefined)
+    taskRetry.clear()
     void load()
-  }, [load])
+  }, [load, taskRetry.clear])
   useEffect(() => { const timer = window.setInterval(() => void load(), hasActiveOperation ? 2000 : 10000); return () => clearInterval(timer) }, [hasActiveOperation, load])
   useEffect(() => { if (hasActiveOperation) setLifecycleRequestFailure(undefined) }, [hasActiveOperation])
   useEffect(() => { if (requestedTab && ['overview', 'connection', 'logs', 'metrics', 'backups'].includes(requestedTab)) setActiveTab(requestedTab) }, [requestedTab])
@@ -1677,11 +1681,21 @@ export function InstanceDetailPage() {
     if (!task) return
     try {
       setActioning('retry-task')
-      const retried = await api<Task>(`/tasks/${task.id}/retry`, { method: 'POST', body: {} })
+      const retried = await taskRetry.request(task)
+      if (retried) {
+        setTasks((current) => [retried, ...current])
+        notifyTask(retried)
+      }
+      await load()
+    } finally { setActioning('') }
+  }
+  const refreshTaskRetryEvidence = async () => {
+    const retried = await taskRetry.refresh()
+    if (retried) {
       setTasks((current) => [retried, ...current])
       notifyTask(retried)
-      await load()
-    } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+    }
+    await load()
   }
   const cancelOperationTask = async (task: Task) => {
     try {
@@ -1751,13 +1765,25 @@ export function InstanceDetailPage() {
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space wrap className="instance-operation-actions">
       {failedHostRecoveryPath && <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(failedHostRecoveryPath)}>{t('inspectFailedHost')}</Button>}
-      {canOperate && failedTask && !activeTask && !failedHostRecoveryPath && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
+      {canOperate && failedTask && !activeTask && !failedHostRecoveryPath && taskRetry.failure?.taskId !== failedTask.id && <Button type="primary" icon={<ReloadOutlined />} loading={taskRetry.submittingTaskID === failedTask.id} disabled={Boolean(actioning && actioning !== 'retry-task')} onClick={() => void retryTask()}>{t('retryTask')}</Button>}
       {canOperate && canReviewIncompleteDeploymentCleanup(operationTask) && <Button icon={<SafetyCertificateOutlined />} disabled={!!actioning} onClick={() => setCleanupOpen(true)}>{t('reviewCleanup')}</Button>}
       {canOperate && activeTask && canCancelTask(operationTask) && <Popconfirm title={t('cancelDeployment')} description={t(operationTask.status === 'queued' ? 'cancelQueuedTaskConfirm' : 'cancelTaskConfirm')} okText={t('confirm')} cancelText={t('cancel')} onConfirm={() => void cancelOperationTask(operationTask)}><Button danger icon={<CloseCircleOutlined />} loading={actioning === 'cancel-task'} disabled={!!actioning && actioning !== 'cancel-task'}>{t('cancelDeployment')}</Button></Popconfirm>}
       <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button>
     </Space>
     {deploymentCancellationFailure && <Alert className="instance-operation-action-error" type="error" showIcon message={t('deploymentCancelFailed')} description={<div className="instance-operation-action-error-copy"><span>{deploymentCancellationFailure.message}</span><span>{t(canCancelTask(operationTask) ? 'deploymentCancelFailedRetryHint' : 'deploymentCancelFailedRefreshHint')}</span></div>} />}
   </div>
+  const taskRetryRequestPanel = taskRetry.failure && taskRetry.evidence && <TaskRetryRequestRecovery
+    className="instance-page-alert"
+    failure={taskRetry.failure}
+    evidence={taskRetry.evidence}
+    refreshError={taskRetry.refreshError}
+    refreshing={taskRetry.refreshing}
+    submittingTaskID={taskRetry.submittingTaskID}
+    onRetry={(task) => void retryTask(task)}
+    onRefresh={() => void refreshTaskRetryEvidence()}
+    onOpenTask={(task) => navigate(`/tasks?task=${encodeURIComponent(task.id)}`)}
+    onClose={taskRetry.clear}
+  />
   const restoreOutcomePanel = latestRestoreOutcome && restoreOutcomeTask && !activeTask && <Alert
     className="restore-outcome-alert"
     type={latestRestoreOutcome.state === 'pre_restore_recovered' ? 'warning' : 'error'}
@@ -1771,7 +1797,7 @@ export function InstanceDetailPage() {
         <div><Typography.Text type="secondary">{t('restoreOutcomeHandoff')}</Typography.Text><Typography.Text strong>{t(latestRestoreOutcome.state === 'rollback_incomplete' ? 'restoreOutcomeHandoff_blocked' : latestRestoreOutcome.instanceStatus === 'running' ? 'restoreOutcomeHandoff_running' : latestRestoreOutcome.instanceStatus === 'stopped' ? 'restoreOutcomeHandoff_stopped' : 'restoreOutcomeHandoff_review')}</Typography.Text></div>
       </div>
       <Space wrap className="restore-outcome-actions">
-        {canOperate && <Button size="small" type={latestRestoreOutcome.state === 'pre_restore_recovered' ? 'primary' : 'default'} icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask(restoreOutcomeTask)}>{t('retryRestore')}</Button>}
+        {canOperate && taskRetry.failure?.taskId !== restoreOutcomeTask.id && <Button size="small" type={latestRestoreOutcome.state === 'pre_restore_recovered' ? 'primary' : 'default'} icon={<ReloadOutlined />} loading={taskRetry.submittingTaskID === restoreOutcomeTask.id} disabled={Boolean(actioning && actioning !== 'retry-task')} onClick={() => void retryTask(restoreOutcomeTask)}>{t('retryRestore')}</Button>}
         <Button size="small" type={latestRestoreOutcome.state === 'rollback_incomplete' ? 'primary' : 'default'} onClick={() => navigate(`/tasks?task=${restoreOutcomeTask.id}`)}>{t('viewTask')}</Button>
         <Button size="small" onClick={() => changeTab('logs')}>{t('viewInstanceLogs')}</Button>
       </Space>
@@ -2083,7 +2109,7 @@ export function InstanceDetailPage() {
   </Card>
   const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
   const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
-  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{changeRequestFailurePanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
+  return <><PageHeader title={<Space><Button type="text" aria-label={t('instances')} title={t('instances')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{changeRequestFailurePanel}{taskRetryRequestPanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal
       title={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmTitle' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: item.name }) : ''}
       open={!!lifecycleConfirmAction}

@@ -45,6 +45,7 @@ export function taskRetryRequestEvidence(
   tasks: Task[],
 ): TaskRetryRequestEvidence {
   const original = tasks.find((task) => task.id === failure.taskId)
+  if (unavailableCodes.has(failure.code)) return { phase: 'unavailable', original, canRetry: false }
   if (!original) return { phase: 'stale', canRetry: false }
 
   const originalOperationID = operationID(original)
@@ -64,7 +65,7 @@ export function taskRetryRequestEvidence(
   )
   if (blocker) return { phase: 'blocked', original, blocker, canRetry: false }
 
-  if (unavailableCodes.has(failure.code) || !retryableStatuses.has(original.status)) {
+  if (!retryableStatuses.has(original.status)) {
     return { phase: 'unavailable', original, canRetry: false }
   }
 

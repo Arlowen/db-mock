@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState, PageHeader, StatusTag } from '../components/Common'
+import { TaskRetryRequestRecovery } from '../components/TaskRetryRequestRecovery'
 import { useAuth } from '../contexts/AuthContext'
 import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
@@ -12,9 +13,10 @@ import { reservationForHost } from '../lib/host-capacity'
 import { dockerManagementReady, hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
-import { hostTaskRecoveryPhase, taskRecoveryInstanceID, taskRecoveryResourcePath } from '../lib/task-recovery'
+import { hostTaskRecoveryPhase, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from '../lib/task-recovery'
 import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
+import { useTaskRetryRequest } from '../lib/use-task-retry-request'
 import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Task } from '../lib/types'
 import { bytes } from '../lib/types'
 
@@ -54,8 +56,9 @@ function percent(used: number, limit: number): number {
 }
 
 export function HostsPage() {
-  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const projectFilter = params.get('project') || ''; const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const [recoveryActionError, setRecoveryActionError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
+  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const projectFilter = params.get('project') || ''; const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
+  const taskRetry = useTaskRetryRequest()
   const screens = Grid.useBreakpoint()
   const hostConnectionValues = Form.useWatch([], { form, preserve: true })
   const manageDocker = Form.useWatch('manageDocker', form)
@@ -141,7 +144,6 @@ export function HostsPage() {
     }
   }, [])
   useEffect(() => {
-    setRecoveryActionError('')
     if (!recoveryTaskID) {
       setRecoveryTask(undefined)
       setRecoveryTaskError('')
@@ -342,33 +344,38 @@ export function HostsPage() {
   const continuationSaveBlocked = !!returnTo && !editing && ['loading', 'unavailable'].includes(continuationState)
   const detailReservation = detail ? reservationForHost(instances, detail.id) : { cpu: 0, memory: 0, disk: 0, ports: [] }
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(hostTasks, Boolean(detail && ['offline', 'needs_docker', 'unsupported'].includes(detail.status)))
-  const retryTask = async () => {
-    if (!failedTask || !detail) return
-    try {
-      setActioning('retry-task')
-      const retried = await api<Task>(`/tasks/${failedTask.id}/retry`, { method: 'POST', body: {} })
-      setHostTasks((current) => [retried, ...current])
-      notifyTask(retried)
-      await Promise.all([load(), loadHostContext(detail.id)])
-    } catch (error) { message.error(errorMessage(error)) } finally { setActioning('') }
+  const applyAcceptedRetry = (retried: Task, preserveRecovery: boolean) => {
+    setHostTasks((current) => [retried, ...current.filter((task) => task.id !== retried.id)])
+    notifyTask(retried)
+    if (!preserveRecovery || !detail) return
+    setRecoveryTask(retried)
+    const next = new URLSearchParams(params)
+    next.set('host', detail.id)
+    next.set('recoveryTask', retried.id)
+    setParams(next, { replace: true })
   }
-  const retryRecoveryTask = async () => {
-    if (!recoveryTask || !detail) return
+  const submitTaskRetry = async (task: Task, preserveRecovery: boolean, actionKey: string) => {
+    if (!detail) return
     try {
-      setActioning('retry-recovery-task')
-      setRecoveryActionError('')
-      const retried = await api<Task>(`/tasks/${encodeURIComponent(recoveryTask.id)}/retry`, { method: 'POST', body: {} })
-      setRecoveryTask(retried)
-      notifyTask(retried)
-      const next = new URLSearchParams(params)
-      next.set('host', detail.id)
-      next.set('recoveryTask', retried.id)
-      setParams(next, { replace: true })
+      setActioning(actionKey)
+      const retried = await taskRetry.request(task)
+      if (retried) applyAcceptedRetry(retried, preserveRecovery)
       await Promise.all([load(), loadHostContext(detail.id)])
-    } catch (error) {
-      setRecoveryActionError(errorMessage(error))
     } finally {
       setActioning('')
+    }
+  }
+  const retryTask = async () => {
+    if (failedTask) await submitTaskRetry(failedTask, false, 'retry-task')
+  }
+  const retryRecoveryTask = async () => {
+    if (recoveryTask) await submitTaskRetry(recoveryTask, true, 'retry-recovery-task')
+  }
+  const refreshTaskRetryEvidence = async () => {
+    const retried = await taskRetry.refresh()
+    if (retried) applyAcceptedRetry(retried, Boolean(recoveryTaskID))
+    if (detail) {
+      await Promise.all([load(), loadHostContext(detail.id)])
     }
   }
   const columns = useMemo(() => [
@@ -396,7 +403,7 @@ export function HostsPage() {
     {activeTask && <Progress className="instance-operation-progress" percent={operationTask.progress} status="active" size="small" />}
     <Space className="instance-operation-actions">{recoveryTaskID
       ? <Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewHostCheckTask')}</Button>
-      : <>{canOperate && failedTask && !activeTask && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}<Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button></>}</Space>
+      : <>{canOperate && failedTask && !activeTask && taskRetry.failure?.taskId !== failedTask.id && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'retry-task'} disabled={!!actioning && actioning !== 'retry-task'} onClick={() => void retryTask()}>{t('retryTask')}</Button>}<Button onClick={() => navigate(`/tasks?task=${operationTask.id}`)}>{t('viewTask')}</Button></>}</Space>
   </div>
   const recoveryPhase = detail && recoveryTask ? hostTaskRecoveryPhase(recoveryTask, detail, Boolean(activeTask)) : undefined
   const recoveryResourcePath = taskRecoveryResourcePath(recoveryTask)
@@ -422,9 +429,7 @@ export function HostsPage() {
           : recoveryPhase
             ? `hostRecoveryHint_${recoveryPhase}`
             : 'hostRecoveryUnavailableHint'
-  const recoveryPanelType = recoveryActionError
-    ? 'error'
-    : recoveryPhase === 'ready' || recoveryPhase === 'succeeded'
+  const recoveryPanelType = recoveryPhase === 'ready' || recoveryPhase === 'succeeded'
       ? 'success'
       : recoveryPhase === 'active' || (recoveryTaskLoading && !recoveryTask)
         ? 'info'
@@ -450,16 +455,33 @@ export function HostsPage() {
       <Typography.Paragraph className="host-recovery-hint" type="secondary">{t(recoveryHintKey)}</Typography.Paragraph>
       {recoveryTask && ['failed', 'canceled', 'interrupted'].includes(recoveryTask.status) && <Typography.Text className="host-recovery-error" type="danger">{t('hostRecoveryLastFailure')}: {recoveryTask.errorCode ? translateCode(t, recoveryTask.errorCode, 'taskError') : recoveryTask.errorMessage || translateCode(t, recoveryTask.message, 'taskMessage')}</Typography.Text>}
       {recoveryTaskError && recoveryTask && <Typography.Text className="host-recovery-error" type="danger" role="alert">{t('hostRecoveryRefreshFailed')}: {recoveryTaskError}</Typography.Text>}
-      {recoveryActionError && <div className="host-recovery-action-error" role="alert"><Typography.Text strong type="danger">{t('hostRecoveryRetryFailed')}</Typography.Text><Typography.Text type="danger">{recoveryActionError}</Typography.Text><Typography.Text type="secondary">{t('hostRecoveryRetryFailedHint')}</Typography.Text></div>}
       <Space className="host-recovery-actions" wrap>
         {canOperate && recoveryPhase === 'needs_host' && <Button type="primary" icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button>}
-        {canOperate && recoveryPhase === 'ready' && <Button type="primary" icon={<RedoOutlined />} loading={actioning === 'retry-recovery-task'} disabled={!!actioning && actioning !== 'retry-recovery-task'} onClick={() => void retryRecoveryTask()}>{t('retryOriginalTask')}</Button>}
+        {canOperate && recoveryPhase === 'ready' && taskRetry.failure?.taskId !== recoveryTask?.id && <Button type="primary" icon={<RedoOutlined />} loading={actioning === 'retry-recovery-task'} disabled={!!actioning && actioning !== 'retry-recovery-task'} onClick={() => void retryRecoveryTask()}>{t('retryOriginalTask')}</Button>}
         {recoveryPhase === 'succeeded' && recoveryResourcePath && <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => navigate(recoveryResourcePath)}>{t('returnToConfirmStatus')}</Button>}
         {recoveryTaskTarget && <Button onClick={() => navigate(`/tasks?task=${encodeURIComponent(recoveryTaskTarget)}`)}>{t('viewTask')}</Button>}
         {recoveryResourcePath && recoveryPhase !== 'succeeded' && <Button icon={<ArrowRightOutlined />} onClick={() => navigate(recoveryResourcePath)}>{t('returnToFailedResource')}</Button>}
         {recoveryTaskError && <Button loading={recoveryTaskLoading} onClick={() => void loadRecoveryTask(recoveryTaskID, true)}>{t('retry')}</Button>}
       </Space>
     </div>}
+  />
+  const taskRetryHostID = taskRecoveryHostID(taskRetry.evidence?.original)
+  const taskRetryRequestPanel = taskRetry.failure && taskRetry.evidence && <TaskRetryRequestRecovery
+    className="host-task-retry-request-alert"
+    failure={taskRetry.failure}
+    evidence={taskRetry.evidence}
+    refreshing={taskRetry.refreshing}
+    refreshError={taskRetry.refreshError}
+    submittingTaskID={taskRetry.submittingTaskID}
+    showRetry={canOperate}
+    onClose={taskRetry.clear}
+    onRefresh={() => void refreshTaskRetryEvidence()}
+    onRetry={(task) => void submitTaskRetry(task, task.id === recoveryTaskID, task.id === recoveryTaskID ? 'retry-recovery-task' : 'retry-task')}
+    onOpenTask={(task) => navigate(`/tasks?task=${encodeURIComponent(task.id)}`)}
+    onOpenResource={(task) => {
+      const path = taskRecoveryResourcePath(task)
+      if (path) navigate(path)
+    }}
   />
   const continuationMessageKey = continuationState === 'loading'
     ? 'databaseCreationRequirementsLoading'
@@ -491,6 +513,7 @@ export function HostsPage() {
     {canOperate && returnTo && <Alert className="host-continuation-banner" type={continuationState === 'ready' ? 'success' : ['incompatible', 'unavailable'].includes(continuationState) ? 'warning' : 'info'} showIcon icon={<DatabaseOutlined />} message={t(continuationMessageKey)} description={creationProgress} action={<Space direction="vertical" size={4}>{continuationState === 'ready' && <Button type="primary" size="small" onClick={() => navigate(continuationPath)}>{t('continueCreateDatabase')}</Button>}{continuationState === 'loading' && <Button size="small" loading disabled>{t('loading')}</Button>}{continuationState === 'unavailable' && <Button type="primary" size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>}{['ready', 'incompatible', 'pending'].includes(continuationState) && <Button type={continuationState === 'ready' ? 'default' : 'primary'} size="small" onClick={() => show()}>{t(continuationRequirement.status === 'resolved' ? continuationState === 'ready' ? 'continueAddAnotherCompatibleHost' : 'continueAddCompatibleHost' : continuationState === 'ready' ? 'continueAddAnotherHost' : 'continueAddHost')}</Button>}<Button type="link" size="small" onClick={cancelDatabaseCreation}>{t('returnToCatalog')}</Button></Space>} />}
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('hostListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('hostSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
+    {taskRetryRequestPanel && (!detail || taskRetryHostID !== detail.id) && <div className="instance-page-alert">{taskRetryRequestPanel}</div>}
     {(items.length > 0 || !loadError) && <Card className="host-table-card"><div className="embedded-toolbar host-toolbar"><div className="host-list-heading"><Typography.Text strong>{t('hosts')}</Typography.Text><Typography.Text type="secondary">{t(hasHostFilters ? 'hostFilteredResultCount' : 'hostResultCount', { filtered: filteredItems.length, total: items.length, count: items.length })}</Typography.Text></div><Space wrap className="host-filter-controls"><Input allowClear className="host-search" aria-label={t('hostSearchLabel')} placeholder={t('hostSearchPlaceholder')} prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} /><Select className="host-project-filter" aria-label={t('project')} value={projectFilter} onChange={setProjectFilter} options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select className="host-status-filter" aria-label={t('status')} value={statusFilter} onChange={setStatusFilter} options={[{ value: '', label: t('allStatuses') }, ...hostStatuses.map((status) => ({ value: status, label: translateCode(t, status) }))]} /><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && items.length > 0 && <Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('addHost')}</Button>}</Space></div><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} pagination={false} tableLayout="fixed" scroll={{ x: 989 }} locale={{ emptyText: <EmptyState compact action={hasHostFilters ? clearHostFilters : canOperate ? () => show() : undefined} actionLabel={hasHostFilters ? t('clearFilters') : canOperate ? t('addHost') : undefined} description={t(hasHostFilters ? 'hostsFilteredEmptyDescription' : 'noHostsDescription')} /> }} /></Card>}
     <Modal className="host-editor-modal" title={editing ? t('edit') : t('addHost')} open={open} onCancel={closeEditor} width={760} style={{ top: screens.md === false ? 12 : 32 }} styles={{ body: { maxHeight: screens.md === false ? 'calc(100dvh - 220px)' : 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }} destroyOnHidden footer={<div className="workflow-modal-footer"><Button disabled={saving || testing} onClick={closeEditor}>{t('cancel')}</Button><Space>{(!editing || verificationDirty || !fingerprint) && <Button loading={testing} disabled={saving || !connectionTestReady} icon={<SafetyCertificateOutlined />} onClick={() => void test()}>{t('testConnection')}</Button>}<Button type="primary" loading={saving} disabled={testing || !verificationReady || !dockerPolicyReady || continuationSaveBlocked || probeIncompatible || (!!editing && !editorDirty)} onClick={() => void submit()}>{t('save')}</Button></Space></div>}>
       <Form form={form} className="host-editor-form" layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={invalidateVerification}><Alert className="form-save-alert" type="info" showIcon message={t(editing ? 'hostEditFormHint' : 'hostCreateFormHint')} />{saveError && <Alert className="form-save-alert" type="error" showIcon message={t('hostSaveFailed')} description={saveError} />}{returnTo && !editing && <Alert className="host-continuation-modal-alert" type={['incompatible', 'unavailable'].includes(continuationState) ? 'warning' : 'info'} showIcon icon={<DatabaseOutlined />} message={t(continuationMessageKey)} description={creationProgress} />}<Typography.Text className="form-section-label">{t('connectionSettings')}</Typography.Text><div className="form-grid"><Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input autoFocus autoComplete="off" maxLength={120} placeholder={t('hostNamePlaceholder')} /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear placeholder={t('selectProjectOptional')} options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="sshAddress" label={t('sshAddress')} rules={[{ required: true, whitespace: true, max: 255 }]}><Input autoComplete="off" maxLength={255} placeholder={t('sshAddressPlaceholder')} /></Form.Item><Form.Item name="sshPort" label={t('sshPort')} rules={[{ required: true }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="sshUser" label={t('sshUser')} rules={[{ required: true, whitespace: true, max: 255 }]}><Input autoComplete="off" maxLength={255} placeholder={t('sshUserPlaceholder')} data-1p-ignore data-lpignore="true" /></Form.Item><Form.Item name="authType" label={t('authentication')}><Select options={[{ value: 'private_key', label: t('privateKey') }, { value: 'password', label: t('password') }]} /></Form.Item></div>
@@ -503,6 +526,7 @@ export function HostsPage() {
       {detail && <div className="host-detail">
         {detailError && <Alert type="warning" showIcon message={t('hostContextLoadFailed')} description={detailError} action={<Button size="small" onClick={() => void loadHostContext(detail.id)}>{t('retry')}</Button>} />}
         {recoveryPanel}
+        {taskRetryHostID === detail.id && taskRetryRequestPanel}
         {operationPanel}
         <div className={`host-health-banner is-${detail.status === 'online' ? 'success' : detail.status === 'needs_docker' ? 'warning' : 'error'}`}>
           <div><StatusTag value={detail.status} /><Typography.Text strong>{t('currentHostState')}</Typography.Text></div>
