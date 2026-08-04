@@ -11,8 +11,8 @@ import (
 	"github.com/pika/db-mock/internal/httpx"
 )
 
-func TestMVPHostRequestRejectsRetiredDockerManagementFields(t *testing.T) {
-	for _, retired := range []string{"manageDocker", "proxyHttp", "proxyHttps", "proxyNoProxy"} {
+func TestMVPHostRequestRejectsRetiredManagementAndPolicyFields(t *testing.T) {
+	for _, retired := range []string{"projectId", "manageDocker", "proxyHttp", "proxyHttps", "proxyNoProxy", "maintenance", "autoRestartDefault", "labels"} {
 		body := `{"name":"daily-host","sshAddress":"192.0.2.10","sshPort":22,"sshUser":"dbmock",` +
 			`"authType":"password","credential":"synthetic","dataRoot":"/opt/dbmock","portStart":20000,` +
 			`"portEnd":40000,"` + retired + `":null}`

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { hostTaskRecoveryPhase, isRecoveryTaskActive, isRecoveryTaskRetryable, recoveryConfirmationPhase, selectRecoveryConfirmationTask, taskHostRecoveryPath, taskHostRecoveryPathForTask, taskRecoveryConfirmationPath, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from './task-recovery'
 import type { Host, Task } from './types'
 
-const host = { id: 'host-id', status: 'online', maintenance: false } as Host
+const host = { id: 'host-id', status: 'online' } as Host
 const task = {
   id: 'task-id',
   kind: 'instance.create',

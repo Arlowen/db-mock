@@ -161,9 +161,6 @@ test.describe('DB Mock MVP workflow', () => {
       dataRoot: '/opt/dbmock',
       portStart: 20000,
       portEnd: 40000,
-      maintenance: false,
-      autoRestartDefault: true,
-      labels: {},
       verificationToken: 'e2e-host-verification-token',
     })
     expect(diagnostics.consoleErrors).toEqual([])
@@ -302,6 +299,7 @@ test.describe('DB Mock MVP workflow', () => {
 
     await page.setViewportSize({ width: 1024, height: 768 })
     await expectNoOverflow(page)
+    await page.waitForTimeout(500)
     await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1024.png'), fullPage: true })
     const templateSelect = drawer.getByRole('combobox', { name: '模板 / 版本' })
     await templateSelect.click()

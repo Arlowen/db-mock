@@ -197,7 +197,7 @@ export function HostsPage() {
         message.warning(t('deploymentHostArchitectureMismatch', { architecture: probe?.architecture || '—', architectures: continuationRequirement.architectures.join(' / ') }))
         return
       }
-      const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...mvpHostPayload(values, editing ?? undefined), verificationToken } })
+      const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...mvpHostPayload(values), verificationToken } })
       setEditorDirty(false)
       if ('task' in result) {
         notifyTask(result.task)
@@ -206,7 +206,7 @@ export function HostsPage() {
         if (continueTo) { navigate(`/tasks?task=${result.task.id}&continue=${encodeURIComponent(continueTo)}`); return }
       } else {
         message.success(t('saved'))
-        if (returnTo && result.status === 'online' && !result.maintenance) {
+        if (returnTo && result.status === 'online') {
           setOpen(false)
           navigate(deploymentReturnPathForHost(returnTo, result.id))
           return
@@ -316,7 +316,7 @@ export function HostsPage() {
     }
   }
   const relatedInstances = detail ? instances.filter((instance) => instance.hostId === detail.id) : []
-  const schedulableHosts = items.filter((item) => item.status === 'online' && !item.maintenance)
+  const schedulableHosts = items.filter((item) => item.status === 'online')
   const continuationRequirement = useMemo(
     () => deploymentContinuationRequirement(returnTo, templates),
     [returnTo, templates],

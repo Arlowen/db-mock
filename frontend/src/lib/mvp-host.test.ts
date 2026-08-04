@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { mvpHostPayload } from './mvp-host'
-import type { Host } from './types'
 
 const values = {
   name: 'Daily Docker Host',
@@ -16,27 +15,11 @@ const values = {
 }
 
 describe('mvpHostPayload', () => {
-  it('uses simple policy defaults for a new host', () => {
-    expect(mvpHostPayload(values)).toMatchObject({
-      maintenance: false,
-      autoRestartDefault: true,
-      labels: {},
-    })
-  })
-
-  it('preserves hidden compatibility fields when an existing host is edited', () => {
-    const existing = {
-      projectId: 'project-id',
-      maintenance: true,
-      autoRestartDefault: false,
-      labels: { zone: 'lab' },
-    } as unknown as Host
-
-    expect(mvpHostPayload(values, existing)).toMatchObject({
-      projectId: 'project-id',
-      maintenance: true,
-      autoRestartDefault: false,
-      labels: { zone: 'lab' },
-    })
+  it('submits only the host connection and deployment fields shown in the MVP form', () => {
+    const payload = mvpHostPayload(values)
+    expect(payload).toEqual(values)
+    for (const retired of ['projectId', 'maintenance', 'autoRestartDefault', 'labels']) {
+      expect(payload).not.toHaveProperty(retired)
+    }
   })
 })

@@ -255,7 +255,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	short := strings.ReplaceAll(instanceID.String(), "-", "")
 	instance, task, err := s.store.CreateInstanceTask(ctx, store.InstanceInput{ID: instanceID, Name: request.Name,
 		HostID: host.ID, TemplateVersionID: version.ID, Environment: "development", Labels: json.RawMessage(`{}`),
-		AutoRestart: host.AutoRestartDefault,
+		AutoRestart: true,
 		CPU:         request.CPU, MemoryBytes: request.MemoryBytes, ReservedDiskBytes: request.DiskBytes, HostPort: hostPort,
 		ContainerPort: version.DefaultPort, BindAddress: "0.0.0.0", DatabaseUsername: username,
 		EncryptedPassword: encrypted, DatabaseName: databaseName, ComposeProject: "dbmock_" + short,
@@ -499,7 +499,7 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, architec
 		if err != nil {
 			return domain.Host{}, 0, err
 		}
-		if host.Status != "online" || host.Maintenance {
+		if host.Status != "online" {
 			return domain.Host{}, 0, fmt.Errorf("%w: host is not available for deployments", domain.ErrConflict)
 		}
 		if !supports(architectures, host.Architecture) {
@@ -532,7 +532,7 @@ func (s *Service) selectHost(ctx context.Context, requested *uuid.UUID, architec
 	}
 	var candidates []candidate
 	for _, host := range hosts {
-		if host.Status != "online" || host.Maintenance || !supports(architectures, host.Architecture) {
+		if host.Status != "online" || !supports(architectures, host.Architecture) {
 			continue
 		}
 		reservation, err := s.store.HostReservations(ctx, host.ID)

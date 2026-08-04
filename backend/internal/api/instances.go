@@ -120,12 +120,7 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	projectID, err := optionalUUID(r.URL.Query().Get("projectId"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	items, err := s.store.ListInstances(r.Context(), hostID, projectID, r.URL.Query().Get("status"))
+	items, err := s.store.ListInstances(r.Context(), hostID, r.URL.Query().Get("status"))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

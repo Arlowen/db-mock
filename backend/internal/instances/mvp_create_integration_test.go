@@ -48,9 +48,9 @@ func TestMVPCreateOnlyAcceptsBuiltinStandardTemplatesAndDerivesHiddenValues(t *t
 	}{
 		{`INSERT INTO users(id,username,password_hash) VALUES($1,'mvp-create-admin','hash')`, []any{userID}},
 		{`INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,connection_address,
-			data_root,status,architecture,cpu_count,memory_bytes,disk_free_bytes,port_start,port_end,auto_restart_default)
+			data_root,status,architecture,cpu_count,memory_bytes,disk_free_bytes,port_start,port_end,maintenance,auto_restart_default)
 			VALUES($1,'mvp-create-host','127.0.0.1','tester','password','sealed','127.0.0.1','/opt/dbmock',
-			'online','amd64',8,17179869184,107374182400,25000,25010,true)`, []any{hostID}},
+			'online','amd64',8,17179869184,107374182400,25000,25010,true,false)`, []any{hostID}},
 		{`INSERT INTO templates(id,slug,name,name_zh,category,tier,builtin) VALUES
 			($1,'postgresql-mvp','PostgreSQL','PostgreSQL','relational','standard',true),
 			($2,'tidb-experimental','TiDB','TiDB','relational','experimental',true),

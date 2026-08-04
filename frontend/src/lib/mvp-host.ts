@@ -1,5 +1,3 @@
-import type { Host } from './types'
-
 export interface MVPHostValues {
   name: string
   sshAddress: string
@@ -14,16 +12,4 @@ export interface MVPHostValues {
   portEnd: number
 }
 
-/**
- * Builds the MVP host request while preserving fields owned by the former
- * project and policy UIs on existing hosts.
- */
-export function mvpHostPayload(values: MVPHostValues, existing?: Host) {
-  return {
-    ...values,
-    projectId: existing?.projectId,
-    maintenance: existing?.maintenance ?? false,
-    autoRestartDefault: existing?.autoRestartDefault ?? true,
-    labels: existing?.labels ?? {},
-  }
-}
+export function mvpHostPayload(values: MVPHostValues) { return { ...values } }

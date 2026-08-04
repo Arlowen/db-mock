@@ -28,24 +28,20 @@ func (s *Server) hostRoutes(r chi.Router) {
 }
 
 type hostRequest struct {
-	HostID             *uuid.UUID        `json:"hostId"`
-	ProjectID          *uuid.UUID        `json:"projectId"`
-	Name               string            `json:"name"`
-	SSHAddress         string            `json:"sshAddress"`
-	SSHPort            int               `json:"sshPort"`
-	SSHUser            string            `json:"sshUser"`
-	AuthType           string            `json:"authType"`
-	Credential         string            `json:"credential"`
-	Passphrase         string            `json:"passphrase"`
-	HostKey            string            `json:"hostKey"`
-	VerificationToken  string            `json:"verificationToken"`
-	ConnectionAddress  string            `json:"connectionAddress"`
-	DataRoot           string            `json:"dataRoot"`
-	PortStart          int               `json:"portStart"`
-	PortEnd            int               `json:"portEnd"`
-	Maintenance        bool              `json:"maintenance"`
-	AutoRestartDefault *bool             `json:"autoRestartDefault"`
-	Labels             map[string]string `json:"labels"`
+	HostID            *uuid.UUID `json:"hostId"`
+	Name              string     `json:"name"`
+	SSHAddress        string     `json:"sshAddress"`
+	SSHPort           int        `json:"sshPort"`
+	SSHUser           string     `json:"sshUser"`
+	AuthType          string     `json:"authType"`
+	Credential        string     `json:"credential"`
+	Passphrase        string     `json:"passphrase"`
+	HostKey           string     `json:"hostKey"`
+	VerificationToken string     `json:"verificationToken"`
+	ConnectionAddress string     `json:"connectionAddress"`
+	DataRoot          string     `json:"dataRoot"`
+	PortStart         int        `json:"portStart"`
+	PortEnd           int        `json:"portEnd"`
 }
 
 func (s *Server) listHosts(w http.ResponseWriter, r *http.Request) {
@@ -96,13 +92,6 @@ func normalizeHostInput(input *hostRequest) {
 		input.AuthType = "private_key"
 	}
 }
-func hostAutoRestart(input hostRequest) bool {
-	if input.AutoRestartDefault == nil {
-		return true
-	}
-	return *input.AutoRestartDefault
-}
-
 func validateHostInput(input hostRequest) error {
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.SSHAddress) == "" || strings.TrimSpace(input.SSHUser) == "" {
 		return domain.ErrInvalid
@@ -218,8 +207,7 @@ func (s *Server) createHost(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	labels, _ := json.Marshal(input.Labels)
-	host, err := s.store.CreateHost(r.Context(), store.HostInput{ID: id, ProjectID: input.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, Maintenance: input.Maintenance, AutoRestartDefault: hostAutoRestart(input), Labels: labels, DataRootWritable: receipt.DataRootWritable, PortProbeAvailable: receipt.PortProbeAvailable, AvailablePort: receipt.FirstAvailablePort})
+	host, err := s.store.CreateHost(r.Context(), store.HostInput{ID: id, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, AutoRestartDefault: true, DataRootWritable: receipt.DataRootWritable, PortProbeAvailable: receipt.PortProbeAvailable, AvailablePort: receipt.FirstAvailablePort})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -281,8 +269,7 @@ func (s *Server) updateHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	labels, _ := json.Marshal(input.Labels)
-	host, err := s.store.UpdateHost(r.Context(), id, store.HostInput{ProjectID: input.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, ManageDocker: existing.ManageDocker, ProxyHTTP: existing.ProxyHTTP, ProxyHTTPS: existing.ProxyHTTPS, ProxyNoProxy: existing.ProxyNoProxy, Maintenance: input.Maintenance, AutoRestartDefault: hostAutoRestart(input), Labels: labels, DataRootWritable: dataRootWritable, PortProbeAvailable: portProbeAvailable, AvailablePort: availablePort})
+	host, err := s.store.UpdateHost(r.Context(), id, store.HostInput{ProjectID: existing.ProjectID, Name: input.Name, SSHAddress: input.SSHAddress, SSHPort: input.SSHPort, SSHUser: input.SSHUser, AuthType: input.AuthType, EncryptedCredential: encrypted, HostKey: input.HostKey, ConnectionAddress: input.ConnectionAddress, DataRoot: input.DataRoot, PortStart: input.PortStart, PortEnd: input.PortEnd, ManageDocker: existing.ManageDocker, ProxyHTTP: existing.ProxyHTTP, ProxyHTTPS: existing.ProxyHTTPS, ProxyNoProxy: existing.ProxyNoProxy, Maintenance: existing.Maintenance, AutoRestartDefault: existing.AutoRestartDefault, Labels: existing.Labels, DataRootWritable: dataRootWritable, PortProbeAvailable: portProbeAvailable, AvailablePort: availablePort})
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

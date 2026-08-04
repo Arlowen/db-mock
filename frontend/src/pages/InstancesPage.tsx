@@ -106,13 +106,13 @@ export function InstancesPage() {
     setLoading(false)
   }, [])
   const mvpTemplates = useMemo(() => mvpDatabaseTemplates(templates), [templates])
-  const hasOnlineHost = hosts.some((host) => host.status === 'online' && !host.maintenance)
+  const hasOnlineHost = hosts.some((host) => host.status === 'online')
   const createRequested = params.get('create') === '1'
   const requestedTemplateID = params.get('template')
   const requestedHostID = params.get('host')
   const requestedTemplateAvailable = !!requestedTemplateID && mvpTemplates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
   const requestedVersion = mvpTemplates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
-  const requestedCompatibleHosts = hosts.filter((host) => host.status === 'online' && !host.maintenance && (!requestedVersion || requestedVersion.architectures.includes(host.architecture || '')))
+  const requestedCompatibleHosts = hosts.filter((host) => host.status === 'online' && (!requestedVersion || requestedVersion.architectures.includes(host.architecture || '')))
   const requestedHost = requestedHostID ? hosts.find((host) => host.id === requestedHostID) : undefined
   const requestedHostReady = !!requestedHost && requestedCompatibleHosts.some((host) => host.id === requestedHost.id)
   const createIntent = useCallback(() => {
@@ -149,7 +149,7 @@ export function InstancesPage() {
   const frequentVersions = useMemo(() => frequentTemplateVersions(mvpTemplates), [mvpTemplates])
   const selectedTemplateParameters = useMemo(() => templateParameters(selected?.version), [selected])
   const selectedResourceProfiles = useMemo(() => templateResourceProfiles(selected?.version), [selected])
-  const templateCompatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && !host.maintenance && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
+  const templateCompatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
   const selectedHost = templateCompatibleHosts.find((host) => host.id === selectedHostID)
   const compatibleHosts = templateCompatibleHosts
   const resourceRequest = useMemo(() => ({ cpu: requestedCPU || 0, memory: Math.round((requestedMemoryGiB || 0) * 1024 ** 3), disk: Math.round((requestedDiskGiB || 0) * 1024 ** 3), port: undefined }), [requestedCPU, requestedDiskGiB, requestedMemoryGiB])

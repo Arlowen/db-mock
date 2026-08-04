@@ -95,7 +95,7 @@ func (m *Monitor) checkHost(ctx context.Context, host domain.Host) {
 		m.logger.Warn("read managed database states", "hostId", host.ID, "error", err)
 		return
 	}
-	instances, err := m.store.ListInstances(ctx, &host.ID, nil, "")
+	instances, err := m.store.ListInstances(ctx, &host.ID, "")
 	if err != nil {
 		m.logger.Warn("list databases for state reconciliation", "hostId", host.ID, "error", err)
 		return

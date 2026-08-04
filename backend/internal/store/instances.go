@@ -186,7 +186,7 @@ func (s *Store) CreateInstanceTask(ctx context.Context, input InstanceInput, tas
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, translate(err)
 	}
-	if host.Status != "online" || host.Maintenance {
+	if host.Status != "online" {
 		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: selected host is not available", domain.ErrConflict)
 	}
 	var templateID uuid.UUID
@@ -252,10 +252,10 @@ func (s *Store) GetInstance(ctx context.Context, id uuid.UUID) (domain.Instance,
 	return item, translate(err)
 }
 
-func (s *Store) ListInstances(ctx context.Context, hostID, projectID *uuid.UUID, status string) ([]domain.Instance, error) {
+func (s *Store) ListInstances(ctx context.Context, hostID *uuid.UUID, status string) ([]domain.Instance, error) {
 	rows, err := s.pool.Query(ctx, "SELECT "+instanceColumns+instanceJoinSQL()+`
-        WHERE i.status<>'deleted' AND ($1::uuid IS NULL OR i.host_id=$1) AND ($2::uuid IS NULL OR i.project_id=$2)
-        AND ($3='' OR i.status=$3) ORDER BY i.created_at DESC`, hostID, projectID, status)
+		WHERE i.status<>'deleted' AND ($1::uuid IS NULL OR i.host_id=$1)
+		AND ($2='' OR i.status=$2) ORDER BY i.created_at DESC`, hostID, status)
 	if err != nil {
 		return nil, err
 	}

@@ -77,12 +77,9 @@ export const host = {
   portProbeAvailable: true,
   availablePort: 25432,
   status: 'online',
-  maintenance: false,
-  autoRestartDefault: true,
   lastSeenAt: '2026-08-04T08:10:00Z',
   lastCheckedAt: '2026-08-04T08:10:00Z',
   consecutiveFailures: 0,
-  labels: {},
   createdAt: '2026-08-01T00:00:00Z',
   updatedAt: '2026-08-04T08:00:00Z',
 }

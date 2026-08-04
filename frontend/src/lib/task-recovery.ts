@@ -78,5 +78,5 @@ export function hostTaskRecoveryPhase(task: Task, host: Host, hostOperationActiv
   if (isRecoveryTaskActive(task)) return 'active'
   if (task.status === 'succeeded') return 'succeeded'
   if (!isRecoveryTaskRetryable(task)) return 'unavailable'
-  return host.status === 'online' && !host.maintenance && !hostOperationActive ? 'ready' : 'needs_host'
+  return host.status === 'online' && !hostOperationActive ? 'ready' : 'needs_host'
 }
