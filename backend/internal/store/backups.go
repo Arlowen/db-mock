@@ -59,98 +59,6 @@ func createTaskInTx(ctx context.Context, tx pgx.Tx, input TaskInput, payload []b
 	return item, nil
 }
 
-func (s *Store) CreateInstanceBackupTask(ctx context.Context, input TaskInput, backup domain.InstanceBackup, expectedStatus string) (domain.InstanceBackup, domain.Task, error) {
-	payload, err := json.Marshal(input.Payload)
-	if err != nil {
-		return backup, domain.Task{}, err
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return backup, domain.Task{}, err
-	}
-	defer tx.Rollback(ctx)
-	var status string
-	var hostID, versionID uuid.UUID
-	if err = tx.QueryRow(ctx, `SELECT status,host_id,template_version_id FROM instances WHERE id=$1 FOR UPDATE`, backup.InstanceID).Scan(&status, &hostID, &versionID); err != nil {
-		return backup, domain.Task{}, translate(err)
-	}
-	if status != expectedStatus {
-		return backup, domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the backup", domain.ErrConflict)
-	}
-	backup.HostID, backup.TemplateVersionID, backup.Status = hostID, versionID, "creating"
-	if backup.CreationType == "" {
-		backup.CreationType = "manual"
-	}
-	err = tx.QueryRow(ctx, `INSERT INTO instance_backups(id,instance_id,host_id,template_version_id,name,creation_type,status,
-		remote_path,created_by) VALUES($1,$2,$3,$4,$5,$6,'creating',$7,$8)
-		RETURNING created_at,updated_at`, backup.ID, backup.InstanceID, backup.HostID, backup.TemplateVersionID,
-		backup.Name, backup.CreationType, backup.RemotePath, backup.CreatedBy).Scan(&backup.CreatedAt, &backup.UpdatedAt)
-	if err != nil {
-		return backup, domain.Task{}, translate(err)
-	}
-	task, err := createTaskInTx(ctx, tx, input, payload)
-	if err != nil {
-		return backup, task, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE instances SET status='backing_up',status_message='',updated_at=now() WHERE id=$1`, backup.InstanceID); err != nil {
-		return backup, task, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return backup, domain.Task{}, err
-	}
-	return backup, task, nil
-}
-
-func (s *Store) CreateInstanceRestoreTask(ctx context.Context, input TaskInput, instanceID, backupID uuid.UUID, expectedStatus string) (domain.InstanceBackup, domain.Task, error) {
-	payload, err := json.Marshal(input.Payload)
-	if err != nil {
-		return domain.InstanceBackup{}, domain.Task{}, err
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return domain.InstanceBackup{}, domain.Task{}, err
-	}
-	defer tx.Rollback(ctx)
-	var status string
-	var versionID uuid.UUID
-	if err = tx.QueryRow(ctx, `SELECT status,template_version_id FROM instances WHERE id=$1 FOR UPDATE`, instanceID).Scan(&status, &versionID); err != nil {
-		return domain.InstanceBackup{}, domain.Task{}, translate(err)
-	}
-	if status != expectedStatus {
-		return domain.InstanceBackup{}, domain.Task{}, fmt.Errorf("%w: instance state changed while queuing the restore", domain.ErrConflict)
-	}
-	var backup domain.InstanceBackup
-	if err = tx.QueryRow(ctx, `SELECT `+backupColumns+` FROM instance_backups b
-        JOIN template_versions tv ON tv.id=b.template_version_id JOIN users u ON u.id=b.created_by
-        WHERE b.id=$1 FOR UPDATE OF b`, backupID).Scan(backupScan(&backup)...); err != nil {
-		return backup, domain.Task{}, translate(err)
-	}
-	if backup.InstanceID != instanceID {
-		return backup, domain.Task{}, domain.ErrNotFound
-	}
-	if backup.Status != "ready" {
-		return backup, domain.Task{}, fmt.Errorf("%w: backup is not ready to restore", domain.ErrConflict)
-	}
-	if backup.TemplateVersionID != versionID {
-		return backup, domain.Task{}, fmt.Errorf("%w: backup template version does not match the instance", domain.ErrConflict)
-	}
-	if _, err = tx.Exec(ctx, `UPDATE instance_backups SET status='restoring',error_message='',updated_at=now() WHERE id=$1`, backupID); err != nil {
-		return backup, domain.Task{}, err
-	}
-	task, err := createTaskInTx(ctx, tx, input, payload)
-	if err != nil {
-		return backup, task, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE instances SET status='restoring',status_message='',updated_at=now() WHERE id=$1`, instanceID); err != nil {
-		return backup, task, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return backup, domain.Task{}, err
-	}
-	backup.Status = "restoring"
-	return backup, task, nil
-}
-
 func (s *Store) CreateInstanceBackupDeleteTask(ctx context.Context, input TaskInput, backupID uuid.UUID) (domain.InstanceBackup, domain.Task, error) {
 	payload, err := json.Marshal(input.Payload)
 	if err != nil {
@@ -199,18 +107,6 @@ func (s *Store) SetInstanceBackupStatus(ctx context.Context, id uuid.UUID, statu
 	result, err := s.pool.Exec(ctx, `UPDATE instance_backups SET status=$2,error_message=$3,updated_at=now() WHERE id=$1`, id, status, strings.TrimSpace(message))
 	if err == nil && result.RowsAffected() == 0 {
 		return domain.ErrNotFound
-	}
-	return err
-}
-
-func (s *Store) CompleteInstanceBackup(ctx context.Context, id uuid.UUID, size int64, digest string) error {
-	if size <= 0 || len(digest) != 64 {
-		return domain.ErrInvalid
-	}
-	result, err := s.pool.Exec(ctx, `UPDATE instance_backups SET status='ready',size_bytes=$2,sha256=lower($3),
-        error_message='',completed_at=now(),updated_at=now() WHERE id=$1 AND status='creating'`, id, size, digest)
-	if err == nil && result.RowsAffected() == 0 {
-		return domain.ErrConflict
 	}
 	return err
 }

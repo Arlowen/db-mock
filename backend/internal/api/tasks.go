@@ -125,7 +125,7 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	task, err := s.store.RetryTask(r.Context(), id, actor.User.ID)
+	task, err := s.tasks.RetryTask(r.Context(), id, actor.User.ID)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

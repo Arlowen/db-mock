@@ -252,26 +252,6 @@ type InstanceBackup struct {
 	UpdatedAt         time.Time  `json:"updatedAt"`
 }
 
-type InstanceBackupPolicy struct {
-	InstanceID           uuid.UUID  `json:"instanceId"`
-	Enabled              bool       `json:"enabled"`
-	Frequency            string     `json:"frequency"`
-	Weekday              int        `json:"weekday"`
-	Hour                 int        `json:"hour"`
-	Minute               int        `json:"minute"`
-	Timezone             string     `json:"timezone"`
-	RetentionCount       int        `json:"retentionCount"`
-	NextRunAt            *time.Time `json:"nextRunAt,omitempty"`
-	LastRunAt            *time.Time `json:"lastRunAt,omitempty"`
-	LastTaskID           *uuid.UUID `json:"lastTaskId,omitempty"`
-	LastStatus           string     `json:"lastStatus,omitempty"`
-	LastError            string     `json:"lastError,omitempty"`
-	ConfiguredBy         uuid.UUID  `json:"configuredBy"`
-	ConfiguredByUsername string     `json:"configuredByUsername"`
-	CreatedAt            time.Time  `json:"createdAt"`
-	UpdatedAt            time.Time  `json:"updatedAt"`
-}
-
 type Task struct {
 	ID           uuid.UUID       `json:"id"`
 	Kind         string          `json:"kind"`

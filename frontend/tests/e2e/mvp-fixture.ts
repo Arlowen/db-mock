@@ -7,6 +7,8 @@ export const createdHostID = '33333333-3333-4333-8333-333333333334'
 export const instanceID = '44444444-4444-4444-8444-444444444444'
 export const createdInstanceID = '55555555-5555-4555-8555-555555555555'
 export const deleteTaskID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+export const coreFailedTaskID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+export const retiredFailedTaskID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const backupID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const backupDeleteTaskID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
@@ -235,9 +237,15 @@ export async function installMvpApi(page: Page): Promise<MvpApiState> {
     await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: instanceID, instanceName: runningInstance.name, task: succeededTask }], rejected: [] } })
   })
   const deleteTask = { ...succeededTask, id: deleteTaskID, kind: 'instance.delete', status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined }
-  await page.route('**/api/v1/tasks', (route) => route.fulfill({ json: { items: [deleteTask] } }))
+  const coreFailedTask = { ...succeededTask, id: coreFailedTaskID, kind: 'instance.restart', status: 'failed', progress: 70, stage: 'compose', message: 'Restart failed', errorCode: 'task_failed', errorMessage: 'Docker Compose restart failed', finishedAt: '2026-08-04T08:08:00Z' }
+  const retiredFailedTask = { ...succeededTask, id: retiredFailedTaskID, kind: 'instance.upgrade', status: 'failed', progress: 45, stage: 'image', message: 'Upgrade stopped', errorCode: 'task_failed', errorMessage: 'Historical upgrade task is no longer retryable', finishedAt: '2026-08-04T08:07:00Z' }
+  await page.route('**/api/v1/tasks', (route) => route.fulfill({ json: { items: [retiredFailedTask, coreFailedTask, deleteTask] } }))
   await page.route(`**/api/v1/tasks/${deleteTaskID}`, (route) => route.fulfill({ json: deleteTask }))
   await page.route(`**/api/v1/tasks/${deleteTaskID}/logs`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/tasks/${coreFailedTaskID}`, (route) => route.fulfill({ json: coreFailedTask }))
+  await page.route(`**/api/v1/tasks/${coreFailedTaskID}/logs`, (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'Docker Compose restart failed', createdAt: '2026-08-04T08:08:00Z' }] } }))
+  await page.route(`**/api/v1/tasks/${retiredFailedTaskID}`, (route) => route.fulfill({ json: retiredFailedTask }))
+  await page.route(`**/api/v1/tasks/${retiredFailedTaskID}/logs`, (route) => route.fulfill({ json: { items: [{ id: 2, level: 'error', message: 'Historical upgrade task is no longer retryable', createdAt: '2026-08-04T08:07:00Z' }] } }))
   await page.route(`**/api/v1/instances/${instanceID}`, (route) => route.fulfill({ json: runningInstance }))
   await page.route(`**/api/v1/instances/${instanceID}/connection`, (route) => route.fulfill({ json: { address: host.connectionAddress, port: 25432, username: 'dbmock', password: 'generated-secret', database: 'app', authentication: 'password', uri: 'postgresql://dbmock:generated-secret@10.0.0.8:25432/app', jdbc: 'jdbc:postgresql://10.0.0.8:25432/app' } }))
   await page.route(`**/api/v1/instances/${instanceID}/logs**`, (route) => route.fulfill({ contentType: 'text/plain', body: '2026-08-04T08:05:00Z database ready\n2026-08-04T08:05:02Z accepting connections\n' }))
@@ -257,7 +265,6 @@ export async function installMvpApi(page: Page): Promise<MvpApiState> {
   await page.route(`**/api/v1/instances/${createdInstanceID}`, (route) => route.fulfill({ json: instances.find((item) => item.id === createdInstanceID) }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${createdInstanceID}/backup-policy`, (route) => route.fulfill({ json: { policy: null } }))
   return state
 }
 

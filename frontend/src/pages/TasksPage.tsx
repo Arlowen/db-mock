@@ -18,7 +18,7 @@ import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask, taskRecoveryHostID } from '../lib/task-recovery'
 import { taskResourceReference } from '../lib/task-resource'
 import { restoreVerification } from '../lib/restore-verification'
-import { canCancelTask, deploymentTaskJourney, isTaskCancellationPending } from '../lib/task-state'
+import { canCancelTask, canRetryTask, deploymentTaskJourney, isTaskCancellationPending } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { useTaskRetryRequest } from '../lib/use-task-retry-request'
 import type { Host, Instance, Task } from '../lib/types'
@@ -126,7 +126,7 @@ export function TasksPage() {
 
   const hostNames = useMemo(() => new Map(hosts.map((host) => [host.id, host.name])), [hosts])
   const instanceNames = useMemo(() => new Map(instances.map((instance) => [instance.id, instance.name])), [instances])
-  const compactLayout = screens.md === false
+  const compactLayout = screens.xl === false
   const resourceLink = useCallback((task: Task): ResourceLink => {
     const deleteOutcome = instanceDeleteOutcome(task)
     if (deleteOutcome) return { label: deleteOutcome.instanceName, icon: <DatabaseOutlined /> }
@@ -147,7 +147,7 @@ export function TasksPage() {
   const closeDetail = () => { setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); setParams({}, { replace: true }) }
   const continueCreation = () => { if (!continueTo) return; setSelected(null); setLogs([]); setLogsError(''); setDetailError(''); setActionError(''); navigate(continueTo) }
   const goToResource = (task: Task) => { const resource = resourceLink(task); if (!resource.path) return; closeDetail(); navigate(resource.path) }
-  const canRetry = (task: Task) => ['failed', 'canceled', 'interrupted'].includes(task.status)
+  const canRetry = canRetryTask
   const retryEvidence = taskRetry.evidence
   const retryAllowed = (task: Task) => taskRetry.failure?.taskId !== task.id || retryEvidence?.canRetry === true
   const openTask = (id: string) => setParams(continueTo ? { task: id, continue: continueTo } : { task: id })

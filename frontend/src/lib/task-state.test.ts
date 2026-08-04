@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canCancelTask, canReviewIncompleteDeploymentCleanup, deploymentTaskJourney, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
+import { canCancelTask, canRetryTask, canReviewIncompleteDeploymentCleanup, deploymentTaskJourney, deploymentTaskNextStep, isRecoverableInstanceStatus, isTaskCancellationPending, selectDeploymentHandoff, selectRecoveryTasks } from './task-state'
 import type { Task } from './types'
 
 function task(id: string, status: string, createdAt: string): Task {
@@ -129,6 +129,22 @@ describe('task cancellation state', () => {
     running.cancelAsked = false
     running.status = 'succeeded'
     expect(canCancelTask(running)).toBe(false)
+  })
+})
+
+describe('task retry availability', () => {
+  it('allows retry only for currently supported task kinds', () => {
+    expect(canRetryTask({ ...task('core', 'failed', '2026-07-19T00:02:00Z'), kind: 'instance.restart' })).toBe(true)
+    expect(canRetryTask({ ...task('cleanup', 'interrupted', '2026-07-19T00:02:00Z'), kind: 'instance.backup.delete' })).toBe(true)
+    for (const kind of ['instance.backup', 'instance.restore', 'instance.upgrade', 'instance.reconfigure']) {
+      expect(canRetryTask({ ...task(kind, 'failed', '2026-07-19T00:02:00Z'), kind })).toBe(false)
+    }
+  })
+
+  it('does not retry active or successful tasks', () => {
+    for (const status of ['queued', 'running', 'succeeded']) {
+      expect(canRetryTask({ ...task(status, status, '2026-07-19T00:02:00Z'), kind: 'instance.start' })).toBe(false)
+    }
   })
 })
 

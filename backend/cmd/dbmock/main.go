@@ -77,7 +77,6 @@ func main() {
 		logger.Error("start task workers", "error", err)
 		os.Exit(1)
 	}
-	instanceService.StartBackupScheduler(root, logger)
 	monitor.New(target, docker, logger, cfg.MonitorInterval).Start(root)
 	authService := auth.New(target, cfg.SessionDuration, cfg.SecureCookies)
 	api.Version = version

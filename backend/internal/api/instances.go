@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -24,10 +23,6 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.Get("/{id}/tasks", s.listInstanceRelatedTasks)
 	r.Get("/{id}/cleanup-review", s.getInstanceCleanupReview)
 	r.Get("/{id}/backups", s.listInstanceBackups)
-	r.With(requireOperator).Post("/{id}/backups", s.createInstanceBackup)
-	r.Get("/{id}/backup-policy", s.getInstanceBackupPolicy)
-	r.With(requireOperator).Put("/{id}/backup-policy", s.updateInstanceBackupPolicy)
-	r.With(requireOperator).Post("/{id}/backups/{backupId}/restore", s.restoreInstanceBackup)
 	r.With(requireOperator).Post("/{id}/backups/{backupId}/delete", s.deleteInstanceBackup)
 	r.With(requireOperator).Post("/{id}/actions/{action}", s.instanceAction)
 	r.With(requireOperator).Get("/{id}/connection", s.instanceConnection)
@@ -52,70 +47,6 @@ func (s *Server) listInstanceRelatedTasks(w http.ResponseWriter, r *http.Request
 	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (s *Server) getInstanceBackupPolicy(w http.ResponseWriter, r *http.Request) {
-	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	policy, err := s.instances.GetBackupPolicy(r.Context(), id)
-	if errors.Is(err, domain.ErrNotFound) {
-		if _, instanceErr := s.store.GetInstance(r.Context(), id); instanceErr != nil {
-			httpx.Error(w, r, instanceErr)
-			return
-		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"policy": nil})
-		return
-	}
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"policy": policy})
-}
-
-func (s *Server) updateInstanceBackupPolicy(w http.ResponseWriter, r *http.Request) {
-	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	var input instances.BackupPolicyInput
-	if err = httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	before, beforeErr := s.store.GetInstanceBackupPolicy(r.Context(), id)
-	if beforeErr != nil && !errors.Is(beforeErr, domain.ErrNotFound) {
-		httpx.Error(w, r, beforeErr)
-		return
-	}
-	instance, err := s.store.GetInstance(r.Context(), id)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	policy, err := s.instances.UpdateBackupPolicy(r.Context(), actor.User.ID, id, input, time.Now())
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	changes := map[string]any{
-		"enabled": map[string]any{"from": before.Enabled, "to": policy.Enabled},
-		"schedule": map[string]any{
-			"from": map[string]any{"frequency": before.Frequency, "weekday": before.Weekday, "hour": before.Hour,
-				"minute": before.Minute, "timezone": before.Timezone},
-			"to": map[string]any{"frequency": policy.Frequency, "weekday": policy.Weekday, "hour": policy.Hour,
-				"minute": policy.Minute, "timezone": policy.Timezone},
-		},
-		"retentionCount": map[string]any{"from": before.RetentionCount, "to": policy.RetentionCount},
-	}
-	_ = s.auditWithChanges(r, actor, "instance.backup_policy.update", "instance", &id, instance.Name, nil,
-		"success", "", changes)
-	httpx.JSON(w, http.StatusOK, map[string]any{"policy": policy})
-}
-
 func (s *Server) listInstanceBackups(w http.ResponseWriter, r *http.Request) {
 	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
 	if err != nil {
@@ -132,68 +63,6 @@ func (s *Server) listInstanceBackups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (s *Server) createInstanceBackup(w http.ResponseWriter, r *http.Request) {
-	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	var input struct {
-		Name string `json:"name"`
-	}
-	if err = httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	backup, task, err := s.instances.CreateBackup(r.Context(), actor.User.ID, id, input.Name)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	_ = s.auditWithChanges(r, actor, "instance.backup.create", "backup", &backup.ID, backup.Name, &task.ID,
-		"success", "", map[string]any{"instanceId": id, "templateVersionId": backup.TemplateVersionID})
-	httpx.JSON(w, http.StatusAccepted, map[string]any{"backup": backup, "task": task})
-}
-
-func (s *Server) restoreInstanceBackup(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	backupID, err := httpx.UUIDParam(chi.URLParam(r, "backupId"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	var input struct {
-		ConfirmName string `json:"confirmName"`
-	}
-	if err = httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	instance, err := s.store.GetInstance(r.Context(), instanceID)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	if strings.TrimSpace(input.ConfirmName) != instance.Name {
-		httpx.Error(w, r, domain.ErrInvalid)
-		return
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	backup, task, err := s.instances.RestoreBackup(r.Context(), actor.User.ID, instanceID, backupID)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	_ = s.auditWithChanges(r, actor, "instance.backup.restore", "backup", &backup.ID, backup.Name, &task.ID,
-		"success", "", map[string]any{"instanceId": instanceID, "templateVersionId": backup.TemplateVersionID})
-	httpx.JSON(w, http.StatusAccepted, map[string]any{"backup": backup, "task": task})
 }
 
 func (s *Server) deleteInstanceBackup(w http.ResponseWriter, r *http.Request) {
@@ -316,17 +185,12 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := chi.URLParam(r, "action")
+	if action != "start" && action != "stop" && action != "restart" && action != "delete" {
+		httpx.Error(w, r, domain.ErrInvalid)
+		return
+	}
 	var input struct {
-		ConfirmName       string            `json:"confirmName"`
-		TemplateVersionID *uuid.UUID        `json:"templateVersionId"`
-		ImageSource       string            `json:"imageSource"`
-		ImageArtifactID   *uuid.UUID        `json:"imageArtifactId"`
-		RegistryID        *uuid.UUID        `json:"registryId"`
-		CPU               float64           `json:"cpu"`
-		MemoryBytes       int64             `json:"memoryBytes"`
-		DiskBytes         int64             `json:"diskBytes"`
-		ExtraEnvironment  map[string]string `json:"extraEnvironment"`
-		AutoRestart       *bool             `json:"autoRestart"`
+		ConfirmName string `json:"confirmName"`
 	}
 	if r.ContentLength != 0 {
 		if err = httpx.Decode(r, &input); err != nil {
@@ -344,34 +208,12 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	task, err := s.instances.Action(r.Context(), actor.User.ID, id, action, instances.ActionRequest{
-		NewTemplateVersionID: input.TemplateVersionID, ImageSource: input.ImageSource,
-		ImageArtifactID: input.ImageArtifactID, RegistryID: input.RegistryID,
-		CPU: input.CPU, MemoryBytes: input.MemoryBytes, DiskBytes: input.DiskBytes,
-		ExtraEnvironment: input.ExtraEnvironment, AutoRestart: input.AutoRestart,
-	})
+	task, err := s.instances.Action(r.Context(), actor.User.ID, id, action)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	if action == "reconfigure" {
-		_ = s.auditWithChanges(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "",
-			instanceReconfigureAuditChanges(instance, input.CPU, input.MemoryBytes, input.DiskBytes, input.ExtraEnvironment, input.AutoRestart))
-	} else if action == "upgrade" {
-		changes := map[string]any{"imageSource": input.ImageSource}
-		if input.TemplateVersionID != nil {
-			changes["templateVersionId"] = input.TemplateVersionID.String()
-		}
-		if input.ImageArtifactID != nil {
-			changes["imageArtifactId"] = input.ImageArtifactID.String()
-		}
-		if input.RegistryID != nil {
-			changes["registryId"] = input.RegistryID.String()
-		}
-		_ = s.auditWithChanges(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "", changes)
-	} else {
-		_ = s.audit(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "")
-	}
+	_ = s.audit(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "")
 	httpx.JSON(w, http.StatusAccepted, task)
 }
 

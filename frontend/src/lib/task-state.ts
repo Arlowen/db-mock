@@ -3,6 +3,18 @@ import type { Task } from './types'
 const activeStatuses = new Set(['queued', 'running', 'retrying'])
 const cancellationPendingStatuses = new Set(['queued', 'running'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
+const retryableTaskKinds = new Set([
+  'host.probe',
+  'host.install_docker',
+  'host.upgrade_docker',
+  'host.configure_proxy',
+  'instance.create',
+  'instance.start',
+  'instance.stop',
+  'instance.restart',
+  'instance.delete',
+  'instance.backup.delete',
+])
 const recoverableInstanceStatuses = new Set(['provisioning', 'starting', 'stopping', 'restarting', 'upgrading', 'reconfiguring', 'backing_up', 'restoring', 'deleting', 'failed', 'degraded'])
 const deploymentNextSteps: Record<string, string> = {
   queued: 'preflight',
@@ -34,6 +46,10 @@ export function isTaskCancellationPending(task: Task) {
 
 export function canCancelTask(task: Task) {
   return task.cancelable && !task.cancelAsked && cancellationPendingStatuses.has(task.status)
+}
+
+export function canRetryTask(task: Task) {
+  return failedStatuses.has(task.status) && retryableTaskKinds.has(task.kind)
 }
 
 export function deploymentTaskNextStep(task: Task) {

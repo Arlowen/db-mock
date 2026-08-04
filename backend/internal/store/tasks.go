@@ -218,6 +218,28 @@ func (s *Store) ListTasks(ctx context.Context, status, resourceType string, reso
 	return items, rows.Err()
 }
 
+func (s *Store) ListQueuedTasksByKinds(ctx context.Context, kinds []string, limit int) ([]domain.Task, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, "SELECT "+taskColumns+` FROM tasks
+		WHERE status='queued' AND kind=ANY($1::text[])
+		ORDER BY created_at,id LIMIT $2`, kinds, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.Task, 0)
+	for rows.Next() {
+		var item domain.Task
+		if err = rows.Scan(taskScan(&item)...); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) ListTasksByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Task, error) {
 	if len(ids) == 0 {
 		return []domain.Task{}, nil
@@ -277,7 +299,15 @@ func (s *Store) GetActiveResourceTask(ctx context.Context, resourceType string, 
 	return item, translate(err)
 }
 
-func (s *Store) ClaimTask(ctx context.Context) (domain.Task, error) {
+func (s *Store) ClaimTask(ctx context.Context, supported ...[]string) (domain.Task, error) {
+	var supportedKinds []string
+	restrictKinds := len(supported) > 0
+	if restrictKinds {
+		supportedKinds = supported[0]
+		if len(supportedKinds) == 0 {
+			return domain.Task{}, domain.ErrNotFound
+		}
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return domain.Task{}, err
@@ -285,10 +315,11 @@ func (s *Store) ClaimTask(ctx context.Context) (domain.Task, error) {
 	defer tx.Rollback(ctx)
 	var item domain.Task
 	err = tx.QueryRow(ctx, `SELECT `+taskColumns+` FROM tasks WHERE status='queued'
+		AND (NOT $1::boolean OR kind=ANY($2::text[]))
 		AND (host_id IS NULL OR NOT EXISTS (
 			SELECT 1 FROM tasks AS running WHERE running.host_id=tasks.host_id AND running.status='running'
 		))
-		ORDER BY created_at FOR UPDATE OF tasks SKIP LOCKED LIMIT 1`).Scan(taskScan(&item)...)
+		ORDER BY created_at FOR UPDATE OF tasks SKIP LOCKED LIMIT 1`, restrictKinds, supportedKinds).Scan(taskScan(&item)...)
 	if err != nil {
 		return domain.Task{}, translate(err)
 	}
@@ -457,6 +488,65 @@ func (s *Store) InterruptRunningTasks(ctx context.Context) error {
         last_error='The control service restarted while the scheduled backup was running',updated_at=now()
     WHERE last_task_id IN (SELECT id FROM interrupted)`)
 	return err
+}
+
+func (s *Store) RecoverInterruptedTasksExcludingKinds(ctx context.Context, supportedKinds []string) error {
+	rows, err := s.pool.Query(ctx, `SELECT kind,payload FROM tasks
+		WHERE status='interrupted' AND error_code='application_restarted'
+		AND NOT (kind=ANY($1::text[]))`, supportedKinds)
+	if err != nil {
+		return err
+	}
+	type interruptedTask struct {
+		kind    string
+		payload json.RawMessage
+	}
+	items := make([]interruptedTask, 0)
+	for rows.Next() {
+		var item interruptedTask
+		if err = rows.Scan(&item.kind, &item.payload); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, item := range items {
+		var references struct {
+			InstanceID *uuid.UUID `json:"instanceId"`
+			BackupID   *uuid.UUID `json:"backupId"`
+		}
+		if json.Unmarshal(item.payload, &references) != nil || references.InstanceID == nil {
+			continue
+		}
+		tx, beginErr := s.pool.Begin(ctx)
+		if beginErr != nil {
+			return beginErr
+		}
+		message := "The control service restarted during a retired operation; inspect database status and recent logs before starting or deleting it"
+		if _, err = tx.Exec(ctx, `UPDATE instances SET status='failed',desired_state='stopped',status_message=$2,
+			updated_at=now() WHERE id=$1 AND status IN ('upgrading','reconfiguring','backing_up','restoring')`,
+			*references.InstanceID, message); err != nil {
+			tx.Rollback(ctx)
+			return err
+		}
+		if references.BackupID != nil && (item.kind == "instance.backup" || item.kind == "instance.restore") {
+			if _, err = tx.Exec(ctx, `UPDATE instance_backups SET status='failed',error_message=$2,updated_at=now()
+				WHERE id=$1 AND status IN ('creating','restoring')`, *references.BackupID, message); err != nil {
+				tx.Rollback(ctx)
+				return err
+			}
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) CleanupSessions(ctx context.Context) (int64, error) {

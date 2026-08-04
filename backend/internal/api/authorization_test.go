@@ -64,9 +64,32 @@ func TestAuthenticatedRouteSurfaceExcludesNonMVPAPIs(t *testing.T) {
 		http.MethodPost + " /instances/batch-cleanup-decisions",
 		http.MethodPost + " /instances/{id}/cleanup-decision",
 		http.MethodGet + " /instances/{id}/metrics",
+		http.MethodPost + " /instances/{id}/backups",
+		http.MethodGet + " /instances/{id}/backup-policy",
+		http.MethodPut + " /instances/{id}/backup-policy",
+		http.MethodPost + " /instances/{id}/backups/{backupId}/restore",
 	} {
 		if routes[retired] {
 			t.Fatalf("retired route is still registered: %s", retired)
+		}
+	}
+}
+
+func TestRetiredInstanceActionsAreRejectedBeforeStoreAccess(t *testing.T) {
+	for _, action := range []string{"upgrade", "reconfigure", "backup", "restore"} {
+		router := chi.NewRouter()
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				actor := auth.Actor{User: domain.User{Role: domain.RoleAdmin}}
+				next.ServeHTTP(w, r.WithContext(auth.WithActor(r.Context(), actor)))
+			})
+		})
+		(&Server{}).instanceRoutes(router)
+		response := httptest.NewRecorder()
+		path := "/11111111-1111-4111-8111-111111111111/actions/" + action
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("retired action %s status = %d, want %d; body=%s", action, response.Code, http.StatusBadRequest, response.Body.String())
 		}
 	}
 }

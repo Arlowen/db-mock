@@ -2,7 +2,6 @@ package hostops
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,24 +22,9 @@ type Docker struct {
 	runner Runner
 }
 
-type ContainerMetric struct {
-	InstanceID    string
-	Status        string
-	Health        string
-	CPUPercent    float64
-	MemoryBytes   int64
-	MemoryPercent float64
-}
-
 type ManagedState struct {
 	State  string
 	Health string
-}
-
-type BackupArchiveInfo struct {
-	Path      string
-	SizeBytes int64
-	SHA256    string
 }
 
 func NewDocker(runner Runner) *Docker { return &Docker{runner: runner} }
@@ -392,104 +376,6 @@ func (d *Docker) Logs(ctx context.Context, host domain.Host, instance domain.Ins
 	return result.Stdout + result.Stderr, err
 }
 
-func archiveStreamScript(source string) string {
-	return `set -eu; tar -C ` + ShellQuote(source) + ` -czf - --exclude=upgrade-snapshot.tar.gz --exclude=upgrade-snapshot.tar.gz.tmp .`
-}
-
-func restoreStreamScript(target string) string {
-	return `set -eu
-for item in ` + ShellQuote(target) + `/.[!.]* ` + ShellQuote(target) + `/..?* ` + ShellQuote(target) + `/*; do
-  [ -e "$item" ] || [ -L "$item" ] || continue
-  rm -rf -- "$item"
-done
-tar -C ` + ShellQuote(target) + ` -xzf -`
-}
-
-func dockerDataHelperCommand(image, volume, script string, interactive bool) (string, error) {
-	image = strings.TrimSpace(image)
-	if image == "" || strings.ContainsAny(image, "\r\n\x00") {
-		return "", errors.New("a valid local database image is required for protected data access")
-	}
-	command := `docker run --rm --pull never --network none --read-only --user 0:0 --label dbmock.helper=archive --entrypoint /bin/sh`
-	if interactive {
-		command += " -i"
-	}
-	command += " --volume " + ShellQuote(volume) + " " + ShellQuote(image) + " -c " + ShellQuote(script)
-	return command, nil
-}
-
-func rollbackSnapshotPath(host domain.Host, instance domain.Instance, operationID uuid.UUID) (string, error) {
-	if err := validateManagedDirectory(host.DataRoot, instance.RemoteDirectory); err != nil {
-		return "", err
-	}
-	if instance.ID == uuid.Nil || operationID == uuid.Nil {
-		return "", errors.New("instance and operation IDs are required for a rollback snapshot")
-	}
-	return path.Join(host.DataRoot, "backups", ".rollback", instance.ID.String(), operationID.String()+".tar.gz"), nil
-}
-
-func (d *Docker) SnapshotForUpgrade(ctx context.Context, host domain.Host, instance domain.Instance, operationID uuid.UUID,
-	reuseExisting bool, helperImage string) (string, error) {
-	snapshot, err := rollbackSnapshotPath(host, instance, operationID)
-	if err != nil {
-		return "", err
-	}
-	temporary := snapshot + ".tmp"
-	directory := path.Dir(snapshot)
-	helper, err := dockerDataHelperCommand(helperImage, instance.RemoteDirectory+":/source:ro", archiveStreamScript("/source"), false)
-	if err != nil {
-		return "", err
-	}
-	create := "rm -f -- " + ShellQuote(snapshot) + " " + ShellQuote(temporary) + " && " + helper + " > " +
-		ShellQuote(temporary) + " && chmod 0600 " + ShellQuote(temporary) + " && mv -f -- " +
-		ShellQuote(temporary) + " " + ShellQuote(snapshot)
-	if reuseExisting {
-		create = "if [ -e " + ShellQuote(snapshot) + " ] || [ -L " + ShellQuote(snapshot) + " ]; then " +
-			"test ! -L " + ShellQuote(snapshot) + " && test -f " + ShellQuote(snapshot) + " && test -s " + ShellQuote(snapshot) +
-			" && chmod 0600 " + ShellQuote(snapshot) + "; else rm -f -- " + ShellQuote(temporary) + " && " + helper + " > " +
-			ShellQuote(temporary) + " && chmod 0600 " + ShellQuote(temporary) + " && mv -f -- " +
-			ShellQuote(temporary) + " " + ShellQuote(snapshot) + "; fi"
-	}
-	command := composeCommand(instance) + " stop --timeout 120 && umask 077 && mkdir -p " + ShellQuote(directory) +
-		" && test ! -L " + ShellQuote(directory) + " && chmod 0700 " + ShellQuote(directory) + " && " + create
-	_, err = d.runner.Run(ctx, host, command, nil)
-	if err != nil {
-		_, _ = d.runner.Run(context.Background(), host, "rm -f -- "+ShellQuote(temporary), nil)
-		return "", err
-	}
-	return snapshot, nil
-}
-
-func (d *Docker) RestoreUpgradeSnapshot(ctx context.Context, host domain.Host, instance domain.Instance, operationID uuid.UUID,
-	snapshot, helperImage string) error {
-	expected, err := rollbackSnapshotPath(host, instance, operationID)
-	if err != nil {
-		return err
-	}
-	if snapshot != expected {
-		return errors.New("invalid upgrade snapshot path")
-	}
-	helper, err := dockerDataHelperCommand(helperImage, instance.RemoteDirectory+":/target", restoreStreamScript("/target"), true)
-	if err != nil {
-		return err
-	}
-	command := `set -eu; test ! -L ` + ShellQuote(snapshot) + `; test -f ` + ShellQuote(snapshot) + `; ` + helper + ` < ` + ShellQuote(snapshot)
-	_, err = d.runner.Run(ctx, host, command, nil)
-	return err
-}
-
-func (d *Docker) DeleteUpgradeSnapshot(ctx context.Context, host domain.Host, instance domain.Instance, operationID uuid.UUID) error {
-	snapshot, err := rollbackSnapshotPath(host, instance, operationID)
-	if err != nil {
-		return err
-	}
-	directory := path.Dir(snapshot)
-	root := path.Dir(directory)
-	_, err = d.runner.Run(ctx, host, `set -eu; rm -f -- `+ShellQuote(snapshot)+` `+ShellQuote(snapshot+".tmp")+
-		`; rmdir `+ShellQuote(directory)+` 2>/dev/null || true; rmdir `+ShellQuote(root)+` 2>/dev/null || true`, nil)
-	return err
-}
-
 func (d *Docker) DeleteInstanceRollbackSnapshots(ctx context.Context, host domain.Host, instance domain.Instance) error {
 	if err := validateManagedDirectory(host.DataRoot, instance.RemoteDirectory); err != nil {
 		return err
@@ -513,78 +399,6 @@ func (d *Docker) BackupArchivePath(host domain.Host, instance domain.Instance, b
 		return "", errors.New("backup ID is required")
 	}
 	return path.Join(host.DataRoot, "backups", instance.ID.String(), backupID.String()+".tar.gz"), nil
-}
-
-func parseBackupArchiveInfo(output, archivePath string) (BackupArchiveInfo, error) {
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for index := len(lines) - 1; index >= 0; index-- {
-		parts := strings.Split(strings.TrimSpace(lines[index]), "|")
-		if len(parts) != 2 {
-			continue
-		}
-		size, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
-		digest := strings.ToLower(strings.TrimSpace(parts[1]))
-		decoded, digestErr := hex.DecodeString(digest)
-		if err == nil && size > 0 && digestErr == nil && len(decoded) == 32 {
-			return BackupArchiveInfo{Path: archivePath, SizeBytes: size, SHA256: digest}, nil
-		}
-	}
-	return BackupArchiveInfo{}, errors.New("unable to read backup archive size and checksum")
-}
-
-func backupDigestCommand(archive string) string {
-	return `size="$(wc -c < ` + ShellQuote(archive) + ` | tr -d '[:space:]')"; ` +
-		`if command -v sha256sum >/dev/null 2>&1; then digest="$(sha256sum ` + ShellQuote(archive) + ` | awk '{print $1}')"; ` +
-		`else digest="$(shasum -a 256 ` + ShellQuote(archive) + ` | awk '{print $1}')"; fi; ` +
-		`printf '%s|%s\n' "$size" "$digest"`
-}
-
-func (d *Docker) CreateBackupArchive(ctx context.Context, host domain.Host, instance domain.Instance, backupID uuid.UUID, helperImage string) (BackupArchiveInfo, error) {
-	archive, err := d.BackupArchivePath(host, instance, backupID)
-	if err != nil {
-		return BackupArchiveInfo{}, err
-	}
-	directory := path.Dir(archive)
-	temporary := archive + ".tmp"
-	helper, err := dockerDataHelperCommand(helperImage, instance.RemoteDirectory+":/source:ro", archiveStreamScript("/source"), false)
-	if err != nil {
-		return BackupArchiveInfo{}, err
-	}
-	command := `set -eu; umask 077; mkdir -p ` + ShellQuote(directory) + `; chmod 0700 ` + ShellQuote(directory) +
-		`; rm -f -- ` + ShellQuote(temporary) + `; ` + helper + ` > ` + ShellQuote(temporary) + `; mv -f -- ` + ShellQuote(temporary) + ` ` +
-		ShellQuote(archive) + `; chmod 0600 ` + ShellQuote(archive) + `; ` + backupDigestCommand(archive)
-	result, err := d.runner.Run(ctx, host, command, nil)
-	if err != nil {
-		_, _ = d.runner.Run(context.Background(), host, "rm -f -- "+ShellQuote(temporary), nil)
-		return BackupArchiveInfo{}, err
-	}
-	return parseBackupArchiveInfo(result.Stdout, archive)
-}
-
-func (d *Docker) InspectBackupArchive(ctx context.Context, host domain.Host, instance domain.Instance, backupID uuid.UUID) (BackupArchiveInfo, error) {
-	archive, err := d.BackupArchivePath(host, instance, backupID)
-	if err != nil {
-		return BackupArchiveInfo{}, err
-	}
-	result, err := d.runner.Run(ctx, host, `set -eu; test -f `+ShellQuote(archive)+`; `+backupDigestCommand(archive), nil)
-	if err != nil {
-		return BackupArchiveInfo{}, err
-	}
-	return parseBackupArchiveInfo(result.Stdout, archive)
-}
-
-func (d *Docker) RestoreBackupArchive(ctx context.Context, host domain.Host, instance domain.Instance, backupID uuid.UUID, helperImage string) error {
-	archive, err := d.BackupArchivePath(host, instance, backupID)
-	if err != nil {
-		return err
-	}
-	helper, err := dockerDataHelperCommand(helperImage, instance.RemoteDirectory+":/target", restoreStreamScript("/target"), true)
-	if err != nil {
-		return err
-	}
-	command := `set -eu; test -f ` + ShellQuote(archive) + `; ` + helper + ` < ` + ShellQuote(archive)
-	_, err = d.runner.Run(ctx, host, command, nil)
-	return err
 }
 
 func (d *Docker) DeleteBackupArchive(ctx context.Context, host domain.Host, instance domain.Instance, backupID uuid.UUID) error {
@@ -622,51 +436,6 @@ func (d *Docker) RunProjectScript(ctx context.Context, host domain.Host, instanc
 	command := "chmod 0700 " + ShellQuote(script) + " && cd " + ShellQuote(instance.RemoteDirectory) + " && " + ShellQuote(script)
 	_, err := d.runner.Run(ctx, host, command, nil)
 	return err
-}
-
-func (d *Docker) Metrics(ctx context.Context, host domain.Host) ([]ContainerMetric, int64, int64, error) {
-	command := `set -u
-for container in $(docker ps -q --filter label=dbmock.instance); do
-  instance="$(docker inspect --format '{{index .Config.Labels "dbmock.instance"}}' "$container" 2>/dev/null || true)"
-  stats="$(docker stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}' "$container" 2>/dev/null || true)"
-  [ -n "$instance" ] && [ -n "$stats" ] && printf '%s|%s\n' "$instance" "$stats"
-done
-printf '%s\n' '__DISK__'
-df -Pk ` + ShellQuote(host.DataRoot) + ` 2>/dev/null | awk 'NR==2{print $3*1024 "|" $2*1024}' || true`
-	result, err := d.runner.Run(ctx, host, command, nil)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	var metrics []ContainerMetric
-	var diskUsed, diskTotal int64
-	disk := false
-	for _, line := range strings.Split(result.Stdout, "\n") {
-		if line == "__DISK__" {
-			disk = true
-			continue
-		}
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if disk {
-			parts := strings.Split(line, "|")
-			if len(parts) == 2 {
-				diskUsed, _ = strconv.ParseInt(parts[0], 10, 64)
-				diskTotal, _ = strconv.ParseInt(parts[1], 10, 64)
-			}
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) != 4 {
-			continue
-		}
-		metric := ContainerMetric{InstanceID: parts[0]}
-		metric.CPUPercent, _ = strconv.ParseFloat(strings.TrimSuffix(parts[1], "%"), 64)
-		metric.MemoryBytes = parseDockerSize(strings.Split(parts[2], "/")[0])
-		metric.MemoryPercent, _ = strconv.ParseFloat(strings.TrimSuffix(parts[3], "%"), 64)
-		metrics = append(metrics, metric)
-	}
-	return metrics, diskUsed, diskTotal, nil
 }
 
 func (d *Docker) InstanceState(ctx context.Context, host domain.Host, instance domain.Instance) (string, string, error) {

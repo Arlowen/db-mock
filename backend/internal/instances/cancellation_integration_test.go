@@ -1,7 +1,6 @@
 package instances
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +8,6 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -151,54 +149,6 @@ func TestQueuedStopCancellationFinishesImmediatelyBehindBusyHostWork(t *testing.
 	}
 }
 
-func TestQueuedReconfigurationCancellationRestoresReservedConfiguration(t *testing.T) {
-	ctx, pool := openCancellationTest(t)
-	fixture := seedCancellationFixture(t, ctx, pool)
-	target := store.New(pool)
-	vault, err := appcrypto.NewVault(bytes.Repeat([]byte{7}, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	previousJSON := json.RawMessage(`{"extraEnvironment":{"OLD":"1"}}`)
-	if _, err = pool.Exec(ctx, `UPDATE instances SET configuration=$2,auto_restart=false WHERE id=$1`, fixture.instanceID, previousJSON); err != nil {
-		t.Fatal(err)
-	}
-	encryptedPrevious, err := vault.Seal(previousJSON, runtimeConfigurationContext(fixture.instanceID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetConfiguration := store.InstanceRuntimeConfiguration{CPU: 2, MemoryBytes: 2147483648,
-		ReservedDiskBytes: 21474836480, Configuration: json.RawMessage(`{"extraEnvironment":{"NEW":"1"}}`), AutoRestart: true}
-	resourceID := fixture.instanceID
-	previousAutoRestart := false
-	task, err := target.CreateInstanceReconfigureTask(ctx, store.TaskInput{Kind: "instance.reconfigure",
-		ResourceType: "instance", ResourceID: &resourceID, RequestedBy: fixture.userID, HostID: &fixture.hostID,
-		Payload: ActionPayload{InstanceID: fixture.instanceID, PreviousStatus: "running", PreviousDesiredState: "running",
-			PreviousCPU: 1, PreviousMemoryBytes: 1073741824, PreviousDiskBytes: 10737418240,
-			EncryptedPreviousConfig: encryptedPrevious, PreviousAutoRestart: &previousAutoRestart}},
-		fixture.instanceID, "running", targetConfiguration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = newCancellationManager(target, vault).CancelTask(ctx, task.ID); err != nil {
-		t.Fatal(err)
-	}
-	instance, err := target.GetInstance(ctx, fixture.instanceID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if instance.Status != "running" || instance.CPU != 1 || instance.MemoryBytes != 1073741824 ||
-		instance.ReservedDiskBytes != 10737418240 || instance.AutoRestart || !sameJSON(instance.Configuration, previousJSON) {
-		t.Fatalf("queued configuration reservation was not restored: %#v", instance)
-	}
-}
-
-func sameJSON(left, right []byte) bool {
-	var leftValue, rightValue any
-	return json.Unmarshal(left, &leftValue) == nil && json.Unmarshal(right, &rightValue) == nil &&
-		reflect.DeepEqual(leftValue, rightValue)
-}
-
 func TestQueuedDeleteCancellationRestoresSuspendedBackupPolicy(t *testing.T) {
 	ctx, pool := openCancellationTest(t)
 	fixture := seedCancellationFixture(t, ctx, pool)
@@ -216,9 +166,12 @@ func TestQueuedDeleteCancellationRestoresSuspendedBackupPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	suspended, err := target.GetInstanceBackupPolicy(ctx, fixture.instanceID)
-	if err != nil || suspended.Enabled || suspended.NextRunAt != nil {
-		t.Fatalf("delete did not suspend the policy: policy=%#v err=%v", suspended, err)
+	var suspendedEnabled bool
+	var suspendedNextRunAt *time.Time
+	err = pool.QueryRow(ctx, `SELECT enabled,next_run_at FROM instance_backup_policies WHERE instance_id=$1`,
+		fixture.instanceID).Scan(&suspendedEnabled, &suspendedNextRunAt)
+	if err != nil || suspendedEnabled || suspendedNextRunAt != nil {
+		t.Fatalf("delete did not suspend the policy: enabled=%t next=%v err=%v", suspendedEnabled, suspendedNextRunAt, err)
 	}
 	var payload ActionPayload
 	if err = json.Unmarshal(task.Payload, &payload); err != nil || payload.PreviousBackupPolicyEnabled == nil ||
@@ -228,9 +181,12 @@ func TestQueuedDeleteCancellationRestoresSuspendedBackupPolicy(t *testing.T) {
 	if _, err = newCancellationManager(target, nil).CancelTask(ctx, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := target.GetInstanceBackupPolicy(ctx, fixture.instanceID)
-	if err != nil || !restored.Enabled || restored.NextRunAt == nil || !restored.NextRunAt.Equal(nextRunAt) {
-		t.Fatalf("canceled delete did not restore the policy: policy=%#v err=%v", restored, err)
+	var restoredEnabled bool
+	var restoredNextRunAt *time.Time
+	err = pool.QueryRow(ctx, `SELECT enabled,next_run_at FROM instance_backup_policies WHERE instance_id=$1`,
+		fixture.instanceID).Scan(&restoredEnabled, &restoredNextRunAt)
+	if err != nil || !restoredEnabled || restoredNextRunAt == nil || !restoredNextRunAt.Equal(nextRunAt) {
+		t.Fatalf("canceled delete did not restore the policy: enabled=%t next=%v err=%v", restoredEnabled, restoredNextRunAt, err)
 	}
 }
 
@@ -261,50 +217,6 @@ func TestDeleteQueueAtomicallyRejectsExistingBackups(t *testing.T) {
 	if countErr := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE resource_id=$1`, fixture.instanceID).
 		Scan(&taskCount); countErr != nil || taskCount != 0 {
 		t.Fatalf("blocked delete persisted tasks=%d err=%v", taskCount, countErr)
-	}
-}
-
-func TestQueuedScheduledBackupCancellationRestoresInstanceAndTracksOutcome(t *testing.T) {
-	ctx, pool := openCancellationTest(t)
-	fixture := seedCancellationFixture(t, ctx, pool)
-	target := store.New(pool)
-	scheduledAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
-	nextRunAt := scheduledAt.Add(24 * time.Hour)
-	if _, err := pool.Exec(ctx, `INSERT INTO instance_backup_policies(instance_id,enabled,next_run_at,configured_by)
-		VALUES($1,true,$2,$3)`, fixture.instanceID, scheduledAt, fixture.userID); err != nil {
-		t.Fatal(err)
-	}
-	policy, err := target.GetInstanceBackupPolicy(ctx, fixture.instanceID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	backupID := uuid.New()
-	policyID := fixture.instanceID
-	backup, task, err := target.CreateScheduledInstanceBackupTask(ctx, store.TaskInput{Kind: "instance.backup",
-		ResourceType: "instance", ResourceID: &fixture.instanceID, RequestedBy: fixture.userID,
-		HostID: &fixture.hostID, Payload: ActionPayload{InstanceID: fixture.instanceID, BackupID: &backupID,
-			BackupPolicyID: &policyID, PreviousStatus: "running", PreviousDesiredState: "running",
-			ScheduledFor: &scheduledAt}}, policy, domain.InstanceBackup{ID: backupID, InstanceID: fixture.instanceID,
-		Name: "scheduled-backup", RemotePath: "/opt/dbmock/backups/" + fixture.instanceID.String() + "/" + backupID.String() + ".tar.gz"},
-		"running", "running", nextRunAt, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = newCancellationManager(target, nil).CancelTask(ctx, task.ID); err != nil {
-		t.Fatal(err)
-	}
-	instance, err := target.GetInstance(ctx, fixture.instanceID)
-	if err != nil || instance.Status != "running" || instance.DesiredState != "running" || instance.StatusMessage != "" {
-		t.Fatalf("scheduled backup cancellation did not restore instance: instance=%#v err=%v", instance, err)
-	}
-	backup, err = target.GetInstanceBackup(ctx, backup.ID)
-	if err != nil || backup.Status != "failed" || backup.ErrorMessage != "Backup creation was canceled before the archive was created" {
-		t.Fatalf("scheduled backup cancellation outcome = backup:%#v err:%v", backup, err)
-	}
-	policy, err = target.GetInstanceBackupPolicy(ctx, fixture.instanceID)
-	if err != nil || policy.LastStatus != "canceled" || policy.LastTaskID == nil || *policy.LastTaskID != task.ID ||
-		policy.NextRunAt == nil || !policy.NextRunAt.Equal(nextRunAt) {
-		t.Fatalf("scheduled backup policy outcome = policy:%#v err:%v", policy, err)
 	}
 }
 
@@ -369,79 +281,74 @@ func TestRunningTaskCancellationRemainsPendingUntilASafeCheckpoint(t *testing.T)
 	}
 }
 
-func TestClaimedReconfigurationRetryCancellationRestoresAttemptStartConfiguration(t *testing.T) {
+func TestStartupRetiresUnsupportedQueuedInstanceTasksWithResourceRecovery(t *testing.T) {
 	ctx, pool := openCancellationTest(t)
 	fixture := seedCancellationFixture(t, ctx, pool)
 	target := store.New(pool)
-	vault, err := appcrypto.NewVault(bytes.Repeat([]byte{9}, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	currentJSON := json.RawMessage(`{"extraEnvironment":{"CURRENT":"1"}}`)
-	originalJSON := json.RawMessage(`{"extraEnvironment":{"ORIGINAL":"1"}}`)
-	targetJSON := json.RawMessage(`{"extraEnvironment":{"TARGET":"1"}}`)
-	if _, err = pool.Exec(ctx, `UPDATE instances SET configuration=$2,auto_restart=false WHERE id=$1`, fixture.instanceID, currentJSON); err != nil {
-		t.Fatal(err)
-	}
-	encryptedOriginal, err := vault.Seal(originalJSON, runtimeConfigurationContext(fixture.instanceID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	encryptedTarget, err := vault.Seal(targetJSON, runtimeConfigurationContext(fixture.instanceID))
-	if err != nil {
-		t.Fatal(err)
-	}
 	resourceID := fixture.instanceID
-	original, err := target.CreateTask(ctx, store.TaskInput{Kind: "instance.reconfigure", ResourceType: "instance",
+	legacy, err := target.CreateInstanceActionTask(ctx, store.TaskInput{Kind: "instance.upgrade", ResourceType: "instance",
 		ResourceID: &resourceID, RequestedBy: fixture.userID, HostID: &fixture.hostID,
-		Payload: ActionPayload{InstanceID: fixture.instanceID, PreviousStatus: "running", PreviousDesiredState: "running",
-			PreviousCPU: 1, PreviousMemoryBytes: 1073741824, PreviousDiskBytes: 10737418240,
-			TargetCPU: 2, TargetMemoryBytes: 2147483648, TargetDiskBytes: 21474836480,
-			EncryptedPreviousConfig: encryptedOriginal, EncryptedTargetConfig: encryptedTarget,
-			PreviousAutoRestart: boolValue(true), TargetAutoRestart: boolValue(true)}})
+		Payload: ActionPayload{InstanceID: fixture.instanceID, PreviousStatus: "running", PreviousDesiredState: "running"}},
+		fixture.instanceID, "running", "upgrading")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE tasks SET status='failed',stage='failed',cancelable=false,
-		error_code='task_failed',error_message='configuration failed',finished_at=now() WHERE id=$1`, original.ID); err != nil {
-		t.Fatal(err)
-	}
-	retry, err := target.RetryTask(ctx, original.ID, fixture.userID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = target.RequestTaskCancel(ctx, retry.ID); err != nil {
-		t.Fatal(err)
-	}
-	manager := tasks.New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
-	NewService(target, vault, nil, manager)
+
+	manager := newCancellationManager(target, nil)
 	workerContext, stopWorkers := context.WithCancel(ctx)
 	if err = manager.Start(workerContext); err != nil {
 		stopWorkers()
 		t.Fatal(err)
 	}
-	manager.Wake()
-	t.Cleanup(func() {
-		stopWorkers()
-		manager.Wait()
-	})
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		finished, getErr := target.GetTask(ctx, retry.ID)
-		if getErr != nil {
-			t.Fatal(getErr)
-		}
-		if finished.Status == "canceled" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("claimed retry cancellation did not finish: %#v", finished)
-		}
-		time.Sleep(10 * time.Millisecond)
+	stopWorkers()
+	manager.Wait()
+
+	retired, err := target.GetTask(ctx, legacy.ID)
+	if err != nil || retired.Status != "canceled" || retired.ErrorCode != "canceled" {
+		t.Fatalf("legacy task was not retired safely: task=%#v err=%v", retired, err)
+	}
+	if _, err = manager.RetryTask(ctx, legacy.ID, fixture.userID); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("retired task retry error = %v, want conflict", err)
 	}
 	instance, err := target.GetInstance(ctx, fixture.instanceID)
-	if err != nil || instance.Status != "running" || instance.AutoRestart || !sameJSON(instance.Configuration, currentJSON) {
-		t.Fatalf("retry cancellation restored stale original configuration: instance=%#v err=%v", instance, err)
+	if err != nil || instance.Status != "running" || instance.DesiredState != "running" {
+		t.Fatalf("legacy task retirement did not restore the instance: instance=%#v err=%v", instance, err)
+	}
+}
+
+func TestStartupQuarantinesInterruptedUnsupportedInstanceTasks(t *testing.T) {
+	ctx, pool := openCancellationTest(t)
+	fixture := seedCancellationFixture(t, ctx, pool)
+	target := store.New(pool)
+	resourceID := fixture.instanceID
+	legacy, err := target.CreateInstanceActionTask(ctx, store.TaskInput{Kind: "instance.upgrade", ResourceType: "instance",
+		ResourceID: &resourceID, RequestedBy: fixture.userID, HostID: &fixture.hostID,
+		Payload: ActionPayload{InstanceID: fixture.instanceID, PreviousStatus: "running", PreviousDesiredState: "running"}},
+		fixture.instanceID, "running", "upgrading")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := target.ClaimTask(ctx)
+	if err != nil || claimed.ID != legacy.ID {
+		t.Fatalf("claim legacy task = %#v, err=%v", claimed, err)
+	}
+
+	manager := newCancellationManager(target, nil)
+	workerContext, stopWorkers := context.WithCancel(ctx)
+	if err = manager.Start(workerContext); err != nil {
+		stopWorkers()
+		t.Fatal(err)
+	}
+	stopWorkers()
+	manager.Wait()
+
+	interrupted, err := target.GetTask(ctx, legacy.ID)
+	if err != nil || interrupted.Status != "interrupted" || interrupted.ErrorCode != "application_restarted" {
+		t.Fatalf("legacy running task was not interrupted: task=%#v err=%v", interrupted, err)
+	}
+	instance, err := target.GetInstance(ctx, fixture.instanceID)
+	if err != nil || instance.Status != "failed" || instance.DesiredState != "stopped" || instance.StatusMessage == "" {
+		t.Fatalf("interrupted legacy task was not quarantined: instance=%#v err=%v", instance, err)
 	}
 }
 

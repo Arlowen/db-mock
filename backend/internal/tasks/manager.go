@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -70,11 +71,58 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := m.store.InterruptRunningTasks(ctx); err != nil {
 		return err
 	}
+	if err := m.store.RecoverInterruptedTasksExcludingKinds(ctx, m.supportedKinds()); err != nil {
+		return err
+	}
+	if err := m.retireUnsupportedQueuedTasks(ctx); err != nil {
+		return err
+	}
 	for i := 0; i < m.workers; i++ {
 		m.wg.Add(1)
 		go m.worker(ctx, i)
 	}
 	return nil
+}
+
+func (m *Manager) supportedKinds() []string {
+	kinds := make([]string, 0, len(m.handlers))
+	for kind := range m.handlers {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+func (m *Manager) retiredKinds() []string {
+	kinds := make([]string, 0)
+	for kind := range m.cancellationPreparers {
+		if _, supported := m.handlers[kind]; !supported {
+			kinds = append(kinds, kind)
+		}
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+func (m *Manager) retireUnsupportedQueuedTasks(ctx context.Context) error {
+	retiredKinds := m.retiredKinds()
+	if len(retiredKinds) == 0 {
+		return nil
+	}
+	for {
+		items, err := m.store.ListQueuedTasksByKinds(ctx, retiredKinds, 100)
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		for _, task := range items {
+			if _, err = m.CancelTask(ctx, task.ID); err != nil {
+				return fmt.Errorf("retire unsupported queued task %s (%s): %w", task.ID, task.Kind, err)
+			}
+		}
+	}
 }
 
 func (m *Manager) Wait() { m.wg.Wait() }
@@ -93,7 +141,7 @@ func (m *Manager) worker(ctx context.Context, index int) {
 			return
 		default:
 		}
-		task, err := m.store.ClaimTask(ctx)
+		task, err := m.store.ClaimTask(ctx, m.supportedKinds())
 		if err != nil {
 			if !errors.Is(err, domain.ErrNotFound) {
 				m.logger.Error("claim task", "worker", index, "error", err)
@@ -108,6 +156,17 @@ func (m *Manager) worker(ctx context.Context, index int) {
 		}
 		m.run(ctx, task)
 	}
+}
+
+func (m *Manager) RetryTask(ctx context.Context, id, userID uuid.UUID) (domain.Task, error) {
+	original, err := m.store.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if _, supported := m.handlers[original.Kind]; !supported {
+		return domain.Task{}, fmt.Errorf("%w: this task kind is no longer available", domain.ErrConflict)
+	}
+	return m.store.RetryTask(ctx, id, userID)
 }
 
 func (m *Manager) run(parent context.Context, task domain.Task) {

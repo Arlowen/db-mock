@@ -8,6 +8,7 @@ import {
   installMvpApi,
   instanceID,
   observeRuntime,
+  retiredFailedTaskID,
   templateVersionID,
 } from './mvp-fixture'
 
@@ -45,9 +46,34 @@ test.describe('DB Mock MVP workflow', () => {
     await page.screenshot({ path: testInfo.outputPath('dashboard-1024.png'), fullPage: true })
 
     await page.goto('/tasks')
+    await page.setViewportSize({ width: 1440, height: 1000 })
     await expect(page.getByRole('heading', { name: '任务中心' })).toHaveCount(1)
     await expect(page.getByRole('button', { name: '删除数据库实例' })).toBeVisible()
+    const coreFailedRow = page.getByRole('row').filter({ has: page.getByRole('button', { name: '重启数据库实例' }) })
+    const retiredFailedRow = page.getByRole('row').filter({ has: page.getByRole('button', { name: '升级数据库实例' }) })
+    await expect(coreFailedRow.getByRole('button', { name: /重试$/ })).toBeVisible()
+    await expect(retiredFailedRow.getByRole('button', { name: /重试$/ })).toHaveCount(0)
     await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('tasks-retry-boundary-1440.png'), fullPage: true })
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    const retiredFailedCard = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: '升级数据库实例' }) })
+    await expect(retiredFailedCard).toBeVisible()
+    await expect(retiredFailedCard.getByRole('button', { name: /重试$/ })).toHaveCount(0)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('tasks-retry-boundary-1024.png'), fullPage: true })
+    await retiredFailedCard.getByRole('button', { name: '升级数据库实例' }).click()
+    await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${retiredFailedTaskID}$`))
+    const retiredDrawer = page.getByRole('dialog', { name: /升级数据库实例/ })
+    await expect(retiredDrawer).toBeVisible()
+    await expect(retiredDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
+    await expect(retiredDrawer.getByText('Historical upgrade task is no longer retryable')).toBeVisible()
+    await expectNoOverflow(page)
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: testInfo.outputPath('retired-task-detail-1024.png'), fullPage: false })
+    await retiredDrawer.getByRole('button', { name: '关闭' }).click()
+    await expect(page.getByRole('button', { name: '重启数据库实例' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '升级数据库实例' })).toBeVisible()
     expect(diagnostics.consoleErrors).toEqual([])
     expect(diagnostics.httpErrors).toEqual([])
   })
