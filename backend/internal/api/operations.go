@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -397,7 +396,6 @@ func validAuditClearInput(confirm string, before, now time.Time) bool {
 
 func (s *Server) settingRoutes(r chi.Router) {
 	r.Get("/", s.getSettings)
-	r.With(requireAdmin).Put("/{key}", s.putSetting)
 }
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.GetSettings(r.Context())
@@ -405,68 +403,12 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	items["uploads"] = uploadSettingView(items["uploads"], s.config.MaxUploadBytes)
-	items["timezone"] = timezoneSettingView(items["timezone"], s.config.Timezone)
-	httpx.JSON(w, http.StatusOK, items)
-}
-func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
-	key := chi.URLParam(r, "key")
-	if key == "" {
-		httpx.Error(w, r, domain.ErrInvalid)
-		return
-	}
-	body := http.MaxBytesReader(w, r.Body, 1024*1024)
-	data, err := io.ReadAll(body)
-	if err != nil || !json.Valid(data) {
-		httpx.Error(w, r, domain.ErrInvalid)
-		return
-	}
-	data, err = normalizeSettingValue(key, data, s.config.MaxUploadBytes, s.config.Timezone)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	settingsBefore, err := s.store.GetSettings(r.Context())
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	if err = s.store.PutSetting(r.Context(), key, data); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.auditWithChanges(r, actor, "setting.update", "setting", nil, key, nil, "success", "", settingAuditChanges(key, settingsBefore[key], data))
-	httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func normalizeSettingValue(key string, value json.RawMessage, maxUploadBytes int64, defaultTimezone string) (json.RawMessage, error) {
-	switch key {
-	case "monitoring":
-		return platformsettings.NormalizeMonitoringPolicy(value)
-	case "uploads":
-		return platformsettings.NormalizeUploadPolicy(value, maxUploadBytes)
-	case "timezone":
-		return platformsettings.NormalizeTimezone(value)
-	}
-	return value, nil
+	httpx.JSON(w, http.StatusOK, map[string]json.RawMessage{
+		"timezone": timezoneSettingView(items["timezone"], s.config.Timezone),
+	})
 }
 
 func timezoneSettingView(value json.RawMessage, fallback string) json.RawMessage {
 	result, _ := json.Marshal(platformsettings.EffectiveTimezone(value, fallback))
-	return result
-}
-
-func uploadSettingView(value json.RawMessage, maxAllowedBytes int64) json.RawMessage {
-	defaults := platformsettings.DefaultUploadPolicy(maxAllowedBytes)
-	policy, err := platformsettings.DecodeUploadPolicy(value, defaults, maxAllowedBytes)
-	if err != nil {
-		policy = defaults
-	}
-	view := struct {
-		platformsettings.UploadPolicy
-		MaxAllowedBytes int64 `json:"maxAllowedBytes"`
-	}{UploadPolicy: policy, MaxAllowedBytes: maxAllowedBytes}
-	result, _ := json.Marshal(view)
 	return result
 }

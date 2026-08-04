@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -36,6 +37,33 @@ func TestRoleMiddlewareEnforcesServerSideAuthorization(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedRouteSurfaceExcludesArtifactExtensionAPIs(t *testing.T) {
+	router := chi.NewRouter()
+	(&Server{}).authenticatedRoutes(router)
+	routes := map[string]bool{}
+	if err := chi.Walk(router, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		routes[method+" "+route] = true
+		if strings.HasPrefix(route, "/images") || strings.HasPrefix(route, "/registries") {
+			t.Errorf("retired route is still registered: %s %s", method, route)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !routes[http.MethodGet+" /templates/"] {
+		t.Fatalf("built-in template list route is missing: %#v", routes)
+	}
+	for _, retired := range []string{
+		http.MethodPost + " /templates/custom",
+		http.MethodDelete + " /templates/{id}",
+		http.MethodPut + " /settings/{key}",
+	} {
+		if routes[retired] {
+			t.Fatalf("retired route is still registered: %s", retired)
+		}
+	}
+}
+
 func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -46,9 +74,6 @@ func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 		{name: "users", method: http.MethodGet, path: "/", routes: (*Server).userRoutes},
 		{name: "project create", method: http.MethodPost, path: "/", routes: (*Server).projectRoutes},
 		{name: "host probe", method: http.MethodPost, path: "/test", routes: (*Server).hostRoutes},
-		{name: "registry create", method: http.MethodPost, path: "/", routes: (*Server).registryRoutes},
-		{name: "template upload", method: http.MethodPost, path: "/custom", routes: (*Server).templateRoutes},
-		{name: "image upload", method: http.MethodPost, path: "/uploads", routes: (*Server).imageRoutes},
 		{name: "instance create", method: http.MethodPost, path: "/", routes: (*Server).instanceRoutes},
 		{name: "instance batch stop", method: http.MethodPost, path: "/batch-actions/stop", routes: (*Server).instanceRoutes},
 		{name: "instance batch restart", method: http.MethodPost, path: "/batch-actions/restart", routes: (*Server).instanceRoutes},
@@ -59,7 +84,6 @@ func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 		{name: "alert acknowledge", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/acknowledged", routes: (*Server).alertRoutes},
 		{name: "webhooks", method: http.MethodGet, path: "/", routes: (*Server).webhookRoutes},
 		{name: "audit", method: http.MethodGet, path: "/", routes: (*Server).auditRoutes},
-		{name: "settings update", method: http.MethodPut, path: "/timezone", routes: (*Server).settingRoutes},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -89,7 +113,6 @@ func TestOperatorIsDeniedAdministratorOnlyRoutes(t *testing.T) {
 	}{
 		{name: "users", method: http.MethodGet, path: "/", routes: (*Server).userRoutes},
 		{name: "clear audit", method: http.MethodPost, path: "/clear", routes: (*Server).auditRoutes},
-		{name: "update settings", method: http.MethodPut, path: "/timezone", routes: (*Server).settingRoutes},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

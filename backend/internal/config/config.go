@@ -29,7 +29,6 @@ type Config struct {
 	SessionDuration     time.Duration
 	MonitorInterval     time.Duration
 	MetricsRetention    time.Duration
-	MaxUploadBytes      int64
 	TaskWorkers         int
 	Timezone            string
 	SecureCookies       bool
@@ -46,10 +45,6 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	metricsRetention, err := envDuration("DBMOCK_METRICS_RETENTION", 7*24*time.Hour)
-	if err != nil {
-		return Config{}, err
-	}
-	maxUploadBytes, err := envInt64("DBMOCK_MAX_UPLOAD_BYTES", 50*1024*1024*1024)
 	if err != nil {
 		return Config{}, err
 	}
@@ -76,7 +71,6 @@ func Load() (Config, error) {
 		SessionDuration:     sessionDuration,
 		MonitorInterval:     monitorInterval,
 		MetricsRetention:    metricsRetention,
-		MaxUploadBytes:      maxUploadBytes,
 		TaskWorkers:         int(taskWorkers),
 		Timezone:            strings.TrimSpace(env("DBMOCK_TIMEZONE", "Asia/Shanghai")),
 		SecureCookies:       secureCookies,
@@ -102,9 +96,6 @@ func Load() (Config, error) {
 	}
 	if cfg.MetricsRetention < 24*time.Hour || cfg.MetricsRetention > 365*24*time.Hour || cfg.MetricsRetention%(24*time.Hour) != 0 {
 		return Config{}, errors.New("DBMOCK_METRICS_RETENTION must be a whole number of days between 24h and 8760h")
-	}
-	if cfg.MaxUploadBytes < platformsettings.MinUploadBytes || cfg.MaxUploadBytes > platformsettings.MaxUploadBytes {
-		return Config{}, fmt.Errorf("DBMOCK_MAX_UPLOAD_BYTES must be between %d and %d bytes", platformsettings.MinUploadBytes, platformsettings.MaxUploadBytes)
 	}
 	if err := platformsettings.ValidateTimezone(cfg.Timezone); err != nil {
 		return Config{}, errors.New("DBMOCK_TIMEZONE must be a valid IANA timezone name")

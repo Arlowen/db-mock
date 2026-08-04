@@ -401,12 +401,6 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := auth.ActorFrom(r.Context())
-	if strings.TrimSpace(input.Owner) == "" {
-		input.Owner = strings.TrimSpace(actor.User.DisplayName)
-		if input.Owner == "" {
-			input.Owner = actor.User.Username
-		}
-	}
 	item, task, err := s.instances.Create(r.Context(), actor.User.ID, input)
 	if err != nil {
 		httpx.Error(w, r, err)

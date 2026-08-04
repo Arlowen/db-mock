@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net"
 	"net/url"
 	"path"
 	"sort"
@@ -34,28 +33,13 @@ type Service struct {
 }
 
 type CreateRequest struct {
-	Name               string            `json:"name"`
-	ProjectID          *uuid.UUID        `json:"projectId"`
-	HostID             *uuid.UUID        `json:"hostId"`
-	TemplateVersionID  uuid.UUID         `json:"templateVersionId"`
-	Environment        string            `json:"environment"`
-	Labels             map[string]string `json:"labels"`
-	Purpose            string            `json:"purpose"`
-	Owner              string            `json:"owner"`
-	ExpiresAt          *time.Time        `json:"expiresAt"`
-	AutoRestart        *bool             `json:"autoRestart"`
-	CPU                float64           `json:"cpu"`
-	MemoryBytes        int64             `json:"memoryBytes"`
-	DiskBytes          int64             `json:"diskBytes"`
-	HostPort           int               `json:"hostPort"`
-	BindAddress        string            `json:"bindAddress"`
-	Username           string            `json:"username"`
-	Password           string            `json:"password"`
-	DatabaseName       string            `json:"databaseName"`
-	ExtraEnvironment   map[string]string `json:"extraEnvironment"`
-	TemplateParameters map[string]any    `json:"templateParameters"`
-	ImageArtifactID    *uuid.UUID        `json:"imageArtifactId"`
-	RegistryID         *uuid.UUID        `json:"registryId"`
+	Name               string         `json:"name"`
+	HostID             *uuid.UUID     `json:"hostId"`
+	TemplateVersionID  uuid.UUID      `json:"templateVersionId"`
+	CPU                float64        `json:"cpu"`
+	MemoryBytes        int64          `json:"memoryBytes"`
+	DiskBytes          int64          `json:"diskBytes"`
+	TemplateParameters map[string]any `json:"templateParameters"`
 }
 
 type ActionRequest struct {
@@ -256,24 +240,12 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if strings.TrimSpace(request.Name) == "" {
 		return domain.Instance{}, domain.Task{}, domain.ErrInvalid
 	}
-	if request.ImageArtifactID != nil && request.RegistryID != nil {
-		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: choose either an offline image or a registry", domain.ErrInvalid)
-	}
-	if request.Environment != "" && request.Environment != "development" && request.Environment != "testing" && request.Environment != "staging" && request.Environment != "production" {
-		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: unsupported environment", domain.ErrInvalid)
-	}
-	if request.BindAddress != "" {
-		address := net.ParseIP(request.BindAddress)
-		if address == nil || address.To4() == nil {
-			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: bindAddress must be an IPv4 address", domain.ErrInvalid)
-		}
-	}
 	template, version, err := s.store.GetTemplateVersion(ctx, request.TemplateVersionID)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
-	if !version.Selectable {
-		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: template version is not available for new instances", domain.ErrConflict)
+	if !template.Builtin || template.Tier != "standard" || !version.Selectable {
+		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: template version is not available in the MVP built-in catalog", domain.ErrConflict)
 	}
 	if request.CPU == 0 {
 		request.CPU = version.MinCPU
@@ -287,103 +259,47 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, request CreateRe
 	if request.CPU < version.MinCPU || request.MemoryBytes < version.MinMemoryBytes || request.DiskBytes < version.MinDiskBytes {
 		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: resources are below template minimum", domain.ErrInvalid)
 	}
-	deploymentArchitectures := version.Architectures
-	var artifact *domain.ImageArtifact
-	if request.ImageArtifactID != nil {
-		selectedArtifact, getErr := s.store.GetImageArtifact(ctx, *request.ImageArtifactID)
-		if getErr != nil {
-			return domain.Instance{}, domain.Task{}, getErr
-		}
-		deploymentArchitectures, err = artifactDeploymentArchitectures(selectedArtifact, version)
-		if err != nil {
-			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
-		}
-		artifact = &selectedArtifact
-	}
-	host, hostPort, err := s.selectHost(ctx, request.HostID, deploymentArchitectures, request.CPU, request.MemoryBytes, request.DiskBytes, request.HostPort)
+	host, hostPort, err := s.selectHost(ctx, request.HostID, version.Architectures, request.CPU, request.MemoryBytes, request.DiskBytes, 0)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
-	}
-	request.HostPort = hostPort
-	if artifact != nil && !artifactSupportsVersion(*artifact, host, version) {
-		return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: offline image is incompatible with the selected template or host", domain.ErrConflict)
-	}
-	if request.RegistryID != nil {
-		registry, getErr := s.store.GetRegistry(ctx, *request.RegistryID)
-		if getErr != nil {
-			return domain.Instance{}, domain.Task{}, getErr
-		}
-		if getErr = validateRegistryTemplateSource(registry, version); getErr != nil {
-			return domain.Instance{}, domain.Task{}, getErr
-		}
 	}
 	manifest, err := templates.ParseManifest(version.Manifest)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
-	parameterValues, _, err := templates.ResolveTemplateParameters(manifest.Parameters, request.TemplateParameters, request.ExtraEnvironment, true)
+	parameterValues, _, err := templates.ResolveTemplateParameters(manifest.Parameters, request.TemplateParameters, nil, true)
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
-	if request.Username == "" {
-		request.Username = manifest.Username
-	}
-	if request.DatabaseName == "" {
-		request.DatabaseName = manifest.Database
-	}
+	username, password, databaseName := manifest.Username, "", manifest.Database
 	authentication := templates.AuthenticationMode(template, manifest)
 	switch authentication {
 	case templates.AuthenticationPassword:
-		if request.Password == "" {
-			request.Password = generatePassword()
-		}
-		if strings.ContainsAny(request.Password, "\r\n\x00") {
-			return domain.Instance{}, domain.Task{}, domain.ErrInvalid
-		}
+		password = generatePassword()
 	case templates.AuthenticationUsername:
-		if request.Password != "" {
-			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: selected template does not use password authentication", domain.ErrInvalid)
-		}
 	case templates.AuthenticationNone:
-		if request.Password != "" {
-			return domain.Instance{}, domain.Task{}, fmt.Errorf("%w: selected template does not use database credentials", domain.ErrInvalid)
-		}
-		request.Username = ""
-	}
-	if request.Environment == "" {
-		request.Environment = "development"
-	}
-	if request.BindAddress == "" {
-		request.BindAddress = "0.0.0.0"
-	}
-	autoRestart := host.AutoRestartDefault
-	if request.AutoRestart != nil {
-		autoRestart = *request.AutoRestart
+		username = ""
 	}
 	instanceID := uuid.New()
-	encrypted, err := s.vault.Seal([]byte(request.Password), "instance:"+instanceID.String())
+	encrypted, err := s.vault.Seal([]byte(password), "instance:"+instanceID.String())
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
-	labels, _ := json.Marshal(request.Labels)
-	configuration, _ := json.Marshal(instanceConfiguration{ExtraEnvironment: request.ExtraEnvironment,
-		TemplateParameters: parameterValues, ImageArtifactID: request.ImageArtifactID, RegistryID: request.RegistryID})
+	configuration, _ := json.Marshal(instanceConfiguration{TemplateParameters: parameterValues})
 	short := strings.ReplaceAll(instanceID.String(), "-", "")
-	instance, task, err := s.store.CreateInstanceTask(ctx, store.InstanceInput{ID: instanceID, Name: request.Name, ProjectID: request.ProjectID,
-		HostID: host.ID, TemplateVersionID: version.ID, Environment: request.Environment, Labels: labels,
-		Purpose: request.Purpose, Owner: request.Owner, ExpiresAt: request.ExpiresAt, AutoRestart: autoRestart,
-		CPU: request.CPU, MemoryBytes: request.MemoryBytes, ReservedDiskBytes: request.DiskBytes, HostPort: request.HostPort,
-		ContainerPort: version.DefaultPort, BindAddress: request.BindAddress, DatabaseUsername: request.Username,
-		EncryptedPassword: encrypted, DatabaseName: request.DatabaseName, ComposeProject: "dbmock_" + short,
+	instance, task, err := s.store.CreateInstanceTask(ctx, store.InstanceInput{ID: instanceID, Name: request.Name,
+		HostID: host.ID, TemplateVersionID: version.ID, Environment: "development", Labels: json.RawMessage(`{}`),
+		AutoRestart: host.AutoRestartDefault,
+		CPU:         request.CPU, MemoryBytes: request.MemoryBytes, ReservedDiskBytes: request.DiskBytes, HostPort: hostPort,
+		ContainerPort: version.DefaultPort, BindAddress: "0.0.0.0", DatabaseUsername: username,
+		EncryptedPassword: encrypted, DatabaseName: databaseName, ComposeProject: "dbmock_" + short,
 		RemoteDirectory: path.Join(host.DataRoot, "instances", instanceID.String()), Configuration: configuration}, store.TaskInput{
-		RequestedBy: userID, Payload: ActionPayload{InstanceID: instanceID, ImageArtifactID: request.ImageArtifactID,
-			RegistryID: request.RegistryID},
+		RequestedBy: userID, Payload: ActionPayload{InstanceID: instanceID},
 	})
 	if err != nil {
 		return domain.Instance{}, domain.Task{}, err
 	}
 	s.tasks.Wake()
-	_ = template
 	return instance, task, nil
 }
 

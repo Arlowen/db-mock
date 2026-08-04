@@ -15,7 +15,6 @@ import (
 	appcrypto "github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/hostops"
 	"github.com/pika/db-mock/internal/httpx"
-	"github.com/pika/db-mock/internal/images"
 	"github.com/pika/db-mock/internal/instances"
 	"github.com/pika/db-mock/internal/store"
 	"github.com/pika/db-mock/internal/tasks"
@@ -30,16 +29,15 @@ type Server struct {
 	hosts     *hostops.Service
 	docker    *hostops.Docker
 	instances *instances.Service
-	images    *images.Service
 	tasks     *tasks.Manager
 	logger    *slog.Logger
 }
 
 func New(cfg config.Config, target *store.Store, vault *appcrypto.Vault, authService *auth.Service,
 	hostService *hostops.Service, docker *hostops.Docker, instanceService *instances.Service,
-	imageService *images.Service, taskManager *tasks.Manager, logger *slog.Logger) *Server {
+	taskManager *tasks.Manager, logger *slog.Logger) *Server {
 	return &Server{config: cfg, store: target, vault: vault, auth: authService, hosts: hostService, docker: docker,
-		instances: instanceService, images: imageService, tasks: taskManager, logger: logger}
+		instances: instanceService, tasks: taskManager, logger: logger}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -52,27 +50,36 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/auth/login", s.login)
 		r.Group(func(r chi.Router) {
 			r.Use(s.auth.Middleware)
-			r.Get("/auth/me", s.me)
-			r.Patch("/auth/me", s.updateMe)
-			r.Put("/auth/password", s.changeOwnPassword)
-			r.Post("/auth/logout", s.logout)
-			r.Get("/dashboard", s.dashboard)
-			r.Route("/users", s.userRoutes)
-			r.Route("/projects", s.projectRoutes)
-			r.Route("/hosts", s.hostRoutes)
-			r.Route("/registries", s.registryRoutes)
-			r.Route("/templates", s.templateRoutes)
-			r.Route("/images", s.imageRoutes)
-			r.Route("/instances", s.instanceRoutes)
-			r.Route("/tasks", s.taskRoutes)
-			r.Route("/alerts", s.alertRoutes)
-			r.Route("/webhooks", s.webhookRoutes)
-			r.Route("/audit", s.auditRoutes)
-			r.Route("/settings", s.settingRoutes)
+			s.authenticatedRoutes(r)
 		})
 	})
 	s.serveFrontend(router)
 	return router
+}
+
+func (s *Server) authenticatedRoutes(r chi.Router) {
+	r.Get("/auth/me", s.me)
+	r.Patch("/auth/me", s.updateMe)
+	r.Put("/auth/password", s.changeOwnPassword)
+	r.Post("/auth/logout", s.logout)
+	r.Get("/dashboard", s.dashboard)
+	r.Route("/users", s.userRoutes)
+	r.Route("/projects", s.projectRoutes)
+	r.Route("/hosts", s.hostRoutes)
+	r.Route("/templates", s.templateRoutes)
+	r.Route("/instances", s.instanceRoutes)
+	r.Route("/tasks", s.taskRoutes)
+	r.Route("/alerts", s.alertRoutes)
+	r.Route("/webhooks", s.webhookRoutes)
+	r.Route("/audit", s.auditRoutes)
+	r.Route("/settings", s.settingRoutes)
+}
+
+func (s *Server) sealOptional(value, context string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	return s.vault.Seal([]byte(value), context)
 }
 
 func (s *Server) serveFrontend(router *chi.Mux) {

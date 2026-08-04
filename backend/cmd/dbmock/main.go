@@ -18,7 +18,6 @@ import (
 	appcrypto "github.com/pika/db-mock/internal/crypto"
 	appdb "github.com/pika/db-mock/internal/db"
 	"github.com/pika/db-mock/internal/hostops"
-	"github.com/pika/db-mock/internal/images"
 	"github.com/pika/db-mock/internal/instances"
 	"github.com/pika/db-mock/internal/monitor"
 	"github.com/pika/db-mock/internal/store"
@@ -75,8 +74,6 @@ func main() {
 	taskManager := tasks.New(target, logger, cfg.TaskWorkers)
 	hostService := hostops.NewService(target, docker, taskManager)
 	instanceService := instances.NewService(target, vault, docker, taskManager)
-	imageService := images.New(target, cfg.ArtifactDirectory, cfg.MaxUploadBytes)
-	imageService.StartUploadCleanup(root, logger)
 	if err := taskManager.Start(root); err != nil {
 		logger.Error("start task workers", "error", err)
 		os.Exit(1)
@@ -86,7 +83,7 @@ func main() {
 	webhooks.New(target, vault, logger).Start(root)
 	authService := auth.New(target, cfg.SessionDuration, cfg.SecureCookies)
 	api.Version = version
-	handler := api.New(cfg, target, vault, authService, hostService, docker, instanceService, imageService, taskManager, logger).Handler()
+	handler := api.New(cfg, target, vault, authService, hostService, docker, instanceService, taskManager, logger).Handler()
 	server := &http.Server{Addr: cfg.ListenAddress, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 60 * time.Second, WriteTimeout: 10 * time.Minute, IdleTimeout: 2 * time.Minute,
 		MaxHeaderBytes: 1 << 20}

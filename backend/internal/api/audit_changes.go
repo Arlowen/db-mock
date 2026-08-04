@@ -121,25 +121,6 @@ func instanceReconfigureAuditChanges(before domain.Instance, cpu float64, memory
 	return changes
 }
 
-func registryAuditChanges(before, after domain.Registry, input registryRequest) map[string]any {
-	changes := map[string]any{}
-	addAuditTransition(changes, "name", before.Name, after.Name)
-	addAuditTransition(changes, "endpoint", auditURL(before.URL), auditURL(after.URL))
-	if before.URL != after.URL && auditURL(before.URL) == auditURL(after.URL) {
-		changes["endpointChanged"] = true
-	}
-	addAuditTransition(changes, "username", before.Username, after.Username)
-	addAuditTransition(changes, "authenticationConfigured", before.HasPassword, after.HasPassword)
-	addAuditTransition(changes, "caCertificateConfigured", before.HasCACertificate, after.HasCACertificate)
-	if input.Password != "" {
-		changes["passwordChanged"] = true
-	}
-	if input.CACertificate != "" {
-		changes["caCertificateChanged"] = true
-	}
-	return changes
-}
-
 func webhookAuditChanges(before, after domain.Webhook, input webhookRequest) map[string]any {
 	changes := map[string]any{}
 	addAuditTransition(changes, "name", before.Name, after.Name)
@@ -153,14 +134,5 @@ func webhookAuditChanges(before, after domain.Webhook, input webhookRequest) map
 	if input.Secret != "" {
 		changes["secretChanged"] = true
 	}
-	return changes
-}
-
-func settingAuditChanges(key string, before, after json.RawMessage) map[string]any {
-	if key != "monitoring" && key != "uploads" && key != "timezone" {
-		return map[string]any{"valueChanged": true}
-	}
-	changes := map[string]any{}
-	addAuditTransition(changes, "value", auditJSON(before), auditJSON(after))
 	return changes
 }

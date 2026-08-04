@@ -81,44 +81,28 @@ func TestHostAuditChangesNeverIncludeCredentialMaterial(t *testing.T) {
 	}
 }
 
-func TestRegistryAndWebhookAuditChangesSanitizeEndpointsAndSecrets(t *testing.T) {
-	registryChanges := registryAuditChanges(
-		domain.Registry{URL: "https://registry.old.example.com", EncryptedPassword: "old-password", HasPassword: true},
-		domain.Registry{URL: "https://registry.new.example.com", EncryptedPassword: "new-password", HasPassword: true, HasCACertificate: true},
-		registryRequest{Password: "plain-password", CACertificate: "private-ca"},
-	)
+func TestWebhookAuditChangesSanitizeEndpointsAndSecrets(t *testing.T) {
 	webhookChanges := webhookAuditChanges(
 		domain.Webhook{URL: "https://hooks.example.com/db?token=old-token", EncryptedSecret: "old-secret", HasSecret: true, Events: json.RawMessage(`["alert.created"]`)},
 		domain.Webhook{URL: "https://hooks.example.com/db?token=new-token", EncryptedSecret: "new-secret", HasSecret: true, Events: json.RawMessage(`["task.failed"]`), Enabled: true},
 		webhookRequest{Secret: "plain-secret"},
 	)
 
-	encoded, err := json.Marshal(map[string]any{"registry": registryChanges, "webhook": webhookChanges})
+	encoded, err := json.Marshal(webhookChanges)
 	if err != nil {
 		t.Fatalf("marshal changes: %v", err)
 	}
 	text := string(encoded)
-	for _, secret := range []string{"old-password", "new-password", "plain-password", "private-ca", "old-token", "new-token", "old-secret", "new-secret", "plain-secret"} {
+	for _, secret := range []string{"old-token", "new-token", "old-secret", "new-secret", "plain-secret"} {
 		if strings.Contains(text, secret) {
 			t.Fatalf("sensitive value %q leaked into audit changes: %s", secret, text)
 		}
 	}
-	if registryChanges["passwordChanged"] != true || registryChanges["caCertificateChanged"] != true || webhookChanges["secretChanged"] != true {
-		t.Fatalf("expected safe secret-change flags: %#v %#v", registryChanges, webhookChanges)
+	if webhookChanges["secretChanged"] != true {
+		t.Fatalf("expected safe secret-change flag: %#v", webhookChanges)
 	}
 	if webhookChanges["endpointChanged"] != true {
 		t.Fatalf("query-only endpoint changes should retain a safe change flag: %#v", webhookChanges)
-	}
-}
-
-func TestSettingAuditChangesOnlyExposeKnownStructuredSettings(t *testing.T) {
-	known := settingAuditChanges("timezone", json.RawMessage(`"UTC"`), json.RawMessage(`"Asia/Shanghai"`))
-	if known["value"] == nil {
-		t.Fatalf("known setting should include its transition: %#v", known)
-	}
-	unknown := settingAuditChanges("customApiToken", json.RawMessage(`"old-secret"`), json.RawMessage(`"new-secret"`))
-	if len(unknown) != 1 || unknown["valueChanged"] != true {
-		t.Fatalf("unknown setting should only include a safe change flag: %#v", unknown)
 	}
 }
 

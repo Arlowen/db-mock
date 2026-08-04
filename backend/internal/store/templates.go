@@ -110,60 +110,6 @@ func (s *Store) UpsertBuiltinTemplate(ctx context.Context, input TemplateInput, 
 	return item, nil
 }
 
-// CreateCustomTemplateVersion creates a new immutable custom template version.
-// Re-uploading an existing slug and version is deliberately rejected so an
-// instance pinned to that version can never observe a different Compose file.
-func (s *Store) CreateCustomTemplateVersion(ctx context.Context, input TemplateInput, version TemplateVersionInput) (domain.Template, error) {
-	normalizeTemplateInput(&input, &version)
-	input.Builtin = false
-	input.Tier = "custom"
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return domain.Template{}, err
-	}
-	defer tx.Rollback(ctx)
-
-	var item domain.Template
-	err = tx.QueryRow(ctx, `INSERT INTO templates(id,slug,name,name_zh,description,category,tier,builtin,icon,risk_report)
-        VALUES($1,$2,$3,$4,$5,$6,$7,false,$8,$9)
-        ON CONFLICT(slug) DO UPDATE SET name=excluded.name,name_zh=excluded.name_zh,
-        description=excluded.description,category=excluded.category,tier='custom',
-        icon=excluded.icon,risk_report=excluded.risk_report,updated_at=now()
-        WHERE NOT templates.builtin
-        RETURNING id,slug,name,name_zh,description,category,tier,builtin,icon,risk_report,created_at,updated_at`,
-		uuid.New(), input.Slug, input.Name, input.NameZH, input.Description, input.Category,
-		input.Tier, input.Icon, input.RiskReport).Scan(&item.ID, &item.Slug, &item.Name, &item.NameZH,
-		&item.Description, &item.Category, &item.Tier, &item.Builtin, &item.Icon, &item.RiskReport,
-		&item.CreatedAt, &item.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Template{}, fmt.Errorf("%w: template slug is reserved by a built-in template", domain.ErrConflict)
-	}
-	if err != nil {
-		return domain.Template{}, err
-	}
-
-	var v domain.TemplateVersion
-	err = tx.QueryRow(ctx, `INSERT INTO template_versions(id,template_id,version,image_reference,architectures,
-		min_cpu,min_memory_bytes,min_disk_bytes,default_port,compose_template,manifest,risk_report,package_path,selectable,immutable)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,true)
-		RETURNING id,template_id,version,image_reference,architectures,min_cpu,min_memory_bytes,min_disk_bytes,
-		default_port,compose_template,manifest,risk_report,package_path,selectable,immutable,created_at`, uuid.New(), item.ID,
-		version.Version, version.ImageReference, version.Architectures, version.MinCPU, version.MinMemoryBytes,
-		version.MinDiskBytes, version.DefaultPort, version.ComposeTemplate, version.Manifest, version.RiskReport,
-		version.PackagePath).Scan(templateVersionScan(&v)...)
-	if errors.Is(translate(err), domain.ErrConflict) {
-		return domain.Template{}, fmt.Errorf("%w: template version already exists and cannot be replaced", domain.ErrConflict)
-	}
-	if err != nil {
-		return domain.Template{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return domain.Template{}, err
-	}
-	item.Versions = []domain.TemplateVersion{v}
-	return item, nil
-}
-
 func templateVersionScan(v *domain.TemplateVersion) []any {
 	return []any{&v.ID, &v.TemplateID, &v.Version, &v.ImageReference, &v.Architectures, &v.MinCPU,
 		&v.MinMemoryBytes, &v.MinDiskBytes, &v.DefaultPort, &v.ComposeTemplate, &v.Manifest, &v.RiskReport, &v.PackagePath,
@@ -224,65 +170,6 @@ func (s *Store) ListTemplates(ctx context.Context) ([]domain.Template, error) {
 		}
 	}
 	return items, rows.Err()
-}
-
-type DeletedTemplate struct {
-	Name         string
-	PackagePaths []string
-}
-
-func (s *Store) DeleteTemplate(ctx context.Context, id uuid.UUID) (DeletedTemplate, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return DeletedTemplate{}, err
-	}
-	defer tx.Rollback(ctx)
-	var deleted DeletedTemplate
-	var builtin bool
-	if err = tx.QueryRow(ctx, "SELECT name,builtin FROM templates WHERE id=$1 FOR UPDATE", id).Scan(&deleted.Name, &builtin); err != nil {
-		return DeletedTemplate{}, translate(err)
-	}
-	if builtin {
-		return DeletedTemplate{}, domain.ErrForbidden
-	}
-	rows, err := tx.Query(ctx, `SELECT package_path FROM template_versions
-        WHERE template_id=$1 ORDER BY created_at FOR UPDATE`, id)
-	if err != nil {
-		return DeletedTemplate{}, err
-	}
-	for rows.Next() {
-		var packagePath string
-		if err = rows.Scan(&packagePath); err != nil {
-			rows.Close()
-			return DeletedTemplate{}, err
-		}
-		if packagePath != "" {
-			deleted.PackagePaths = append(deleted.PackagePaths, packagePath)
-		}
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return DeletedTemplate{}, err
-	}
-	rows.Close()
-	var count int
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM instances i JOIN template_versions v ON v.id=i.template_version_id
-		WHERE v.template_id=$1`, id).Scan(&count); err != nil {
-		return DeletedTemplate{}, err
-	}
-	if count > 0 {
-		return DeletedTemplate{}, fmt.Errorf("%w: template is referenced by database instance history", domain.ErrConflict)
-	}
-	if _, err := tx.Exec(ctx, "DELETE FROM template_versions WHERE template_id=$1", id); err != nil {
-		return DeletedTemplate{}, err
-	}
-	if _, err := tx.Exec(ctx, "DELETE FROM templates WHERE id=$1", id); err != nil {
-		return DeletedTemplate{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return DeletedTemplate{}, err
-	}
-	return deleted, nil
 }
 
 func NormalizeTemplateSlug(value string) string {
