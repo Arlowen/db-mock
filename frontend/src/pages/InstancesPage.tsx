@@ -33,6 +33,7 @@ import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from 
 import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { canRetryInstanceLifecycleAction, instanceLifecycleRequestRecoveryKey, isInstanceLifecycleAction, type InstanceLifecycleAction } from '../lib/instance-operation-recovery'
 import { formatCompactDateTime, formatDateTime, formatTime, translateCode } from '../lib/localization'
+import { mvpDatabaseTemplates, mvpInstanceCreatePayload } from '../lib/mvp-instance-create'
 import { permissionsFor } from '../lib/permissions'
 import { hasProjectDeploymentProfile, hasProjectLifecycleDefaults, parseLabelText, projectDeploymentProfileMatches, projectDeploymentProfileValues, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { restoreOutcome } from '../lib/restore-outcome'
@@ -85,7 +86,6 @@ function batchActionErrorMessage(item: InstanceBatchRejected): string {
 
 function connectionHandoffText(
   item: Instance,
-  projectName: string | undefined,
   connection: Connection,
   verification: ReturnType<typeof restoreVerification>,
   t: TFunction,
@@ -96,11 +96,6 @@ function connectionHandoffText(
     instanceName: item.name,
     templateName: item.templateName,
     templateVersion: item.templateVersion,
-    project: projectName || t('noProject'),
-    environment: translateCode(t, item.environment),
-    purpose: item.purpose || t('purposeMissing'),
-    owner: item.owner || t('ownerMissing'),
-    expectedExpiry: item.expiresAt ? formatDateTime(item.expiresAt, language, timezone) : t('retainIndefinitely'),
     status: translateCode(t, item.status),
     dataVersion: verification?.backupName || verification?.backupId.slice(0, 8),
     backupCreatedAt: verification?.backupCreatedAt ? formatDateTime(verification.backupCreatedAt, language, timezone) : undefined,
@@ -111,11 +106,6 @@ function connectionHandoffText(
     title: t('connectionHandoffTitle'),
     instance: t('connectionHandoffInstance'),
     template: t('template'),
-    project: t('project'),
-    environment: t('environment'),
-    purpose: t('purpose'),
-    owner: t('owner'),
-    expectedExpiry: t('expectedExpiry'),
     status: t('status'),
     authentication: t('authentication'),
     dataVersion: t('connectionHandoffDataVersion'),
@@ -154,22 +144,16 @@ export function InstancesPage() {
   const screens = Grid.useBreakpoint()
   const compactLayout = screens.md === false
   const load = useCallback(async () => {
-    const [instanceResponse, templateResponse, hostResponse, projectResponse, imageResponse, registryResponse] = await Promise.allSettled([
+    const [instanceResponse, templateResponse, hostResponse] = await Promise.allSettled([
       api<{ items: Instance[] }>('/instances'),
       api<{ items: DatabaseTemplate[] }>('/templates'),
       api<{ items: Host[] }>('/hosts'),
-      api<{ items: Project[] }>('/projects'),
-      api<{ items: ImageArtifact[] }>('/images'),
-      api<{ items: Registry[] }>('/registries'),
     ])
     if (instanceResponse.status === 'fulfilled') setItems(instanceResponse.value.items)
     if (templateResponse.status === 'fulfilled') setTemplates(templateResponse.value.items)
     if (hostResponse.status === 'fulfilled') setHosts(hostResponse.value.items)
-    if (projectResponse.status === 'fulfilled') setProjects(projectResponse.value.items)
-    if (imageResponse.status === 'fulfilled') setImages(imageResponse.value.items)
-    if (registryResponse.status === 'fulfilled') setRegistries(registryResponse.value.items)
     setLoadError(instanceResponse.status === 'rejected' ? errorMessage(instanceResponse.reason) : '')
-    const supportingFailure = [templateResponse, hostResponse, projectResponse, imageResponse, registryResponse].find((result) => result.status === 'rejected')
+    const supportingFailure = [templateResponse, hostResponse].find((result) => result.status === 'rejected')
     setSupportingDataError(supportingFailure?.status === 'rejected' ? errorMessage(supportingFailure.reason) : '')
     setCreationDataReady(templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled')
     setLoading(false)
@@ -193,6 +177,7 @@ export function InstancesPage() {
       setRefreshingSources(false)
     }
   }
+  const mvpTemplates = useMemo(() => mvpDatabaseTemplates(templates), [templates])
   const hasOnlineHost = hosts.some((host) => host.status === 'online' && !host.maintenance)
   const createRequested = params.get('create') === '1'
   const requestedCopyID = params.get('copy')
@@ -202,15 +187,15 @@ export function InstancesPage() {
   const requestedProjectFilter = params.get('project') || ''
   const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
   const requestedProjectProfile = useMemo(() => projectDeploymentProfileValues(requestedProject), [requestedProject])
-  const requestedProjectVersion = selectableTemplateVersion(templates, requestedProjectProfile?.templateVersionId)
+  const requestedProjectVersion = selectableTemplateVersion(mvpTemplates, requestedProjectProfile?.templateVersionId)
   const requestedProjectProfileAvailable = !!requestedProjectProfile && !!requestedProjectVersion
   const requestedCopySource = requestedCopyID ? items.find((item) => item.id === requestedCopyID) : undefined
-  const requestedCopyTemplateAvailable = !!requestedCopySource && templates.some((template) => template.versions.some((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false))
+  const requestedCopyTemplateAvailable = !!requestedCopySource && mvpTemplates.some((template) => template.versions.some((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false))
   const requestedCopySourceUnavailable = !!requestedCopyID && !requestedCopySource
   const requestedCopyTemplateUnavailable = !!requestedCopySource && !requestedCopyTemplateAvailable
-  const requestedTemplateAvailable = !!requestedTemplateID && templates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
-  const requestedVersion = templates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
-  const requestedCopyVersion = requestedCopySource ? templates.flatMap((template) => template.versions).find((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false) : undefined
+  const requestedTemplateAvailable = !!requestedTemplateID && mvpTemplates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
+  const requestedVersion = mvpTemplates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
+  const requestedCopyVersion = requestedCopySource ? mvpTemplates.flatMap((template) => template.versions).find((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false) : undefined
   const requestedCreationVersion = requestedCopyTemplateAvailable ? requestedCopyVersion : requestedVersion || requestedProjectVersion
   const requestedImage = images.find((image) => image.id === requestedImageID)
   const requestedImageAvailable = !!requestedVersion && !!requestedImage && requestedImage.status === 'ready' && imageArtifactMatchesTemplate(requestedImage.imageRefs, requestedVersion) && imageArtifactSupportsAnyArchitecture(requestedImage.architectures, requestedVersion.architectures)
@@ -239,7 +224,7 @@ export function InstancesPage() {
     copyPrefillApplied.current = false
     initializedTemplateVersionID.current = ''
     setCopySource(source)
-    setStep(source || requestedTemplateAvailable || requestedProjectProfileAvailable ? 1 : 0)
+    setStep(0)
     setCreateFailure(undefined)
     setCreateDraftDirty(false)
     form.resetFields()
@@ -265,6 +250,7 @@ export function InstancesPage() {
     setDrawer(true)
   }, [addRequiredHost, canOperate, createRequested, creationDataReady, drawer, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProject, requestedProjectFilter, requestedProjectProfile, requestedProjectProfileAvailable, requestedTemplateAvailable, requestedTemplateID, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
+  const requestedName = Form.useWatch('name', { form, preserve: true })
   const selectedProjectID = Form.useWatch('projectId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
   const selectedRegistryID = Form.useWatch('registryId', { form, preserve: true })
@@ -275,9 +261,9 @@ export function InstancesPage() {
   const requestedDiskGiB = Form.useWatch('diskGiB', { form, preserve: true })
   const requestedHostPort = Form.useWatch('hostPort', { form, preserve: true })
   const submittedTemplateParameters = Form.useWatch('templateParameters', { form, preserve: true })
-  const selected = useMemo(() => { for (const item of templates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable !== false) return { template: item, version }; return undefined }, [templates, selectedVersionID])
+  const selected = useMemo(() => { for (const item of mvpTemplates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable !== false) return { template: item, version }; return undefined }, [mvpTemplates, selectedVersionID])
   const selectedAuthentication = selected ? templateAuthentication(selected.template, selected.version) : 'password'
-  const frequentVersions = useMemo(() => frequentTemplateVersions(templates), [templates])
+  const frequentVersions = useMemo(() => frequentTemplateVersions(mvpTemplates), [mvpTemplates])
   const selectedProject = projects.find((project) => project.id === selectedProjectID)
   const selectedProjectProfile = useMemo(() => projectDeploymentProfileValues(selectedProject), [selectedProject])
   const selectedProjectProfileAvailable = !!selectedProjectProfile && !!selectableTemplateVersion(templates, selectedProjectProfile.templateVersionId)
@@ -321,25 +307,15 @@ export function InstancesPage() {
     setRefreshingCreateContext(true)
     setCreateFailure({ ...failure, contextStatus: 'checking', existingInstanceId: undefined, existingInstanceName: undefined })
     try {
-      const [instanceResponse, templateResponse, hostResponse, projectResponse, imageResponse, registryResponse] = await Promise.allSettled([
+      const [instanceResponse, templateResponse, hostResponse] = await Promise.allSettled([
         api<{ items: Instance[] }>('/instances'),
         api<{ items: DatabaseTemplate[] }>('/templates'),
         api<{ items: Host[] }>('/hosts'),
-        api<{ items: Project[] }>('/projects'),
-        api<{ items: ImageArtifact[] }>('/images'),
-        api<{ items: Registry[] }>('/registries'),
       ])
       if (instanceResponse.status === 'fulfilled') setItems(instanceResponse.value.items)
       if (templateResponse.status === 'fulfilled') setTemplates(templateResponse.value.items)
       if (hostResponse.status === 'fulfilled') setHosts(hostResponse.value.items)
-      if (projectResponse.status === 'fulfilled') setProjects(projectResponse.value.items)
-      if (imageResponse.status === 'fulfilled') setImages(imageResponse.value.items)
-      if (registryResponse.status === 'fulfilled') setRegistries(registryResponse.value.items)
       const coreReady = instanceResponse.status === 'fulfilled' && templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled'
-      const relevantSourcesReady =
-        (!values.projectId || projectResponse.status === 'fulfilled') &&
-        (values.imageSource !== 'offline' || imageResponse.status === 'fulfilled') &&
-        (values.imageSource !== 'registry' || registryResponse.status === 'fulfilled')
       const normalizedName = values.name?.trim().toLocaleLowerCase()
       const existing = instanceResponse.status === 'fulfilled' && normalizedName
         ? instanceResponse.value.items.find((item) => item.name.trim().toLocaleLowerCase() === normalizedName)
@@ -347,7 +323,7 @@ export function InstancesPage() {
       setCreationDataReady(templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled')
       setCreateFailure((current) => current ? {
         ...current,
-        contextStatus: coreReady && relevantSourcesReady ? 'ready' : 'failed',
+        contextStatus: coreReady ? 'ready' : 'failed',
         existingInstanceId: existing?.id,
         existingInstanceName: existing?.name,
       } : current)
@@ -364,25 +340,19 @@ export function InstancesPage() {
       : true
   const createDraftReady = creationDataReady &&
     !!selected &&
-    selectedProjectReady &&
+    !!requestedName?.trim() &&
     selectedHostReady &&
     resourceRequestReady &&
-    capacityCandidates.length > 0 &&
-    imageSourceReady &&
-    selectedImageSourceReady
+    capacityCandidates.length > 0
   const createRetryAllowed = !!createFailure && canRetryInstanceCreateRequest({
     ...createFailure,
     draftReady: createDraftReady,
   })
-  const createRecoveryStep = !selected
+  const createRecoveryStep = !selected || !requestedName?.trim() || createFailure?.code === 'invalid_input'
     ? 0
-    : !selectedProjectReady || createFailure?.code === 'invalid_input'
+    : !resourceRequestReady || capacityCandidates.length === 0 || !selectedHostReady
       ? 1
-      : !resourceRequestReady || capacityCandidates.length === 0 || !selectedHostReady
-        ? 2
-        : !imageSourceReady || !selectedImageSourceReady
-          ? 3
-          : 4
+      : 2
   useEffect(() => {
     if (!selected) return
     const action = instanceTemplateDraftAction({
@@ -402,9 +372,9 @@ export function InstancesPage() {
     const manifest = selected.version.manifest
     const profile = selectedResourceProfiles[0]
     form.setFieldsValue({
-      cpu: selectedProjectProfileSelected ? selectedProjectProfile!.cpu : profile?.cpu ?? selected.version.minCpu,
-      memoryGiB: selectedProjectProfileSelected ? selectedProjectProfile!.memoryGiB : (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3,
-      diskGiB: selectedProjectProfileSelected ? selectedProjectProfile!.diskGiB : (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3,
+      cpu: profile?.cpu ?? selected.version.minCpu,
+      memoryGiB: (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3,
+      diskGiB: (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3,
       username: selectedAuthentication === 'none' ? '' : manifest.username,
       password: undefined,
       databaseName: manifest.database,
@@ -444,29 +414,18 @@ export function InstancesPage() {
   }
   const openCreate = () => {
     if (!hasOnlineHost) { addRequiredHost(); return }
-    const project = projects.find((candidate) => candidate.id === projectFilter)
-    const profile = projectDeploymentProfileValues(project)
-    const profileAvailable = !!profile && !!selectableTemplateVersion(templates, profile.templateVersionId)
     copyPrefillApplied.current = false
     initializedTemplateVersionID.current = ''
     setCopySource(undefined)
     setDrawer(true)
-    setStep(profileAvailable ? 1 : 0)
+    setStep(0)
     setCreateFailure(undefined)
     setCreateDraftDirty(false)
-    setAppliedProjectDefaultsID(project?.id || '')
+    setAppliedProjectDefaultsID('')
     form.resetFields()
-    form.setFieldsValue({
-      bindAddress: '0.0.0.0',
-      autoRestart: true,
-      imageSource: 'public',
-      projectId: projectFilter || undefined,
-      ...lifecycleDefaults,
-      ...projectDeploymentValues(project),
-      ...(profileAvailable ? profile : {}),
-    })
+    form.setFieldsValue({})
   }
-  const finishCloseCreate = () => { suppressRequestedCreateRef.current = true; setDrawer(false); setParams(projectFilter ? { project: projectFilter } : {}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
+  const finishCloseCreate = () => { suppressRequestedCreateRef.current = true; setDrawer(false); setParams({}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
     if (!createDraftDirty) { finishCloseCreate(); return }
@@ -480,15 +439,13 @@ export function InstancesPage() {
     })
   }
   const next = async () => {
-    const fields: Array<keyof CreateValues> = step === 0 ? ['templateVersionId'] : step === 1 ? ['name', 'environment', 'owner', 'labels'] : step === 2 ? ['cpu', 'memoryGiB', 'diskGiB', 'bindAddress'] : step === 3 ? ['templateParameters', 'extraEnvironment', ...(imageSource === 'registry' ? ['registryId' as const] : imageSource === 'offline' ? ['imageArtifactId' as const] : [])] : []
+    const fields: Array<keyof CreateValues> = step === 0 ? ['templateVersionId', 'name'] : step === 1 ? ['cpu', 'memoryGiB', 'diskGiB', 'templateParameters'] : []
     try {
       await form.validateFields(fields)
       if (step === 0 && compatibleHosts.length === 0) return
-      if (step === 2 && capacityCandidates.length === 0) return
-      if (step === 3 && !imageSourceReady) return
-      if (step === 3 && imageSource === 'offline' && selectedImage && capacityCandidates.length === 0) return
+      if (step === 1 && capacityCandidates.length === 0) return
       setCreateFailure(undefined)
-      setStep(Math.min(step + 1, 4))
+      setStep(Math.min(step + 1, 2))
     } catch { /* form marks errors */ }
   }
   const create = async () => {
@@ -497,10 +454,7 @@ export function InstancesPage() {
       setCreateFailure(undefined)
       await form.validateFields()
       const values = form.getFieldsValue(true) as CreateValues
-      const labels = parseLabelText(values.labels) || {}
-      let extraEnvironment: Record<string, string> = {}
-      if (values.extraEnvironment?.trim()) extraEnvironment = JSON.parse(values.extraEnvironment)
-      const payload = { name: values.name, projectId: values.projectId || null, environment: values.environment, purpose: values.purpose?.trim() || '', owner: values.owner.trim(), expiresAt: values.expiresAt?.toISOString() || null, templateVersionId: values.templateVersionId, hostId: values.hostId || null, cpu: values.cpu, memoryBytes: Math.round(values.memoryGiB * 1024 ** 3), diskBytes: Math.round(values.diskGiB * 1024 ** 3), hostPort: values.hostPort || 0, bindAddress: values.bindAddress, username: selectedAuthentication === 'none' ? '' : values.username || '', password: selectedAuthentication === 'password' ? values.password || '' : '', databaseName: values.databaseName || '', autoRestart: values.autoRestart, imageArtifactId: values.imageSource === 'offline' ? values.imageArtifactId || null : null, registryId: values.imageSource === 'registry' ? values.registryId || null : null, labels, extraEnvironment, templateParameters: values.templateParameters || {} }
+      const payload = mvpInstanceCreatePayload(values)
       const result = await api<{ instance: Instance; task: Task }>('/instances', { method: 'POST', body: payload })
       notifyTask(result.task)
       finishCloseCreate()
@@ -651,8 +605,7 @@ export function InstancesPage() {
       ])
       if (requestID !== handoffRequestID.current) return
       const verification = instanceHandoffRestoreVerification(handoffItem, taskResponse.items, backupResponse.items)
-      const projectName = projects.find((project) => project.id === handoffItem.projectId)?.name
-      await copyText(connectionHandoffText(handoffItem, projectName, connection, verification, t, i18n.language, timezone))
+      await copyText(connectionHandoffText(handoffItem, connection, verification, t, i18n.language, timezone))
       if (requestID !== handoffRequestID.current) return
       setHandoffResult({
         address: connection.address,
@@ -668,7 +621,6 @@ export function InstancesPage() {
   }
   const instanceActions = (item: Instance) => {
     const lifecycleActions = canOperate ? instanceListActions(item.status) : []
-    const copyAvailable = templates.some((template) => template.versions.some((version) => version.id === item.templateVersionId && version.selectable !== false))
     const handoffAvailability = instanceHandoffAvailability(item, canReadCredentials)
     return <Space size={2} className="instance-row-actions">
       {lifecycleActions.length > 0 && <Dropdown
@@ -701,14 +653,6 @@ export function InstancesPage() {
         icon={<ExportOutlined />}
         onClick={() => openConnectionHandoff(item)}
       />}
-      {canOperate && <Button
-        type="text"
-        disabled={bulkSubmitting || !creationDataReady || !copyAvailable}
-        aria-label={t('copyDeployment')}
-        title={copyAvailable ? t('copyDeploymentForInstance', { name: item.name }) : t('copyDeploymentUnavailableHint')}
-        icon={<CopyOutlined />}
-        onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}
-      />}
       <Button type="text" aria-label={t('details')} title={t('details')} icon={<MoreOutlined />} onClick={() => navigate(`/instances/${item.id}`)} />
     </Space>
   }
@@ -718,9 +662,7 @@ export function InstancesPage() {
     { title: t('status'), dataIndex: 'status', width: 95, render: (value: string) => <StatusTag value={value} /> },
     { title: t('host'), width: 155, ellipsis: true, render: (_: unknown, item: Instance) => <><Typography.Text>{item.hostName}</Typography.Text><br /><Typography.Text type="secondary">{item.connectionAddress}:{item.hostPort}</Typography.Text></> },
     { title: t('resources'), width: 195, render: (_: unknown, item: Instance) => `${item.cpu} CPU · ${bytes(item.memoryBytes)} · ${bytes(item.reservedDiskBytes)}` },
-    { title: t('environment'), dataIndex: 'environment', width: 125, render: (value: string) => <Tag>{translateCode(t, value)}</Tag> },
-    { title: t('lifecycle'), width: 190, render: (_: unknown, item: Instance) => <div className="instance-lifecycle-cell"><Space size={4} wrap><InstanceLifecycleTag expiresAt={item.expiresAt} /></Space><Typography.Text type="secondary">{item.owner || t('ownerMissing')}</Typography.Text></div> },
-    { title: '', align: 'right' as const, fixed: 'right' as const, width: 225, render: (_: unknown, item: Instance) => instanceActions(item) },
+    { title: '', align: 'right' as const, fixed: 'right' as const, width: 185, render: (_: unknown, item: Instance) => instanceActions(item) },
   ]
   const mobileColumns = [
     {
@@ -739,42 +681,26 @@ export function InstancesPage() {
         </div>
         <Space size={[6, 6]} wrap>
           <StatusTag value={item.status} />
-          <Tag>{translateCode(t, item.environment)}</Tag>
-          <InstanceLifecycleTag expiresAt={item.expiresAt} />
           <Typography.Text type="secondary">{item.cpu} CPU · {bytes(item.memoryBytes)} · {bytes(item.reservedDiskBytes)}</Typography.Text>
         </Space>
-        <Typography.Text type="secondary">{item.purpose || t('purposeMissing')} · {item.owner || t('ownerMissing')}</Typography.Text>
       </div>,
     },
   ]
   const columns = compactLayout ? mobileColumns : desktopColumns
-  const versionOptions = templates.flatMap((item) => item.versions.filter((version) => version.selectable !== false).map((version) => ({ value: version.id, searchText: `${item.name} ${item.nameZh} ${version.version} ${templateImageReferences(version).join(' ')}`, label: `${item.name} ${version.version}`, template: item, version })))
-  const filteredItems = useMemo(() => items.filter((item) => (!projectFilter || item.projectId === projectFilter) && (!hostFilter || item.hostId === hostFilter) && (!environmentFilter || item.environment === environmentFilter) && (!statusFilter || item.status === statusFilter) && `${item.name} ${item.templateName} ${item.hostName} ${item.purpose || ''} ${item.owner || ''} ${JSON.stringify(item.labels)}`.toLowerCase().includes(search.toLowerCase())), [items, projectFilter, hostFilter, environmentFilter, statusFilter, search])
-  const hasFilters = !!(search || projectFilter || hostFilter || environmentFilter || statusFilter)
+  const versionOptions = mvpTemplates.flatMap((item) => item.versions.filter((version) => version.selectable !== false).map((version) => ({ value: version.id, searchText: `${item.name} ${item.nameZh} ${version.version} ${templateImageReferences(version).join(' ')}`, label: `${item.name} ${version.version}`, template: item, version })))
+  const filteredItems = useMemo(() => items.filter((item) => (!hostFilter || item.hostId === hostFilter) && (!statusFilter || item.status === statusFilter) && `${item.name} ${item.templateName} ${item.hostName}`.toLowerCase().includes(search.toLowerCase())), [items, hostFilter, statusFilter, search])
+  const hasFilters = !!(search || hostFilter || statusFilter)
   const showFilters = items.length > 0 || hasFilters
   useEffect(() => {
     setSelectedInstanceIDs([])
     setBulkAction(undefined)
     setBulkRequestError('')
-  }, [environmentFilter, hostFilter, projectFilter, search, statusFilter])
+  }, [hostFilter, search, statusFilter])
   const resetPage = () => setPage(1)
-  const updateProjectFilter = (value: string) => {
-    setProjectFilter(value)
-    const next = new URLSearchParams(params)
-    if (value) next.set('project', value)
-    else next.delete('project')
-    setParams(next, { replace: true })
-    resetPage()
-  }
   const clearFilters = () => {
     setSearch('')
-    setProjectFilter('')
     setHostFilter('')
-    setEnvironmentFilter('')
     setStatusFilter('')
-    const next = new URLSearchParams(params)
-    next.delete('project')
-    setParams(next, { replace: true })
     resetPage()
   }
   const emptyAction = hasFilters ? clearFilters : canOperate ? creationDataReady ? openCreate : () => { setLoading(true); void load() } : undefined
@@ -860,16 +786,7 @@ export function InstancesPage() {
       <Button size="small" type="text" onClick={() => { setBulkResult(undefined); setBulkTrackingError('') }}>{t('dismiss')}</Button>
     </Space>}
   />
-  const rowSelection = canOperate ? {
-    selectedRowKeys: selectedInstanceIDs,
-    preserveSelectedRowKeys: true,
-    columnWidth: compactLayout ? 44 : 48,
-    getCheckboxProps: () => ({ disabled: bulkSubmitting }),
-    onChange: (keys: Key[]) => {
-      setSelectedInstanceIDs(keys.map(String))
-    },
-  } : undefined
-  const createSteps = [{ title: t('template') }, { title: t('basicInfo') }, { title: t('resources') }, { title: t('options') }, { title: t('confirm') }]
+  const createSteps = [{ title: t('databaseAndName') }, { title: t('resourcesAndHost') }, { title: t('confirm') }]
   const parameterInput = (parameter: TemplateParameter) => {
     if (parameter.type === 'number') return <InputNumber min={parameter.min} max={parameter.max} step={parameter.step} style={{ width: '100%' }} />
     if (parameter.type === 'boolean') return <Switch />
@@ -880,10 +797,9 @@ export function InstancesPage() {
   return <><PageHeader title={t('databases')} description={t('instancesDescription')} />
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('instanceListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
-    {showFilters && <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('project')} value={projectFilter} onChange={updateProjectFilter} className="instance-filter-project" options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('environment')} value={environmentFilter} onChange={(value) => { setEnvironmentFilter(value); resetPage() }} className="instance-filter-environment" options={[{ value: '', label: t('allEnvironments') }, ...['development', 'testing', 'staging', 'production'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed', 'reconfiguring', 'backing_up', 'restoring'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
-    {bulkToolbar}
+    {showFilters && <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
     {bulkResultAlert}
-    {(items.length > 0 || !loadError) && <Card className="instance-table-card" extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} rowSelection={rowSelection} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 1210 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
+    {(items.length > 0 || !loadError) && <Card className="instance-table-card" extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 860 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
     <Modal
       className="instance-handoff-modal"
       title={handoffItem ? t('quickConnectionHandoffTitle', { name: handoffItem.name }) : t('quickConnectionHandoff')}
@@ -913,13 +829,10 @@ export function InstancesPage() {
           title={t('connectionHandoffContextTitle')}
           size="small"
           bordered
-          column={{ xs: 1, sm: 2 }}
+          column={1}
           items={[
-            { key: 'project', label: t('project'), children: projects.find((project) => project.id === handoffItem.projectId)?.name || t('noProject') },
-            { key: 'environment', label: t('environment'), children: translateCode(t, handoffItem.environment) },
-            { key: 'purpose', label: t('purpose'), span: 2, children: handoffItem.purpose || t('purposeMissing') },
-            { key: 'owner', label: t('owner'), children: handoffItem.owner || t('ownerMissing') },
-            { key: 'expiry', label: t('expectedExpiry'), children: handoffItem.expiresAt ? formatDateTime(handoffItem.expiresAt, i18n.language, timezone) : t('retainIndefinitely') },
+            { key: 'database', label: t('database'), children: `${handoffItem.templateName} ${handoffItem.templateVersion}` },
+            { key: 'status', label: t('status'), children: <StatusTag value={handoffItem.status} /> },
           ]}
         />}
         {!handoffError && !handoffResult && <Alert
@@ -986,19 +899,9 @@ export function InstancesPage() {
         {bulkRequestError && <Alert type="error" showIcon message={rowActionInstance ? t('instanceActionRequestFailed', { action: bulkAction ? t(bulkAction) : '' }) : t('batchRequestFailed')} description={<div className="instance-action-request-error"><Typography.Text>{bulkRequestError}</Typography.Text>{rowActionInstance && <Typography.Text type="secondary">{t('instanceActionRequestFailedHint')}</Typography.Text>}</div>} />}
       </div>
     </Modal>
-    <Drawer title={copySource ? t('copyDeploymentTitle', { name: copySource.name }) : t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateFailure(undefined); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 2 && resourceRequestReady && capacityCandidates.length === 0) || (step === 3 && (!imageSourceReady || (imageSource === 'offline' && !!selectedImage && capacityCandidates.length === 0))) || (step === 4 && !!createFailure && !createRetryAllowed)} onClick={step === 4 ? () => void create() : () => void next()}>{step === 4 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
-      {copySource && <Alert className="copy-deployment-banner" type="success" showIcon message={t('copyDeploymentPrepared', { name: copySource.name })} description={t('copyDeploymentPreparedHint')} />}
-      {requestedCopySourceUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentSourceUnavailable')} description={t('copyDeploymentSourceUnavailableHint')} />}
-      {requestedCopyTemplateUnavailable && <Alert className="copy-deployment-banner" type="warning" showIcon message={t('copyDeploymentTemplateUnavailable')} description={t('copyDeploymentTemplateUnavailableHint')} />}
+    <Drawer title={t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateFailure(undefined); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 1 && resourceRequestReady && capacityCandidates.length === 0) || (step === 2 && !!createFailure && !createRetryAllowed)} onClick={step === 2 ? () => void create() : () => void next()}>{step === 2 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
       <Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
       {step === 0 && <>
-        {requestedProjectProfile && !requestedProjectProfileAvailable && <Alert
-          className="project-defaults-banner"
-          type="warning"
-          showIcon
-          message={t('projectDefaultTemplateUnavailable')}
-          description={t('projectDefaultTemplateUnavailableHint', { name: requestedProject?.name })}
-        />}
         {frequentVersions.length > 0 && <section className="frequent-template-versions" aria-label={t('frequentTemplateVersions')}>
           <div className="frequent-template-versions-header">
             <Typography.Text strong>{t('frequentTemplateVersions')}</Typography.Text>
@@ -1028,67 +931,11 @@ export function InstancesPage() {
         <Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" onChange={chooseTemplateVersion} optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>
         {selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{templateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}
         {selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
+        <Form.Item name="name" label={t('databaseNameLabel')} extra={t('databaseNameHint')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input size="large" maxLength={120} placeholder={t('databaseNamePlaceholder')} /></Form.Item>
       </>}
       {step === 1 && <>
-        {hasProjectLifecycleDefaults(selectedProject) && (copySource && appliedProjectDefaultsID !== selectedProject?.id
-          ? <Alert className="project-defaults-banner" type="info" showIcon message={t('projectDefaultsAvailableForCopy', { name: selectedProject?.name })} description={t('projectDefaultsAvailableForCopyHint')} action={<Button size="small" onClick={() => applyProjectDefaults(selectedProject?.id)}>{t('applyProjectDefaults')}</Button>} />
-          : <Alert className="project-defaults-banner" type="success" showIcon message={t('projectDefaultsApplied', { name: selectedProject?.name })} description={t('projectDefaultsAppliedHint')} />)}
-        {hasProjectDeploymentProfile(selectedProject) && (selectedProjectProfileApplied
-          ? <Alert
-              className="project-defaults-banner"
-              type="success"
-              showIcon
-              message={t('projectDeploymentProfileApplied', { name: selectedProject?.name })}
-              description={t('projectDeploymentProfileAppliedHint', {
-                template: `${selectedProject?.defaultTemplateName} ${selectedProject?.defaultTemplateVersion}`,
-                cpu: selectedProjectProfile?.cpu,
-                memory: bytes(selectedProject?.defaultMemoryBytes),
-                disk: bytes(selectedProject?.defaultDiskBytes),
-              })}
-            />
-          : selectedProjectProfileAvailable
-            ? <Alert
-                className="project-defaults-banner"
-                type="info"
-                showIcon
-                message={t('projectDeploymentProfileAvailable', { name: selectedProject?.name })}
-                description={t('projectDeploymentProfileAvailableHint', {
-                  template: `${selectedProject?.defaultTemplateName} ${selectedProject?.defaultTemplateVersion}`,
-                  cpu: selectedProjectProfile?.cpu,
-                  memory: bytes(selectedProject?.defaultMemoryBytes),
-                  disk: bytes(selectedProject?.defaultDiskBytes),
-                })}
-                action={<Button size="small" onClick={() => applyProjectDeploymentProfile(selectedProject?.id)}>{t('applyProjectDeploymentProfile')}</Button>}
-              />
-            : <Alert
-                className="project-defaults-banner"
-                type="warning"
-                showIcon
-                message={t('projectDefaultTemplateUnavailable')}
-                description={t('projectDefaultTemplateUnavailableHint', { name: selectedProject?.name })}
-              />)}
-        {requestedHostID && requestedHostReady && selectedHostID === requestedHostID && <Alert className="host-continuation-selection" type="success" showIcon message={t('continuationHostSelected', { name: requestedHost?.name })} description={t('continuationHostSelectedHint')} />}
-        {requestedHostID && !requestedHostReady && !selectedHostID && <Alert className="host-continuation-selection" type="warning" showIcon message={t('continuationHostUnavailable')} description={t('continuationHostUnavailableHint')} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
-        <Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input size="large" autoFocus maxLength={120} /></Form.Item>
-        <Form.Item name="purpose" label={t('purpose')} extra={t('purposeHint')} rules={[{ max: 500 }]}><Input.TextArea rows={2} maxLength={500} showCount placeholder={t('purposePlaceholder')} /></Form.Item>
-        <div className="form-grid"><Form.Item name="projectId" label={t('project')}><Select allowClear options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={(value) => { setAppliedProjectDefaultsID(''); if (!copySource) applyProjectDefaults(value) }} /></Form.Item><Form.Item name="environment" label={t('environment')} rules={[{ required: true }]}><Select options={['development', 'testing', 'staging', 'production'].map((v) => ({ value: v, label: translateCode(t, v) }))} /></Form.Item></div>
-        <Card size="small" className="instance-lifecycle-form" title={t('lifecycle')}>
-          <div className="form-grid">
-            <Form.Item name="owner" label={t('owner')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} placeholder={t('ownerPlaceholder')} /></Form.Item>
-            <Form.Item name="expiresAt" label={t('expectedExpiry')} extra={t('expectedExpiryHint')}><DatePicker showTime minuteStep={15} allowClear style={{ width: '100%' }} /></Form.Item>
-          </div>
-          <Space size={[8, 8]} wrap className="expiry-presets">
-            <Typography.Text type="secondary">{t('quickSet')}</Typography.Text>
-            {[1, 3, 7, 14, 30].map((days) => <Button key={days} size="small" onClick={() => form.setFieldValue('expiresAt', dayjs().add(days, 'day').endOf('day'))}>{t('daysCount', { count: days })}</Button>)}
-            <Button size="small" onClick={() => form.setFieldValue('expiresAt', undefined)}>{t('retainIndefinitely')}</Button>
-          </Space>
-        </Card>
-        <Form.Item name="labels" label={t('labels')} rules={[{ validator: (_, value?: string) => parseLabelText(value) ? Promise.resolve() : Promise.reject(new Error(t('invalidLabels'))) }]}><Input placeholder={t('labelsPlaceholder')} /></Form.Item>
-      </>}
-      {step === 2 && <>
         {selectedResourceProfiles.length > 0 && <Form.Item label={t('resourcePreset')}><Radio.Group className="wizard-choice-group wizard-resource-profiles" optionType="button" buttonStyle="solid" value={activeResourceProfile?.name} onChange={(event) => { const profile = selectedResourceProfiles.find((item) => item.name === event.target.value); if (profile) form.setFieldsValue({ cpu: profile.cpu, memoryGiB: profile.memoryBytes / 1024 ** 3, diskGiB: profile.diskBytes / 1024 ** 3 }) }} options={selectedResourceProfiles.map((profile) => ({ value: profile.name, label: <span className="wizard-resource-profile-label"><strong>{localizedTemplateText(profile.label, profile.labelZh, i18n.language) || t(`resourceProfile_${profile.name}`, { defaultValue: profile.name })}</strong><small>{profile.cpu} CPU · {bytes(profile.memoryBytes)} · {bytes(profile.diskBytes)}</small></span> }))} /></Form.Item>}
         <Row gutter={[16, 0]}><Col xs={24} sm={8}><Form.Item name="cpu" label={t('cpu')} rules={[{ required: true }]}><InputNumber min={selected?.version.minCpu ?? .25} step={.25} style={{ width: '100%' }} /></Form.Item></Col><Col xs={24} sm={8}><Form.Item name="memoryGiB" label={`${t('memory')} GiB`} rules={[{ required: true }]}><InputNumber min={(selected?.version.minMemoryBytes ?? 0) / 1024 ** 3} step={.5} style={{ width: '100%' }} /></Form.Item></Col><Col xs={24} sm={8}><Form.Item name="diskGiB" label={`${t('disk')} GiB`} rules={[{ required: true }]}><InputNumber min={(selected?.version.minDiskBytes ?? 0) / 1024 ** 3} style={{ width: '100%' }} /></Form.Item></Col></Row>
-        <div className="form-grid"><Form.Item name="hostPort" label={`${t('port')} (${t('optional')})`}><InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder={t('autoAllocate')} /></Form.Item><Form.Item name="bindAddress" label={t('bindAddress')} rules={[{ required: true }]}><Input /></Form.Item></div>
         <Typography.Paragraph type="secondary">{t('diskReservationHint')}</Typography.Paragraph>
         <Form.Item name="hostId" className="wizard-host-select" label={t('deploymentHost')} tooltip={t('autoHostTooltip')}>
           <Select
@@ -1105,17 +952,16 @@ export function InstancesPage() {
           />
         </Form.Item>
         {resourceRequestReady && <Alert className="wizard-capacity-alert" type={capacityCandidates.length ? 'success' : 'warning'} showIcon message={capacityCandidates.length ? selectedHost ? t('selectedHostCapacityReady', { name: selectedHost.name }) : t('automaticHostCapacityReady', { fit: capacityCandidates.length, total: resourceHostScope.length }) : t('hostCapacityUnavailable')} description={capacityRemaining && capacityPreviewHost ? t(requestedHostPort ? 'hostCapacityPreviewWithPort' : 'hostCapacityPreview', { name: capacityPreviewHost.name, cpu: capacityRemaining.cpu.toFixed(capacityRemaining.cpu % 1 ? 1 : 0), memory: bytes(capacityRemaining.memory), disk: bytes(capacityRemaining.disk), port: requestedHostPort }) : t('hostCapacityUnavailableHint')} />}
+        {selectedTemplateParameters.length > 0 && <Card size="small" title={t('templateParameters')}><Typography.Paragraph type="secondary">{t('templateParametersHint')}</Typography.Paragraph>{selectedTemplateParameters.map((parameter) => <Form.Item key={parameter.key} name={['templateParameters', parameter.key]} label={localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)} extra={localizedTemplateText(parameter.description, parameter.descriptionZh, i18n.language)} valuePropName={parameter.type === 'boolean' ? 'checked' : 'value'} rules={[parameterRequiredRule(parameter)]}>{parameterInput(parameter)}</Form.Item>)}</Card>}
+        <Alert className="wizard-public-image-note" type="info" showIcon message={t('mvpPublicImageTitle')} description={selected ? templateImageReferences(selected.version).join(' · ') : undefined} />
       </>}
-      {step === 3 && <>{selectedTemplateParameters.length > 0 && <Card size="small" title={t('templateParameters')}><Typography.Paragraph type="secondary">{t('templateParametersHint')}</Typography.Paragraph>{selectedTemplateParameters.map((parameter) => <Form.Item key={parameter.key} name={['templateParameters', parameter.key]} label={localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)} extra={localizedTemplateText(parameter.description, parameter.descriptionZh, i18n.language)} valuePropName={parameter.type === 'boolean' ? 'checked' : 'value'} rules={[parameterRequiredRule(parameter)]}>{parameterInput(parameter)}</Form.Item>)}</Card>}{selectedAuthentication !== 'password' && <Alert className="wizard-authentication-alert" type="warning" showIcon message={t('nonPasswordAuthenticationTitle')} description={t(`nonPasswordAuthenticationHint_${selectedAuthentication}`)} />}<div className="form-grid">{selectedAuthentication !== 'none' && <Form.Item name="username" label={t('username')}><Input /></Form.Item>}<Form.Item name="databaseName" label={t('databaseName')}><Input /></Form.Item></div>{selectedAuthentication === 'password' && <Form.Item name="password" label={t('password')} tooltip={t('passwordGenerateHint')}><Input.Password placeholder={t('automaticallyGenerated')} /></Form.Item>}<Form.Item name="imageSource" label={t('imageSource')}><Radio.Group className="wizard-choice-group" optionType="button" buttonStyle="solid" options={[{ value: 'public', label: t('publicRegistry') }, { value: 'registry', label: t('configuredRegistry') }, { value: 'offline', label: t('offlineImage') }]} onChange={() => { form.setFieldsValue({ imageArtifactId: undefined, registryId: undefined }); setCreateFailure(undefined) }} /></Form.Item>{imageSource === 'public' && <Alert type="info" showIcon message={t('pullTemplateImage')} description={selected ? templateImageReferences(selected.version).join(' · ') : undefined} />}{imageSource === 'registry' && <><Form.Item name="registryId" label={t('registry')} rules={[{ required: true }]}><Select placeholder={t('selectRegistryForHost', { host: selected ? imageRegistryHost(selected.version.imageReference) : '—' })} options={compatibleRegistries.map((registry) => ({ value: registry.id, disabled: ['offline', 'degraded'].includes(registry.status), label: <Space><span>{registry.name}</span><StatusTag value={registry.status} /></Space> }))} /></Form.Item>{compatibleRegistries.length === 0 ? <Alert type="warning" showIcon message={t('noMatchingRegistries')} description={<Space direction="vertical" size={2}><span>{t('noMatchingRegistriesHint', { host: selected ? imageRegistryHost(selected.version.imageReference || '') : '—' })}</span><span>{t('imageSourceSetupHint')}</span></Space>} action={<Space direction="vertical" size={4}><Button size="small" type="primary" icon={<ExportOutlined />} href="/images?tab=registries" target="_blank" rel="noreferrer">{t('setupRegistryInNewWindow')}</Button><Button size="small" type="link" loading={refreshingSources} onClick={() => void refreshImageSources()}>{t('refreshImageSources')}</Button></Space>} /> : selectedRegistry && <Alert type={selectedRegistry.status === 'online' ? 'success' : 'info'} showIcon message={t('registryMatchesImageSource', { host: imageRegistryHost(selected?.version.imageReference || '') })} description={selectedRegistry.statusMessage ? t(selectedRegistry.statusMessage) : t('registryWillBeVerifiedOnTarget')} />}</>}{imageSource === 'offline' && <><Form.Item name="imageArtifactId" label={t('offlineImage')} rules={[{ required: true }]}><Select placeholder={t('selectCompatibleImage')} options={compatibleImages.map((item) => ({ value: item.id, label: `${item.name} · ${bytes(item.sizeBytes)} · ${item.architectures.join(' / ')}` }))} /></Form.Item>{compatibleImages.length === 0 && <Alert type="warning" showIcon message={t('noCompatibleImages')} description={<Space direction="vertical" size={2}><span>{t('noCompatibleImagesHint', { image: selected ? templateImageReferences(selected.version).join(' · ') : '—' })}</span><span>{t('imageSourceSetupHint')}</span></Space>} action={<Space direction="vertical" size={4}><Button size="small" type="primary" icon={<ExportOutlined />} href="/images" target="_blank" rel="noreferrer">{t('setupImageInNewWindow')}</Button><Button size="small" type="link" loading={refreshingSources} onClick={() => void refreshImageSources()}>{t('refreshImageSources')}</Button></Space>} />}{selectedImage && capacityCandidates.length === 0 && <Alert type="warning" showIcon message={t('hostCapacityUnavailable')} description={t('hostCapacityUnavailableHint')} />}</>}<Form.Item name="autoRestart" label={t('autoRestart')} valuePropName="checked"><Switch /></Form.Item><Form.Item name="extraEnvironment" label={t('extraEnvironment')} rules={[{ validator: (_, value?: string) => { if (!value?.trim()) return Promise.resolve(); try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.values(parsed).every((item) => typeof item === 'string') ? Promise.resolve() : Promise.reject(new Error(t('invalidJSONObject'))) } catch { return Promise.reject(new Error(t('invalidJSONObject'))) } } }]}><Input.TextArea rows={5} placeholder={'{\n  "TZ": "Asia/Shanghai"\n}'} /></Form.Item></>}
-      {step === 4 && <div className="create-review">
+      {step === 2 && <div className="create-review">
         <div className="create-review-header">
           <DatabaseIcon slug={selected?.template.slug || 'database'} name={selected?.template.name || t('database')} />
           <div>
             <Typography.Title level={4}>{form.getFieldValue('name')}</Typography.Title>
             <Space size={[6, 6]} wrap>
               <Typography.Text type="secondary">{selected ? `${selected.template.name} ${selected.version.version}` : '—'}</Typography.Text>
-              <Tag>{translateCode(t, form.getFieldValue('environment'))}</Tag>
-              {selected && <StatusTag value={selected.template.tier} />}
             </Space>
           </div>
           <CheckCircleOutlined className="create-review-ready-icon" />
@@ -1125,32 +971,20 @@ export function InstancesPage() {
           <Card size="small" className="create-review-card" title={t('deploymentTarget')}>
             <Descriptions column={1} colon={false} items={[
               { key: 'host', label: t('host'), children: selectedHost?.name || (capacityPreviewHost ? t('recommendedHost', { name: capacityPreviewHost.name }) : t('autoSelectWithCapacity', { count: capacityCandidates.length })) },
-              { key: 'project', label: t('project'), children: projects.find((project) => project.id === form.getFieldValue('projectId'))?.name || t('noProject') },
               { key: 'resources', label: t('resources'), children: `${form.getFieldValue('cpu')} CPU · ${form.getFieldValue('memoryGiB')} GiB · ${form.getFieldValue('diskGiB')} GiB` },
-              { key: 'network', label: `${t('bindAddress')} / ${t('port')}`, children: `${form.getFieldValue('bindAddress')}:${form.getFieldValue('hostPort') || t('autoAllocate')}` },
             ]} />
           </Card>
           <Card size="small" className="create-review-card" title={t('databaseAccess')}>
             <Descriptions column={1} colon={false} items={[
               { key: 'authentication', label: t('authentication'), children: t(`authenticationMode_${selectedAuthentication}`) },
-              { key: 'database', label: t('databaseName'), children: form.getFieldValue('databaseName') || '—' },
-              ...(selectedAuthentication !== 'none' ? [{ key: 'username', label: t('username'), children: form.getFieldValue('username') || '—' }] : []),
-              ...(selectedAuthentication === 'password' ? [{ key: 'password', label: t('password'), children: form.getFieldValue('password') ? t('customPasswordConfigured') : t('passwordGeneratedAfterCreate') }] : []),
-              { key: 'image', label: t('imageSource'), children: imageSource === 'offline' ? images.find((item) => item.id === form.getFieldValue('imageArtifactId'))?.name || '—' : imageSource === 'registry' ? registries.find((registry) => registry.id === form.getFieldValue('registryId'))?.name || '—' : t('publicRegistry') },
+              { key: 'database', label: t('databaseName'), children: selected?.version.manifest.database || '—' },
+              ...(selectedAuthentication !== 'none' ? [{ key: 'username', label: t('username'), children: selected?.version.manifest.username || '—' }] : []),
+              ...(selectedAuthentication === 'password' ? [{ key: 'password', label: t('password'), children: t('passwordGeneratedAfterCreate') }] : []),
+              { key: 'image', label: t('imageSource'), children: t('publicRegistry') },
             ]} />
           </Card>
         </div>
-        <Card size="small" className="create-review-card create-review-options" title={t('deploymentOptions')}>
-          <Descriptions column={{ xs: 1, sm: 2 }} colon={false} items={[
-            { key: 'purpose', label: t('purpose'), span: 2, children: form.getFieldValue('purpose') || t('purposeMissing') },
-            { key: 'owner', label: t('owner'), children: form.getFieldValue('owner') || t('ownerMissing') },
-            { key: 'expiresAt', label: t('expectedExpiry'), children: form.getFieldValue('expiresAt') ? formatDateTime(form.getFieldValue('expiresAt').toISOString(), i18n.language, timezone) : t('retainIndefinitely') },
-            { key: 'restart', label: t('autoRestart'), children: form.getFieldValue('autoRestart') ? t('enabled') : t('disabled') },
-            { key: 'labels', label: t('labels'), children: form.getFieldValue('labels') || '—' },
-            ...(selectedTemplateParameters.length ? [{ key: 'templateParameters', label: t('templateParameters'), span: 2, children: <Space wrap>{selectedTemplateParameters.map((parameter) => <Tag key={parameter.key}>{localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)}: {displayTemplateParameterValue(parameter, submittedTemplateParameters?.[parameter.key], i18n.language, t('enabled'), t('disabled'))}</Tag>)}</Space> }] : []),
-            { key: 'environmentVariables', label: t('extraEnvironment'), span: 2, children: <Typography.Text code>{form.getFieldValue('extraEnvironment') || '—'}</Typography.Text> },
-          ]} />
-        </Card>
+        {selectedTemplateParameters.length > 0 && <Card size="small" className="create-review-card create-review-options" title={t('templateParameters')}><Space wrap>{selectedTemplateParameters.map((parameter) => <Tag key={parameter.key}>{localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)}: {displayTemplateParameterValue(parameter, submittedTemplateParameters?.[parameter.key], i18n.language, t('enabled'), t('disabled'))}</Tag>)}</Space></Card>}
         <Alert className="create-review-alert" type="info" showIcon message={t('configurationReady')} description={t('createTaskHint')} />
         {createFailure && <Alert
           className="wizard-submit-error instance-create-request-alert"
@@ -1174,7 +1008,7 @@ export function InstancesPage() {
           </div>}
           action={<Space className="instance-create-request-actions" size={[8, 8]} wrap>
             {createFailure.existingInstanceId && <Button size="small" type="primary" onClick={() => { const id = createFailure.existingInstanceId; finishCloseCreate(); navigate(`/instances/${id}`) }}>{t('openExistingInstance')}</Button>}
-            {!createFailure.existingInstanceId && createRecoveryStep < 4 && <Button size="small" type="primary" onClick={() => { setCreateFailure(undefined); setStep(createRecoveryStep) }}>{t(`reviewCreateStep_${createRecoveryStep}`)}</Button>}
+            {!createFailure.existingInstanceId && createRecoveryStep < 2 && <Button size="small" type="primary" onClick={() => { setCreateFailure(undefined); setStep(createRecoveryStep) }}>{t(`reviewCreateStep_${createRecoveryStep}`)}</Button>}
             <Button size="small" icon={<ReloadOutlined />} loading={refreshingCreateContext} onClick={() => void refreshCreateContext()}>{t('refreshDeploymentContext')}</Button>
           </Space>}
         />}
@@ -1935,7 +1769,7 @@ export function InstanceDetailPage() {
         : <>
             {connectionErrorPanel}
             {connectionAuthentication !== 'password' && <Alert className="connection-authentication-alert" type="warning" showIcon message={t('nonPasswordAuthenticationTitle')} description={t(`nonPasswordAuthenticationHint_${connectionAuthentication}`)} />}
-            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffText(item, project?.name, connection, latestRestoreVerification, t, i18n.language, timezone)).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
+            <div className="connection-toolbar"><div><Typography.Text strong>{t('connectionReady')}</Typography.Text><Typography.Paragraph type="secondary">{t('connectionAuditNotice')}</Typography.Paragraph></div><Space wrap className="connection-actions"><Button type="primary" icon={<CopyOutlined />} onClick={() => void copyText(connectionHandoffText(item, connection, latestRestoreVerification, t, i18n.language, timezone)).then(() => message.success(t('connectionHandoffCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyConnectionHandoff')}</Button><Button icon={<CopyOutlined />} onClick={() => void copyText(environmentFile(connection)).then(() => message.success(t('environmentCopied'))).catch((error) => message.error(errorMessage(error)))}>{t('copyEnvironment')}</Button><Button icon={<EyeInvisibleOutlined />} onClick={hideConnection}>{t('hideConnectionDetails')}</Button><Button icon={<ReloadOutlined />} loading={connectionLoading} onClick={() => void loadConnection()}>{t('refresh')}</Button></Space></div>
             <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} items={[{ key: 'authentication', label: t('authentication'), children: t(`authenticationMode_${connectionAuthentication}`) },{ key: 'address', label: t('address'), children: <Typography.Text copyable={{ text: connection.address, icon: <CopyOutlined /> }}>{connection.address}</Typography.Text> },{ key: 'port', label: t('port'), children: <Typography.Text copyable={{ text: String(connection.port), icon: <CopyOutlined /> }}>{connection.port}</Typography.Text> },...(connection.username ? [{ key: 'username', label: t('username'), children: <Typography.Text copyable={{ text: connection.username, icon: <CopyOutlined /> }}>{connection.username}</Typography.Text> }] : []),...(connectionAuthentication === 'password' && connection.password ? [{ key: 'password', label: t('password'), children: <Typography.Text code copyable={{ text: connection.password, icon: <CopyOutlined /> }}>{connection.password}</Typography.Text> }] : []),...(connection.database ? [{ key: 'database', label: t('database'), children: <Typography.Text copyable={{ text: connection.database, icon: <CopyOutlined /> }}>{connection.database}</Typography.Text> }] : [])]} />
             <div className="connection-strings"><div className="connection-string"><Typography.Text type="secondary">{t('uri')}</Typography.Text><Typography.Text code copyable={{ text: connection.uri, icon: <CopyOutlined /> }}>{connection.uri}</Typography.Text></div>{connection.jdbc && <div className="connection-string"><Typography.Text type="secondary">{t('jdbc')}</Typography.Text><Typography.Text code copyable={{ text: connection.jdbc, icon: <CopyOutlined /> }}>{connection.jdbc}</Typography.Text></div>}</div>
           </>}
@@ -2165,8 +1999,7 @@ export function InstanceDetailPage() {
     </Card>
     <Table<InstanceBackup> rowKey="id" dataSource={backups} columns={backupColumns} pagination={false} scroll={{ x: showBackupActions ? 1380 : 1120 }} locale={{ emptyText: <EmptyState compact description={t('backupsEmptyDescription')} /> }} />
   </Card>
-  const copyDeploymentAvailable = !!currentVersion && currentVersion.selectable !== false
-  const detailActions = canOperate ? <Space wrap><Button icon={<CopyOutlined />} disabled={!copyDeploymentAvailable} title={!copyDeploymentAvailable ? t('copyDeploymentUnavailableHint') : undefined} onClick={() => navigate(`/instances?create=1&copy=${encodeURIComponent(item.id)}`)}>{t('copyDeployment')}</Button><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
+  const detailActions = canOperate ? <Space wrap><Button icon={<EditOutlined />} disabled={!!actioning || !!operationTask} onClick={showEdit}>{t('edit')}</Button>{canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}{canStopOrRestart && <Button icon={<PauseCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('stop')}>{t('stop')}</Button>}{canStopOrRestart && <Button icon={<ReloadOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('restart')}>{t('restart')}</Button>}<Dropdown menu={{ items: moreActions, onClick: ({ key }) => key === 'reconfigure' ? showRuntimeConfiguration() : key === 'upgrade' ? showUpgrade() : setCleanupOpen(true) }} trigger={['click']}><Button icon={<MoreOutlined />} disabled={!!actioning}>{t('moreActions')}</Button></Dropdown></Space> : undefined
   return <><PageHeader title={<Space><Button type="text" aria-label={t('databases')} title={t('databases')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />{pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}{lifecycleRequestFailurePanel}{changeRequestFailurePanel}{taskRetryRequestPanel}{restoreOutcomePanel}{restoreVerificationPanel}{operationPanel}{recoveryConfirmationPanel}{deploymentReadyPanel}<Tabs className="instance-detail-tabs" activeKey={activeTab} onChange={changeTab} tabBarExtraContent={detailActions} items={[{ key: 'overview', label: t('details'), children: overview },{ key: 'connection', label: t('connection'), children: connectionTab },{ key: 'logs', label: t('logs'), children: logsTab },{ key: 'metrics', label: t('metrics'), children: metricsTab },{ key: 'backups', label: `${t('backups')} (${backupInventoryState === 'ready' ? backups.length : '—'})`, children: backupsTab }]} />
     <Modal
       title={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmTitle' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: item.name }) : ''}

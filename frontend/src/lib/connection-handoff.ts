@@ -2,11 +2,6 @@ export interface ConnectionHandoffDetails {
   instanceName: string
   templateName: string
   templateVersion: string
-  project: string
-  environment: string
-  purpose: string
-  owner: string
-  expectedExpiry: string
   status: string
   authentication: string
   dataVersion?: string
@@ -25,11 +20,6 @@ export interface ConnectionHandoffLabels {
   title: string
   instance: string
   template: string
-  project: string
-  environment: string
-  purpose: string
-  owner: string
-  expectedExpiry: string
   status: string
   authentication: string
   dataVersion: string
@@ -49,11 +39,6 @@ export function connectionHandoffSummary(details: ConnectionHandoffDetails, labe
     labels.title,
     `${labels.instance}: ${details.instanceName}`,
     `${labels.template}: ${details.templateName} ${details.templateVersion}`,
-    `${labels.project}: ${details.project}`,
-    `${labels.environment}: ${details.environment}`,
-    `${labels.purpose}: ${details.purpose}`,
-    `${labels.owner}: ${details.owner}`,
-    `${labels.expectedExpiry}: ${details.expectedExpiry}`,
     `${labels.status}: ${details.status}`,
     `${labels.authentication}: ${details.authentication}`,
   ]

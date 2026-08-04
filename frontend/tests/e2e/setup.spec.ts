@@ -1,2598 +1,292 @@
-import { expect, test, type ConsoleMessage } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
-const templatePackages = {
-  v1: 'UEsDBBQAAAAIAAAAIVx8gL0BVAEAAOwBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw9UbFOwzAQ3fMVVmeaNqlpK4+lRWJAYkAMIAbXviZW7cTYTtV+AeIXkBjYEAM7Ez8DFZ/BuUnZfO8937t3x626AedVXTEil6YW61TVg03GtS15lqxVJRmZ88CX3MM1GKt5gMRA4BJBlhDidVMwAjn0lTENCjUgWnEDjCzyBbk4omQ+64jbsqV+H99/Pp6/P5/2b6/7ly9kJXjhlA2HeaLkvycJnTlZqW1oXDQRWBa12zEkfVBVgZgS7dfEWxBxvs0xXi9Lh+mwFzWGFzgdbDm2hFRVG66VHGCGgVyygwxV3IlSBRDRzDNyx40c0xOEzZjeR/fa2NrDudLYS+LmwPU7LN0ZfUiz4o0OV7ULjGSndJQjaFR1Zhus2/clGEww24XokQ0nownNpjltybny647KMzqh09GYTpFqPLh2w+3Nold3I0a4tfEsooQowHFCgQEedPIHUEsDBBQAAAAIAAAAIVz/7PNOkAAAANIAAAASAAAAZG9ja2VyLWNvbXBvc2UueW1sPYy7DsIwDEX3foWVGSrxWrIBHdoBiR0xOIlFo75QbFiq/jsJhW73+p5jpvD2llhnAA4FDTKlDOA7fJAGNY6QVynDNKnv0qKhlmcqWqYbbJP7ngV7uxi/WhWL9hyCLNZ6xk6+d0fnAjFHTqdTObBcI5r65rDfbWe7JmyltjXZ5v9DiEXDTZ0vhVqBkvAidc8+UEsBAhQDFAAAAAgAAAAhXHyAvQFUAQAA7AEAABQAAAAAAAAAAAAAAIABAAAAAGRibW9jay10ZW1wbGF0ZS55YW1sUEsBAhQDFAAAAAgAAAAhXP/s806QAAAA0gAAABIAAAAAAAAAAAAAAIABhgEAAGRvY2tlci1jb21wb3NlLnltbFBLBQYAAAAAAgACAIIAAABGAgAAAAA=',
-  v2: 'UEsDBBQAAAAIAAAAIVxXCmuoVAEAAOwBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw9UbFOwzAQ3fMVVmeaNqlpK4+lRWJAYkAMIAbXviZW7cTYTtV+AeIXkBjYEAM7Ez8DFZ/BuUnZfO8937t3x626AedVXTEil6YW61TVg03GtS15lqxVJRmZ88CX3MM1GKt5gMRA4BJBlhDidVMwAjn0lTENCjUgWnEDjCzyBbk4omQ+64jbsqV+H99/Pp6/P5/2b6/7ly9kJXjhlA2HeaLkvycJnTlZqW1oXDQRWBa12zEkfVBVgZgS7dfEWxBxvs0xXi9Ls3TYixrDC5wOthxbQqqqDddKDjDDQC7ZQYYq7kSpAoho5hm540aO6QnCZkzvo3ttbO3hXGnsJXFz4Podlu6MPqRZ8UaHq9oFRrJTOsoRNKo6sw3W7fsSDCaY7UL0yIaT0YRm05y25Fz5dUflGZ3Q6WhMp0g1Hly74fZm0au7ESPc2ngWUUIU4DihwAAPOvkDUEsDBBQAAAAIAAAAIVz0PwprnQAAAOcAAAASAAAAZG9ja2VyLWNvbXBvc2UueW1sRY69DoJAEIR7nmJztZL411ynUkhhYm8slrsNXDzA3K40hHeXA8VuZnbmyzKFzhlinQBYFCyQKWoAV2NJGlTfQ5pHDcOgpssruM55KslqkPCmKfRYkOd5OqKKujXP1DUs2JgF87V59me1QZbVeq6dXGOP1gZiHns6RpeW5TZWo98c9rvtvK4IvVSmIvP8MYRYNNzV+ZqpFaj4n3okH1BLAQIUAxQAAAAIAAAAIVxXCmuoVAEAAOwBAAAUAAAAAAAAAAAAAACAAQAAAABkYm1vY2stdGVtcGxhdGUueWFtbFBLAQIUAxQAAAAIAAAAIVz0PwprnQAAAOcAAAASAAAAAAAAAAAAAACAAYYBAABkb2NrZXItY29tcG9zZS55bWxQSwUGAAAAAAIAAgCCAAAAUwIAAAAA',
-  builtinCollision: 'UEsDBBQAAAAIAAAAIVxIaPFUXAEAAOgBAAAUAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWw1Ub1OwzAY3PsUFjOkTWr64xFaJipAIAYQg+t8TazaibGd0DwB4hWQGNgQAzsTLwMVj8HnJmz+7s6+O3/cyGuwTpYFI+lSl2IdybJfx1yZnMe9tSxSRmbc8yV3cAXaKO6hp8HzFEHWI8SpKmNEN+5e4VRwDYyc1WAfrPQeCrJoLi9OO+YmZ2SezMnv4/vPx/P359P27XX78oVsCk5YafwuSJBIrSt0VUB850pWcuMrC6gWOGalbRiSzssiQ0yK9mrPGRAhWP3fa286nUaDaLAXVJpnGBA2HB+FSBY1VzLtQwL9XQWGWpRxK3LpQQQ/x8gt1+mI7iOsR/QuBCi1KR2cSIWPpfhrYA86LGq02hVa8Ur589J6RuJDOkwQ1LI4NhXO7XkBGkscNT54xIPxcEzjSUJbcibduqOSmI7pZDiiE6QqB7b95XZfwavbDyPcmLASkUMQYByfYQHczB9QSwMEFAAAAAgAAAAhXP/s806QAAAA0gAAABIAAABkb2NrZXItY29tcG9zZS55bWw9jLsOwjAMRfd+hZUZKvFasgEd2gGJHTE4iUWjvlBsWKr+OwmFbvf6nmOm8PaWWGcADgUNMqUM4Dt8kAY1jpBXKcM0qe/SoqGWZypaphtsk/ueBXu7GL9aFYv2HIIs1nrGTr53R+cCMUdOp1M5sFwjmvrmsN9tZ7smbKW2Ndnm/0OIRcNNnS+FWoGS8CJ1zz5QSwECFAMUAAAACAAAACFcSGjxVFwBAADoAQAAFAAAAAAAAAAAAAAAgAEAAAAAZGJtb2NrLXRlbXBsYXRlLnlhbWxQSwECFAMUAAAACAAAACFc/+zzTpAAAADSAAAAEgAAAAAAAAAAAAAAgAGOAQAAZG9ja2VyLWNvbXBvc2UueW1sUEsFBgAAAAACAAIAggAAAE4CAAAAAA=',
+const GiB = 1024 ** 3
+
+const templateVersionID = '22222222-2222-4222-8222-222222222222'
+const hostID = '33333333-3333-4333-8333-333333333333'
+const instanceID = '44444444-4444-4444-8444-444444444444'
+const createdInstanceID = '55555555-5555-4555-8555-555555555555'
+
+const standardTemplate = {
+  id: '11111111-1111-4111-8111-111111111111',
+  slug: 'postgresql',
+  name: 'PostgreSQL',
+  nameZh: 'PostgreSQL',
+  description: 'Advanced open source relational database',
+  category: 'relational',
+  tier: 'standard',
+  builtin: true,
+  icon: 'PG',
+  riskReport: [],
+  versions: [{
+    id: templateVersionID,
+    templateId: '11111111-1111-4111-8111-111111111111',
+    version: '17',
+    imageReference: 'postgres:17',
+    architectures: ['amd64', 'arm64'],
+    minCpu: 1,
+    minMemoryBytes: GiB,
+    minDiskBytes: 10 * GiB,
+    defaultPort: 5432,
+    manifest: {
+      username: 'dbmock',
+      database: 'app',
+      authentication: 'password',
+      imageReferences: ['postgres:17'],
+      resourceProfiles: [{ name: 'small', labelZh: '日常测试', cpu: 1, memoryBytes: GiB, diskBytes: 10 * GiB }],
+    },
+    riskReport: [],
+    selectable: true,
+    deploymentCount: 4,
+    lastDeployedAt: '2026-08-04T08:00:00Z',
+    createdAt: '2026-08-01T00:00:00Z',
+  }],
 }
 
-test('initializes the platform and switches the embedded interface language', async ({ page, browser }, testInfo) => {
-  test.setTimeout(240_000)
+const hiddenTemplates = [
+  { ...standardTemplate, id: '66666666-6666-4666-8666-666666666666', slug: 'tidb', name: 'TiDB', nameZh: 'TiDB', tier: 'experimental', versions: [{ ...standardTemplate.versions[0], id: '66666666-6666-4666-8666-666666666667', templateId: '66666666-6666-4666-8666-666666666666', version: '8.5' }] },
+  { ...standardTemplate, id: '77777777-7777-4777-8777-777777777777', slug: 'custom-db', name: 'Team Custom DB', nameZh: '团队自定义数据库', tier: 'custom', builtin: false, versions: [{ ...standardTemplate.versions[0], id: '77777777-7777-4777-8777-777777777778', templateId: '77777777-7777-4777-8777-777777777777', version: '1.0' }] },
+]
+
+const host = {
+  id: hostID,
+  name: 'Daily Docker Host',
+  sshAddress: '10.0.0.8',
+  sshPort: 22,
+  sshUser: 'dbmock',
+  authType: 'password',
+  connectionAddress: '10.0.0.8',
+  dataRoot: '/opt/dbmock',
+  portStart: 20000,
+  portEnd: 40000,
+  manageDocker: false,
+  architecture: 'amd64',
+  cpuCount: 8,
+  memoryBytes: 16 * GiB,
+  diskTotalBytes: 200 * GiB,
+  diskFreeBytes: 160 * GiB,
+  dataRootWritable: true,
+  portProbeAvailable: true,
+  availablePort: 25432,
+  status: 'online',
+  maintenance: false,
+  autoRestartDefault: true,
+  consecutiveFailures: 0,
+  labels: {},
+  createdAt: '2026-08-01T00:00:00Z',
+  updatedAt: '2026-08-04T08:00:00Z',
+}
+
+const runningInstance = {
+  id: instanceID,
+  name: 'Orders DB',
+  hostId: hostID,
+  templateVersionId: templateVersionID,
+  environment: 'development',
+  labels: {},
+  status: 'running',
+  desiredState: 'running',
+  autoRestart: true,
+  restartFailures: 0,
+  cpu: 1,
+  memoryBytes: GiB,
+  reservedDiskBytes: 10 * GiB,
+  hostPort: 25432,
+  containerPort: 5432,
+  bindAddress: '0.0.0.0',
+  databaseUsername: 'dbmock',
+  databaseName: 'app',
+  configuration: { templateParameters: {} },
+  templateSlug: 'postgresql',
+  templateName: 'PostgreSQL',
+  templateVersion: '17',
+  hostName: host.name,
+  connectionAddress: host.connectionAddress,
+  createdAt: '2026-08-04T08:00:00Z',
+  updatedAt: '2026-08-04T08:05:00Z',
+  lastHealthyAt: '2026-08-04T08:05:00Z',
+}
+
+const succeededTask = {
+  id: '88888888-8888-4888-8888-888888888888',
+  kind: 'instance.stop',
+  status: 'succeeded',
+  resourceType: 'instance',
+  resourceId: instanceID,
+  hostId: hostID,
+  progress: 100,
+  stage: 'succeeded',
+  message: 'Stopped',
+  payload: {},
+  result: {},
+  cancelable: false,
+  cancelAsked: false,
+  attempts: 1,
+  createdAt: '2026-08-04T08:00:00Z',
+  finishedAt: '2026-08-04T08:01:00Z',
+}
+
+test('keeps database deployment on the three-step MVP path', async ({ page, context }, testInfo) => {
+  test.setTimeout(120_000)
+  const consoleErrors: string[] = []
+  const httpErrors: string[] = []
+  page.on('console', (entry) => { if (entry.type() === 'error') consoleErrors.push(entry.text()) })
+  page.on('response', (response) => { if (response.status() >= 400) httpErrors.push(`${response.status()} ${response.url()}`) })
+
   await page.goto('/')
   await page.locator('#username').fill('e2e-admin')
-  await expect(page.getByLabel('昵称')).toHaveCount(0)
-  await expect(page.getByLabel('语言')).toHaveCount(0)
   await page.locator('#password').fill('e2e-password')
   await page.getByRole('button', { name: '初始化 DB Mock' }).click()
   await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
-  await expect(page.getByText('先接入一台可部署主机')).toBeVisible()
   await expect(page.getByRole('menuitem')).toHaveCount(4)
   await expect(page.getByRole('menuitem', { name: /工作台/ })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /主机/ })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /数据库/ })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /任务中心/ })).toBeVisible()
-  await expect(page.getByText('到期确认队列')).toHaveCount(0)
-  await expect(page.getByText('待处理告警')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
-  await expect(page.getByRole('link', { name: '跳到主要内容' })).toHaveAttribute('href', '#main-content')
-  await expect(page.getByRole('button', { name: '账号菜单' })).toBeVisible()
-  await expect(page.getByText('系统设置', { exact: true })).toHaveCount(0)
 
-  const uploadTemplatePackage = (name: string, encoded: string) => page.request.post('/api/v1/templates/custom', { multipart: { package: { name, mimeType: 'application/zip', buffer: Buffer.from(encoded, 'base64') } } })
-  const invalidTemplatePackage = await page.request.post('/api/v1/templates/custom', { multipart: { package: { name: 'invalid.zip', mimeType: 'application/zip', buffer: Buffer.from('not a zip archive') } } })
-  expect(invalidTemplatePackage.status()).toBe(400)
-  await expect(invalidTemplatePackage.json()).resolves.toMatchObject({ error: { code: 'invalid_input' } })
-  const customV1Response = await uploadTemplatePackage('e2e-template-v1.zip', templatePackages.v1)
-  expect(customV1Response.status()).toBe(201)
-  const customV1 = await customV1Response.json()
-  expect(customV1.riskReport).toEqual([])
-  expect(customV1.versions[0].riskReport).toEqual([])
-  const customV2Response = await uploadTemplatePackage('e2e-template-v2.zip', templatePackages.v2)
-  expect(customV2Response.status()).toBe(201)
-  const customV2 = await customV2Response.json()
-  expect(customV2.id).toBe(customV1.id)
-  expect(customV2.versions[0].id).not.toBe(customV1.versions[0].id)
-  expect(customV2.riskReport).toEqual([expect.objectContaining({ code: 'privileged', severity: 'critical' })])
-  expect(customV2.versions[0].riskReport).toEqual([expect.objectContaining({ code: 'privileged', severity: 'critical' })])
-
-  const duplicateTemplate = await uploadTemplatePackage('e2e-template-v1-duplicate.zip', templatePackages.v1)
-  expect(duplicateTemplate.status()).toBe(409)
-  await expect(duplicateTemplate.json()).resolves.toMatchObject({ error: { code: 'resource_conflict', message: 'resource conflict: template version already exists and cannot be replaced' } })
-  const builtinCollision = await uploadTemplatePackage('mysql-collision.zip', templatePackages.builtinCollision)
-  expect(builtinCollision.status()).toBe(409)
-  await expect(builtinCollision.json()).resolves.toMatchObject({ error: { code: 'resource_conflict', message: 'resource conflict: template slug is reserved by a built-in template' } })
-
-  const immutableCatalogResponse = await page.request.get('/api/v1/templates')
-  const immutableCatalog = await immutableCatalogResponse.json()
-  const customTemplate = immutableCatalog.items.find((item: { slug: string }) => item.slug === 'e2e-immutable')
-  expect(customTemplate.versions.map((item: { version: string }) => item.version).sort()).toEqual(['1.0.0', '1.1.0'])
-  expect(customTemplate.versions.find((item: { version: string }) => item.version === '1.0.0').id).toBe(customV1.versions[0].id)
-  expect(immutableCatalog.items.find((item: { slug: string }) => item.slug === 'mysql')).toMatchObject({ name: 'MySQL', tier: 'standard', builtin: true })
-
-  await page.goto('/settings')
-  const timezone = page.getByRole('combobox', { name: '系统时区' })
-  await expect(timezone).toHaveValue('Asia/Shanghai')
-  await timezone.fill('America/New_York')
-  await page.getByRole('button', { name: '保存时区' }).click()
-  await expect(page.getByText('系统时区已保存')).toBeVisible()
-  await page.reload()
-  await expect(page.getByRole('combobox', { name: '系统时区' })).toHaveValue('America/New_York')
-  const persistedSettings = await page.request.get('/api/v1/settings')
-  await expect(persistedSettings.json()).resolves.toMatchObject({ timezone: 'America/New_York' })
-  await page.getByRole('combobox', { name: '系统时区' }).fill('Asia/Shanghai')
-  await page.getByRole('button', { name: '保存时区' }).click()
-  await expect(page.getByText('系统时区已保存')).toBeVisible()
-  await page.getByRole('tab', { name: /监控告警/ }).click()
-  await expect(page.getByText('监控与告警策略', { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole('spinbutton', { name: '采集间隔' })).toHaveValue('30')
-  const warningThreshold = page.getByRole('spinbutton', { name: '磁盘警告阈值' })
-  const criticalThreshold = page.getByRole('spinbutton', { name: '磁盘严重阈值' })
-  await criticalThreshold.fill('70')
-  await expect(page.getByRole('button', { name: '保存监控策略' })).toBeDisabled()
-  await expect(page.getByText('严重阈值必须高于警告阈值')).toBeVisible()
-  await criticalThreshold.fill('90')
-  await warningThreshold.fill('75')
-  const sshCredentialAlert = page.getByRole('switch', { name: 'SSH 凭据失效' })
-  await sshCredentialAlert.click()
-  await page.getByRole('button', { name: '保存监控策略' }).click()
-  await expect(page.getByText('监控与告警策略已保存')).toBeVisible()
-  await page.reload()
-  await page.getByRole('tab', { name: /监控告警/ }).click()
-  await expect(page.getByRole('spinbutton', { name: '磁盘警告阈值' })).toHaveValue('75')
-  await expect(page.getByRole('switch', { name: 'SSH 凭据失效' })).not.toBeChecked()
-  await page.getByRole('switch', { name: 'SSH 凭据失效' }).click()
-  await page.getByRole('spinbutton', { name: '磁盘警告阈值' }).fill('80')
-  await page.getByRole('button', { name: '保存监控策略' }).click()
-  await expect(page.getByText('监控与告警策略已保存')).toBeVisible()
-
-  await page.getByRole('tab', { name: /镜像上传/ }).click()
-  const maxUploadSize = page.getByRole('spinbutton', { name: '单文件上传上限' })
-  const uploadChunkSize = page.getByRole('spinbutton', { name: '浏览器上传分片' })
-  await expect(maxUploadSize).toHaveValue('50')
-  await expect(uploadChunkSize).toHaveValue('8')
-  await maxUploadSize.fill('40')
-  await uploadChunkSize.fill('4')
-  await page.getByRole('button', { name: '保存上传策略' }).click()
-  await expect(page.getByText('离线镜像上传策略已保存')).toBeVisible()
-  await page.reload()
-  await page.getByRole('tab', { name: /镜像上传/ }).click()
-  await expect(page.getByRole('spinbutton', { name: '单文件上传上限' })).toHaveValue('40')
-  await expect(page.getByRole('spinbutton', { name: '浏览器上传分片' })).toHaveValue('4')
-  const runtimeUploadPolicy = await page.request.put('/api/v1/settings/uploads', { data: { maxBytes: 2 * 1024 * 1024, chunkBytes: 1024 * 1024 } })
-  expect(runtimeUploadPolicy.ok()).toBeTruthy()
-  const oversizedUpload = await page.request.post('/api/v1/images/uploads', { data: { filename: 'oversized.tar', totalBytes: 3 * 1024 * 1024, sha256: '' } })
-  expect(oversizedUpload.status()).toBe(400)
-  await expect(oversizedUpload.json()).resolves.toMatchObject({ error: { code: 'invalid_input' } })
-  await page.getByRole('spinbutton', { name: '单文件上传上限' }).fill('50')
-  await page.getByRole('spinbutton', { name: '浏览器上传分片' }).fill('8')
-  await page.getByRole('button', { name: '保存上传策略' }).click()
-  await expect(page.getByText('离线镜像上传策略已保存')).toBeVisible()
-
-  await page.goto('/')
-  await page.getByRole('button', { name: '接入主机' }).click()
-  const hostDialog = page.getByRole('dialog', { name: '接入主机' })
-  await expect(hostDialog).toBeVisible()
-  await expect(hostDialog.getByRole('button', { name: '关闭' })).toBeFocused()
-  await expect(hostDialog.getByLabel('SSH 用户')).toHaveValue('')
-  await expect(hostDialog.getByLabel('私钥口令')).toHaveValue('')
-  await expect(hostDialog.getByRole('button', { name: /保\s*存/ })).toBeDisabled()
-  await expect(hostDialog.getByText('请先填写 SSH 地址、端口、用户、认证凭据与有效端口池，再测试连接。')).toBeVisible()
-  await expect(hostDialog.getByRole('button', { name: '测试连接' })).toBeDisabled()
-  await expect(page.locator('.ant-message-notice-content').filter({ hasText: '[object Object]' })).toHaveCount(0)
-  await page.route('**/api/v1/hosts/test', async (route) => route.fulfill({ json: { hostKey: 'SHA256:e2e-host-key AAAA', os: 'linux', distro: 'ubuntu:24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', passwordlessSudo: false, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, dataRootWritable: true, portProbeAvailable: true, firstAvailablePort: 20000, verificationToken: 'e2e-verification-token', verificationExpiresAt: '2026-07-20T12:10:00Z' } }))
-  await hostDialog.getByLabel('SSH 地址').fill('10.0.0.8')
-  await hostDialog.getByLabel('SSH 用户').fill('e2e')
-  await hostDialog.getByLabel('私钥', { exact: true }).fill('e2e-private-key')
-  await hostDialog.getByText('高级设置', { exact: true }).click()
-  await expect(hostDialog.getByLabel('托管数据根目录')).toBeVisible()
-  await hostDialog.getByRole('button', { name: '测试连接' }).click()
-  await expect(hostDialog.getByText('连接验证通过')).toBeInViewport()
-  await expect(hostDialog.getByRole('button', { name: /保\s*存/ })).toBeEnabled()
-  await hostDialog.getByText('高级设置', { exact: true }).click()
-  await hostDialog.getByText('主机策略', { exact: true }).click()
-  const manageDocker = hostDialog.getByRole('switch', { name: '允许安装或升级 Docker' })
-  await manageDocker.click()
-  await expect(hostDialog.getByText('无法启用 Docker 管理')).toBeVisible()
-  await expect(hostDialog.getByText('当前验证结果：免密 sudo 不可用。关闭此选项后才能保存。')).toBeVisible()
-  await expect(hostDialog.getByRole('button', { name: /保\s*存/ })).toBeDisabled()
-  await manageDocker.click()
-  await expect(hostDialog.getByText('无法启用 Docker 管理')).not.toBeVisible()
-  await expect(hostDialog.getByText('当前验证结果：免密 sudo 不可用。关闭此选项后才能保存。')).not.toBeVisible()
-  await expect(hostDialog.getByRole('button', { name: /保\s*存/ })).toBeEnabled()
-  await expect(hostDialog.getByLabel('托管数据根目录')).not.toBeVisible()
-  await hostDialog.getByText('高级设置', { exact: true }).click()
-  await expect(hostDialog.getByLabel('托管数据根目录')).toHaveValue('/opt/dbmock')
-  await hostDialog.getByLabel('托管数据根目录').fill('/srv/dbmock')
-  await expect(hostDialog.getByText('连接信息已变更，请重新测试。')).toBeVisible()
-  await expect(hostDialog.getByRole('button', { name: /保\s*存/ })).toBeDisabled()
-  await page.keyboard.press('Escape')
-  let discardHostDialog = page.getByRole('dialog', { name: '放弃未保存的主机配置？' })
-  await expect(discardHostDialog).toBeVisible()
-  await discardHostDialog.getByRole('button', { name: '继续编辑' }).click()
-  await expect(hostDialog).toBeVisible()
-  await expect(hostDialog.getByLabel('托管数据根目录')).toHaveValue('/srv/dbmock')
-  await hostDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  discardHostDialog = page.getByRole('dialog', { name: '放弃未保存的主机配置？' })
-  await discardHostDialog.getByRole('button', { name: '放弃更改' }).click()
-  await expect(hostDialog).not.toBeVisible()
-  await page.unroute('**/api/v1/hosts/test')
-
-  await page.goto('/projects')
-  await expect(page.getByText('尚未创建项目。项目可用于按团队、环境或业务线组织主机和数据库。')).toBeVisible()
-  await page.getByRole('button', { name: '创建项目' }).click()
-  let projectDialog = page.getByRole('dialog', { name: '创建项目' })
-  await expect(projectDialog.getByLabel('名称')).toBeFocused()
-  await expect(projectDialog.getByText('#2563eb')).toBeVisible()
-  await projectDialog.getByLabel('名称').fill('E2E Project')
-  await projectDialog.getByLabel('描述').fill('Must not leak into the next project')
-  await projectDialog.getByRole('combobox', { name: '默认环境' }).click()
-  await page.getByText('测试', { exact: true }).last().click()
-  await projectDialog.getByRole('combobox', { name: '默认使用周期' }).click()
-  await page.getByText('14 天', { exact: true }).last().click()
-  await projectDialog.getByLabel('默认标签').fill('team=orders, managed=qa')
-  const projectDefaultTemplate = projectDialog.getByRole('combobox', { name: '默认模板 / 版本' })
-  await projectDefaultTemplate.click()
-  await projectDefaultTemplate.fill('PostgreSQL')
-  await page.getByText('PostgreSQL 17', { exact: true }).last().click()
-  await projectDialog.getByLabel('CPU').fill('2')
-  await projectDialog.getByLabel('内存 GiB').fill('4')
-  await projectDialog.getByLabel('磁盘 GiB').fill('20')
-  await projectDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  const discardProjectDraftDialog = page.getByRole('dialog', { name: '放弃未保存的项目配置？' })
-  await expect(discardProjectDraftDialog).toBeVisible()
-  await discardProjectDraftDialog.getByRole('button', { name: '继续编辑' }).click()
-  await expect(projectDialog.getByLabel('名称')).toHaveValue('E2E Project')
-  await expect(projectDialog.getByLabel('描述')).toHaveValue('Must not leak into the next project')
-  await projectDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(page.getByRole('heading', { name: 'E2E Project' })).toBeVisible()
-  const e2eProjectsResponse = await page.request.get('/api/v1/projects')
-  const e2eProject = (await e2eProjectsResponse.json()).items.find((item: { name: string }) => item.name === 'E2E Project')
-  expect(e2eProject?.id).toEqual(expect.any(String))
-  await expect(page.locator('.project-dot')).toHaveCSS('display', 'block')
-  const e2eProjectCard = page.locator('.project-card').filter({ hasText: 'E2E Project' })
-  await expect(e2eProjectCard.getByText('新建数据库时自动应用')).toBeVisible()
-  await expect(e2eProjectCard.getByText('测试', { exact: true })).toBeVisible()
-  await expect(e2eProjectCard.getByText('14 天', { exact: true })).toBeVisible()
-  await expect(e2eProjectCard.getByText('2 个默认标签')).toBeVisible()
-  await expect(e2eProjectCard.getByText('PostgreSQL 17', { exact: true })).toBeVisible()
-  await expect(e2eProjectCard.getByText('2 CPU · 4.0 GiB · 20.0 GiB')).toBeVisible()
-  await e2eProjectCard.getByRole('button', { name: /删除/ }).click()
-  await expect(page.getByText('删除项目“E2E Project”？')).toBeVisible()
-  await expect(page.getByText('仅空项目可以删除；删除后无法恢复。')).toBeVisible()
-  await page.getByRole('button', { name: /取\s*消/ }).click()
-  await e2eProjectCard.getByRole('button', { name: /编辑/ }).click()
-  projectDialog = page.getByRole('dialog', { name: '编辑项目' })
-  await expect(projectDialog.getByLabel('描述')).toHaveValue('Must not leak into the next project')
-  await expect(projectDialog.getByLabel('默认标签')).toHaveValue('managed=qa, team=orders')
-  await expect(projectDialog.getByText('PostgreSQL 17', { exact: true })).toBeVisible()
-  await expect(projectDialog.getByLabel('CPU')).toHaveValue('2.00')
-  await expect(projectDialog.getByLabel('内存 GiB')).toHaveValue(/^4(?:\.0)?$/)
-  await expect(projectDialog.getByLabel('磁盘 GiB')).toHaveValue(/^20(?:\.0)?$/)
-  await projectDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.getByRole('button', { name: '创建项目' }).click()
-  projectDialog = page.getByRole('dialog', { name: '创建项目' })
-  await expect(projectDialog.getByLabel('名称')).toHaveValue('')
-  await expect(projectDialog.getByLabel('描述')).toHaveValue('')
-  await expect(projectDialog.getByLabel('默认标签')).toHaveValue('')
-  await expect(projectDialog.getByRole('combobox', { name: '默认模板 / 版本' })).toHaveText('')
-  await expect(projectDialog.getByLabel('CPU')).toHaveCount(0)
-  await projectDialog.getByRole('button', { name: '关闭', exact: true }).click()
-
-  await page.goto('/instances')
-  await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从本页选择内置数据库和固定版本开始部署。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '接入主机' })).toHaveCount(1)
-  let deploymentHostDrifted = false
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [
-    { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: deploymentHostDrifted ? 'offline' : 'online', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
-    { id: '22222222-2222-4222-8222-222222222222', name: 'E2E Staging', status: 'offline', architecture: 'arm64', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000 },
-    { id: '33333333-3333-4333-8333-333333333333', name: 'E2E Constrained', status: 'online', architecture: 'arm64', cpuCount: 1, memoryBytes: 1073741824, diskFreeBytes: 10737418240, portStart: 21000, portEnd: 21999 },
-  ] } }))
-  let submittedInstanceBody: Record<string, unknown> | undefined
-  let instanceCreateAttempt = 0
-  const listInstances = [
-    { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: { team: 'checkout' }, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 1, memoryBytes: 1073741824, reservedDiskBytes: 10737418240, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString() },
-    { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Staging Cache', hostId: '22222222-2222-4222-8222-222222222222', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'staging', labels: { team: 'platform' }, status: 'stopped', desiredState: 'stopped', autoRestart: true, restartFailures: 0, cpu: 1, memoryBytes: 1073741824, reservedDiskBytes: 10737418240, hostPort: 26379, containerPort: 6379, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'cache', templateSlug: 'redis', templateName: 'Redis', templateVersion: '8', hostName: 'E2E Staging', connectionAddress: '10.0.0.9', createdAt: new Date().toISOString() },
-  ]
+  let instances = [runningInstance]
+  let createPayload: Record<string, unknown> | undefined
+  let stopPayload: Record<string, unknown> | undefined
+  await page.route('**/api/v1/templates', (route) => route.fulfill({ json: { items: [standardTemplate, ...hiddenTemplates] } }))
+  await page.route('**/api/v1/hosts', (route) => route.fulfill({ json: { items: [host] } }))
+  await page.route('**/api/v1/projects', (route) => route.fulfill({ json: { items: [] } }))
+  await page.route('**/api/v1/images', (route) => route.fulfill({ json: { items: [] } }))
+  await page.route('**/api/v1/registries', (route) => route.fulfill({ json: { items: [] } }))
   await page.route('**/api/v1/instances', async (route) => {
-    if (route.request().method() !== 'POST') { await route.fulfill({ json: { items: listInstances } }); return }
-    instanceCreateAttempt += 1
-    submittedInstanceBody = route.request().postDataJSON() as Record<string, unknown>
-    if (instanceCreateAttempt === 1) {
-      deploymentHostDrifted = true
-      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: deployment capacity changed during review' } } })
+    if (route.request().method() === 'POST') {
+      createPayload = route.request().postDataJSON()
+      const created = { ...runningInstance, id: createdInstanceID, name: String(createPayload?.name), status: 'provisioning', desiredState: 'running' }
+      instances = [...instances, created]
+      await route.fulfill({ status: 202, json: { instance: created, task: { ...succeededTask, id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', resourceId: createdInstanceID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } } })
       return
     }
-    await route.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'invalid input: e2e submission stopped' } } })
+    await route.fulfill({ json: { items: instances } })
   })
-  const batchStopBodies: Array<{ instanceIds: string[] }> = []
-  const singleRestartBodies: Array<{ instanceIds: string[] }> = []
-  let singleRestartAttempt = 0
-  let batchStopAttempt = 0
-  let batchTaskPolls = 0
-  const acceptedBatchTask = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', kind: 'instance.stop', status: 'queued', resourceType: 'instance', resourceId: listInstances[0].id, hostId: listInstances[0].hostId, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
   await page.route('**/api/v1/instances/batch-actions/stop', async (route) => {
-    batchStopAttempt += 1
-    batchStopBodies.push(route.request().postDataJSON() as { instanceIds: string[] })
-    if (batchStopAttempt === 1) {
-      await route.fulfill({ status: 200, json: { action: 'stop', accepted: [], rejected: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' }] } })
-      return
-    }
-    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, task: acceptedBatchTask }], rejected: [] } })
+    stopPayload = route.request().postDataJSON()
+    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: instanceID, instanceName: runningInstance.name, task: succeededTask }], rejected: [] } })
   })
-  await page.route('**/api/v1/instances/batch-actions/restart', async (route) => {
-    singleRestartAttempt += 1
-    singleRestartBodies.push(route.request().postDataJSON() as { instanceIds: string[] })
-    if (singleRestartAttempt === 1) {
-      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: lifecycle dispatcher is unavailable' } } })
-      return
-    }
-    await route.fulfill({ status: 200, json: { action: 'restart', accepted: [], rejected: [{ instanceId: listInstances[0].id, instanceName: listInstances[0].name, code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' }] } })
-  })
-  await page.route('**/api/v1/tasks?ids=*', async (route) => {
-    batchTaskPolls += 1
-    const failed = batchTaskPolls >= 2
-    await route.fulfill({ json: { items: [{
-      ...acceptedBatchTask,
-      status: failed ? 'failed' : 'running',
-      progress: failed ? 45 : 25,
-      stage: failed ? 'ssh' : 'compose',
-      message: failed ? 'task_failed' : 'stopping_database_instance',
-      cancelable: !failed,
-      attempts: 1,
-      errorCode: failed ? 'ssh_unreachable' : undefined,
-      errorMessage: failed ? 'dial tcp 10.0.0.8:22: connect: connection timed out' : undefined,
-      finishedAt: failed ? new Date().toISOString() : undefined,
-    }] } })
-  })
-  const frequentTemplateCatalog = JSON.parse(JSON.stringify(immutableCatalog)) as {
-    items: Array<{ slug: string; versions: Array<Record<string, unknown>> }>
-  }
-  for (const template of frequentTemplateCatalog.items) {
-    for (const version of template.versions) {
-      version.deploymentCount = 0
-      delete version.lastDeployedAt
-    }
-  }
-  const frequentPostgresVersion = frequentTemplateCatalog.items
-    .find((item) => item.slug === 'postgresql')?.versions
-    .find((item) => item.version === '17')
-  expect(frequentPostgresVersion).toBeTruthy()
-  frequentPostgresVersion!.deploymentCount = 5
-  frequentPostgresVersion!.lastDeployedAt = '2026-07-30T08:00:00Z'
-  await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: frequentTemplateCatalog }))
-  await page.goto('/projects')
-  const projectWithDefaultsCard = page.locator('.project-card').filter({ hasText: 'E2E Project' })
-  await projectWithDefaultsCard.getByRole('button', { name: '创建数据库' }).click()
-  const projectDefaultsDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(projectDefaultsDrawer).toBeVisible()
-  await expect(projectDefaultsDrawer.getByLabel('模板 / 版本', { exact: true })).toHaveCount(0)
-  await expect(projectDefaultsDrawer.getByText('已应用“E2E Project”项目默认值')).toBeVisible()
-  await expect(projectDefaultsDrawer.getByText('已应用“E2E Project”的默认模板与资源')).toBeVisible()
-  await expect(projectDefaultsDrawer.getByText('测试', { exact: true })).toBeVisible()
-  await expect(projectDefaultsDrawer.getByLabel('预计到期')).not.toHaveValue('')
-  await expect(projectDefaultsDrawer.getByLabel('标签')).toHaveValue('managed=qa, team=orders')
-  await projectDefaultsDrawer.getByLabel('名称').fill('Project default deployment')
-  await projectDefaultsDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(projectDefaultsDrawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^2(?:\.00)?$/)
-  await expect(projectDefaultsDrawer.getByLabel('内存 GiB')).toHaveValue(/^4(?:\.0)?$/)
-  await expect(projectDefaultsDrawer.getByLabel('磁盘 GiB')).toHaveValue('20')
-  await expect(projectDefaultsDrawer.getByText('自动推荐', { exact: true })).toBeVisible()
-  await projectDefaultsDrawer.getByRole('spinbutton', { name: 'CPU' }).fill('3')
-  await projectDefaultsDrawer.getByLabel('内存 GiB').fill('6')
-  await projectDefaultsDrawer.getByLabel('磁盘 GiB').fill('30')
-  await projectDefaultsDrawer.getByRole('button', { name: '上一步' }).click()
-  await expect(projectDefaultsDrawer.getByText('“E2E Project”有不同的默认部署规格')).toBeVisible()
-  await projectDefaultsDrawer.getByRole('button', { name: '应用默认部署规格' }).click()
-  await projectDefaultsDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(projectDefaultsDrawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^2(?:\.00)?$/)
-  await expect(projectDefaultsDrawer.getByLabel('内存 GiB')).toHaveValue(/^4(?:\.0)?$/)
-  await expect(projectDefaultsDrawer.getByLabel('磁盘 GiB')).toHaveValue('20')
-  await projectDefaultsDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  const projectDefaultsDiscard = page.getByRole('dialog', { name: '放弃未保存的数据库配置？' })
-  await projectDefaultsDiscard.getByRole('button', { name: '放弃更改' }).click()
-  await expect(projectDefaultsDrawer).toBeHidden()
+  await page.route(`**/api/v1/instances/${instanceID}/connection`, (route) => route.fulfill({ json: { address: host.connectionAddress, port: 25432, username: 'dbmock', password: 'generated-secret', database: 'app', authentication: 'password', uri: 'postgresql://dbmock:generated-secret@10.0.0.8:25432/app', jdbc: 'jdbc:postgresql://10.0.0.8:25432/app' } }))
+  await page.route(`**/api/v1/instances/${instanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/instances/${instanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/instances/${createdInstanceID}`, (route) => route.fulfill({ json: instances.find((item) => item.id === createdInstanceID) }))
+  await page.route(`**/api/v1/instances/${createdInstanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/instances/${createdInstanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/instances/${createdInstanceID}/backup-policy`, (route) => route.fulfill({ json: { policy: null } }))
+
   await page.goto('/instances')
-  await expect(page.getByText('共 2 个实例')).toBeVisible()
-  const ordersRow = page.getByRole('row').filter({ hasText: 'Orders DB' })
-  const cacheRow = page.getByRole('row').filter({ hasText: 'Staging Cache' })
-  const ordersRuntimeActions = ordersRow.getByRole('button', { name: '运行操作 · Orders DB' })
-  await expect(ordersRuntimeActions).toBeVisible()
-  await ordersRuntimeActions.click()
-  await expect(page.getByRole('menuitem', { name: '停止' })).toBeVisible()
-  await page.getByRole('menuitem', { name: '重启' }).click()
-  let singleRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
-  await expect(singleRestartDialog.getByText('现有数据库连接将短暂中断')).toBeVisible()
-  await expect(singleRestartDialog.getByText('Orders DB · 运行中')).toBeVisible()
-  expect(singleRestartBodies).toEqual([])
-  await singleRestartDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await ordersRuntimeActions.click()
-  await page.getByRole('menuitem', { name: '重启' }).click()
-  singleRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
-  await singleRestartDialog.getByRole('button', { name: '确认重启' }).click()
-  await expect(singleRestartDialog.getByText('重启请求未创建任务')).toBeVisible()
-  await expect(singleRestartDialog.getByText('本次请求没有创建任务，数据库运行状态未因本次请求改变。')).toBeVisible()
-  expect(singleRestartBodies).toEqual([{ instanceIds: [listInstances[0].id] }])
-  await singleRestartDialog.getByRole('button', { name: '确认重启' }).click()
-  await expect(page.getByText('Orders DB：重启未排队')).toBeVisible()
-  await expect(page.getByText(/暂时无法通过 SSH 连接实例主机/)).toBeVisible()
-  expect(singleRestartBodies).toEqual([{ instanceIds: [listInstances[0].id] }, { instanceIds: [listInstances[0].id] }])
-  await page.getByRole('button', { name: '关闭提示' }).click()
-  const cacheRuntimeActions = cacheRow.getByRole('button', { name: '运行操作 · Staging Cache' })
-  await cacheRuntimeActions.click()
-  await expect(page.getByRole('menuitem', { name: '启动' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '停止' })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: '重启' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  await ordersRow.getByRole('checkbox').check()
-  await cacheRow.getByRole('checkbox').check()
-  await expect(page.getByText('已选择 2 个实例')).toBeVisible()
-  await expect(page.getByText('1 个可启动，1 个可停止，1 个可重启；其他状态会在确认时跳过。')).toBeVisible()
-  await page.getByRole('button', { name: '批量重启（1）' }).click()
-  const batchRestartDialog = page.getByRole('dialog', { name: '确认重启 1 个实例' })
-  await expect(batchRestartDialog.getByText('重启会中断现有数据库连接，并为每个实例创建独立任务')).toBeVisible()
-  await expect(batchRestartDialog.getByText('Orders DB')).toBeVisible()
-  await batchRestartDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await page.getByRole('button', { name: '批量停止（1）' }).click()
-  const batchStopDialog = page.getByRole('dialog', { name: '确认停止 1 个实例' })
-  await expect(batchStopDialog.getByText('停止后现有数据库连接会中断')).toBeVisible()
-  await expect(batchStopDialog.getByText('1 个实例将跳过')).toBeVisible()
-  await expect(batchStopDialog.getByText('Orders DB')).toBeVisible()
-  await batchStopDialog.getByRole('button', { name: '停止 1 个' }).click()
-  await expect(page.getByText('1 个实例未排队')).toBeVisible()
-  await expect(page.getByText(/暂时无法通过 SSH 连接实例主机/)).toBeVisible()
-  expect(batchStopBodies).toEqual([{ instanceIds: [listInstances[0].id] }])
-  await page.getByRole('button', { name: '重试未排队项（1）' }).click()
-  await expect(page.getByText(/停止进行中：1 个实例待完成/)).toBeVisible()
-  expect(batchStopBodies).toEqual([{ instanceIds: [listInstances[0].id] }, { instanceIds: [listInstances[0].id] }])
-  await expect(page.getByText('批量操作需要处理：1 个实例失败')).toBeVisible({ timeout: 10_000 })
-  const failedBatchTask = page.locator('.instance-bulk-task-item').filter({ hasText: 'Orders DB' })
-  await expect(failedBatchTask.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
-  await expect(failedBatchTask.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(failedBatchTask.getByRole('button', { name: '查看任务' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '打开任务中心' })).toBeVisible()
-  await page.getByRole('button', { name: '关闭提示' }).click()
-  await page.unroute('**/api/v1/tasks?ids=*')
-  await page.getByRole('combobox', { name: '主机' }).click()
-  await page.getByText('E2E Host', { exact: true }).last().click()
-  await expect(page.getByText('筛选出 1 / 2 个实例')).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await expect(page.getByRole('heading', { name: '数据库' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '数据库' })).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Orders DB', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Staging Cache', exact: true })).toHaveCount(0)
-  await page.getByRole('combobox', { name: '主机' }).click()
-  await page.getByText('全部主机', { exact: true }).last().click()
-  await expect(page.getByText('共 2 个实例')).toBeVisible()
-  await page.goto('/instances?create=1')
-  const createInstanceDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(createInstanceDrawer).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: '上一步' })).toBeDisabled()
-  await expect(createInstanceDrawer.getByRole('button', { name: '下一步' })).toBeVisible()
-  const templateSelect = createInstanceDrawer.getByLabel('模板 / 版本', { exact: true })
-  await expect(createInstanceDrawer.getByText('根据历史部署自动排序，选择后仍可检查兼容性。')).toBeVisible()
-  const frequentPostgresButton = createInstanceDrawer.getByRole('button', { name: '选择常用版本 PostgreSQL 17，历史部署 5 次' })
-  await frequentPostgresButton.click()
-  await expect(frequentPostgresButton).toHaveAttribute('aria-pressed', 'true')
-  await expect(templateSelect).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('heading', { name: 'PostgreSQL' })).toBeVisible()
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  await createInstanceDrawer.getByLabel('名称').fill('E2E Database')
-  await createInstanceDrawer.getByLabel('用途').fill('Release candidate regression')
-  await expect(createInstanceDrawer.getByLabel('负责人')).toHaveValue('e2e-admin')
-  await expect(createInstanceDrawer.getByLabel('预计到期')).not.toHaveValue('')
-  await expect(createInstanceDrawer.getByLabel('部署主机')).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  const discardInstanceDraftDialog = page.getByRole('dialog', { name: '放弃未保存的数据库配置？' })
-  await expect(discardInstanceDraftDialog).toBeVisible()
-  await discardInstanceDraftDialog.getByRole('button', { name: '继续编辑' }).click()
-  await expect(createInstanceDrawer.getByLabel('名称')).toHaveValue('E2E Database')
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  const requestedCPU = createInstanceDrawer.getByRole('spinbutton', { name: 'CPU', exact: true })
-  await expect(requestedCPU).not.toHaveValue('')
-  const deploymentHostSelect = createInstanceDrawer.getByLabel('部署主机')
-  await expect(deploymentHostSelect).toBeVisible()
-  await expect(createInstanceDrawer.getByText('1 / 2 台兼容主机可承载当前资源')).toBeVisible()
-  await deploymentHostSelect.click()
-  const constrainedHostOption = page.getByRole('option', { name: /E2E Constrained.*不可选.*CPU 不足.*内存不足.*磁盘不足/ })
-  await expect(page.getByText('E2E Constrained', { exact: true })).toBeVisible()
-  await expect(page.getByText(/不可选：CPU 不足.*内存不足.*磁盘不足/)).toBeVisible()
-  await expect(constrainedHostOption).toHaveAttribute('aria-disabled', 'true')
-  await page.keyboard.press('Escape')
-  await requestedCPU.fill('100')
-  await expect(createInstanceDrawer.getByText('当前资源或端口没有可用主机')).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: '下一步' })).toBeDisabled()
-  await requestedCPU.fill('2')
-  await expect(createInstanceDrawer.getByText('1 / 2 台兼容主机可承载当前资源')).toBeVisible()
-  const requestedPort = createInstanceDrawer.getByLabel('端口 (可选)')
-  await requestedPort.fill('50000')
-  await expect(createInstanceDrawer.getByText('当前资源或端口没有可用主机')).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: '下一步' })).toBeDisabled()
-  await requestedPort.fill('')
-  await expect(createInstanceDrawer.getByText('1 / 2 台兼容主机可承载当前资源')).toBeVisible()
-  await requestedCPU.fill('3')
-  await createInstanceDrawer.getByLabel('内存 GiB').fill('6')
-  await createInstanceDrawer.getByLabel('磁盘 GiB').fill('30')
-  await expect(createInstanceDrawer.getByText('1 / 2 台兼容主机可承载当前资源')).toBeVisible()
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  await createInstanceDrawer.getByLabel('额外环境变量（JSON）').fill('[]')
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(createInstanceDrawer.getByText('请输入合法的 JSON 对象，例如 {"TZ":"Asia/Shanghai"}')).toBeVisible()
-  await createInstanceDrawer.getByLabel('额外环境变量（JSON）').fill('{"TZ":"Asia/Shanghai"}')
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(createInstanceDrawer.getByText('创建实例会启动持久化任务。你可以安全离开本页，并在任务中心跟踪进度。')).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: '上一步' })).toBeEnabled()
-  await createInstanceDrawer.getByRole('button', { name: '上一步' }).click()
-  await expect(createInstanceDrawer.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  await createInstanceDrawer.getByRole('button', { name: /创\s*建/ }).click()
-  await expect.poll(() => submittedInstanceBody).toBeTruthy()
-  expect(submittedInstanceBody).toMatchObject({ name: 'E2E Database', environment: 'development', purpose: 'Release candidate regression', owner: 'e2e-admin', cpu: 3, memoryBytes: 6 * 1024 ** 3, diskBytes: 30 * 1024 ** 3, bindAddress: '0.0.0.0', autoRestart: true })
-  expect(submittedInstanceBody?.expiresAt).toEqual(expect.any(String))
-  expect(submittedInstanceBody?.templateVersionId).toEqual(expect.any(String))
-  expect(Number(submittedInstanceBody?.memoryBytes)).toBeGreaterThan(0)
-  expect(Number(submittedInstanceBody?.diskBytes)).toBeGreaterThan(0)
-  await expect(createInstanceDrawer.getByText('数据库创建请求未提交')).toBeVisible()
-  await expect(createInstanceDrawer.getByText('服务器已明确拒绝本次请求；没有创建新的实例或任务。当前部署草稿已保留。')).toBeVisible()
-  await expect(createInstanceDrawer.getByText('resource_conflict', { exact: true })).toBeVisible()
-  await expect(page).toHaveURL(/\/instances\?create=1/)
-  await expect(createInstanceDrawer).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: /创\s*建/ })).toBeDisabled()
-  await expect(createInstanceDrawer.getByRole('button', { name: '调整资源与主机' })).toBeVisible()
-  await expect(createInstanceDrawer.getByText('3 CPU · 6 GiB · 30 GiB', { exact: true })).toBeVisible()
-  deploymentHostDrifted = false
-  await createInstanceDrawer.getByRole('button', { name: '刷新部署状态' }).click()
-  await expect(createInstanceDrawer.getByText('已使用最新资源状态重新校验；草稿仍有效，可以再次提交。')).toBeVisible()
-  await expect(createInstanceDrawer.getByText('3 CPU · 6 GiB · 30 GiB', { exact: true })).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: /创\s*建/ })).toBeEnabled()
-  await createInstanceDrawer.getByRole('button', { name: /创\s*建/ }).click()
-  await expect(createInstanceDrawer.getByText('invalid_input', { exact: true })).toBeVisible()
-  await expect(createInstanceDrawer.getByText('最新状态已刷新，但本次错误不允许直接重试。请按恢复建议处理后再提交。')).toBeVisible()
-  await expect(createInstanceDrawer.getByRole('button', { name: /创\s*建/ })).toBeDisabled()
-  await createInstanceDrawer.getByRole('button', { name: '检查基础信息' }).click()
-  await expect(createInstanceDrawer.getByLabel('名称')).toHaveValue('E2E Database')
-  await expect(createInstanceDrawer.getByLabel('用途')).toHaveValue('Release candidate regression')
-  await createInstanceDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(createInstanceDrawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^3(?:\.00)?$/)
-  await expect(createInstanceDrawer.getByLabel('内存 GiB')).toHaveValue(/^6(?:\.0)?$/)
-  await expect(createInstanceDrawer.getByLabel('磁盘 GiB')).toHaveValue('30')
-  await createInstanceDrawer.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(discardInstanceDraftDialog).toBeVisible()
-  await discardInstanceDraftDialog.getByRole('button', { name: '放弃更改' }).click()
-  await expect(createInstanceDrawer).toBeHidden()
-  await page.unroute('**/api/v1/instances/batch-actions/stop')
-  await page.unroute('**/api/v1/instances')
-  await page.unroute('**/api/v1/hosts')
-  await page.unroute('**/api/v1/templates')
-
-  const instanceID = '44444444-4444-4444-8444-444444444444'
-  const upgradeVersionID = '56565656-5656-4565-8565-565656565656'
-  const upgradeImageID = '57575757-5757-4575-8575-575757575757'
-  const upgradeRegistryID = '58585858-5858-4585-8585-585858585858'
-  const backupID = '60606060-6060-4060-8060-606060606060'
-  const backupDeleteTaskID = '63636363-6363-4363-8363-636363636363'
-  const backupDeleteRetryTaskID = '63636363-6363-4363-8363-636363636364'
-  let failLogs = true
-  let failConnection = false
-  let connectionRequestCount = 0
-  let failRestartRequest = true
-  let restartRequestCount = 0
-  let instanceStatus = 'running'
-  let instanceStatusMessage = ''
-  let relatedTasks: Array<Record<string, unknown>> = []
-  const restoreSuccessTaskID = '66666666-6767-4666-8666-676767676767'
-  const restoreOutcomeTaskID = '67676767-6767-4767-8767-676767676767'
-  let restoreRetryCount = 0
-  let submittedUpgradeBody: Record<string, unknown> | undefined
-  let submittedRuntimeBody: Record<string, unknown> | undefined
-  let failUpgradeRequest = true
-  let failRuntimeRequest = true
-  let upgradeRequestCount = 0
-  let runtimeRequestCount = 0
-  let submittedBackupBody: Record<string, unknown> | undefined
-  let submittedBackupPolicyBody: Record<string, unknown> | undefined
-  let submittedRestoreBody: Record<string, unknown> | undefined
-  let submittedBackupDeleteBody: Record<string, unknown> | undefined
-  let failBackupCreateRequest = true
-  let failBackupRestoreRequest = true
-  let failBackupDeleteRequest = true
-  let backupCreateRequestCount = 0
-  let backupRestoreRequestCount = 0
-  let backupDeleteRequestCount = 0
-  let instanceBackups: Array<Record<string, unknown>> = []
-  let failBackupInventory = false
-  let failTaskInventory = false
-  let failBackupDeleteRetry = true
-  let backupDeleteRetryCount = 0
-  let instanceBackupPolicy: Record<string, unknown> | null = null
-  let sourceVersionSelectable = true
-  await page.route('**/api/v1/templates', async (route) => route.fulfill({ json: { items: [{
-    id: '54545454-5454-4545-8545-545454545454', slug: 'postgresql', name: 'PostgreSQL', nameZh: 'PostgreSQL', description: '', category: 'relational', tier: 'standard', builtin: true, icon: '', riskReport: [], versions: [
-      { id: '55555555-5555-4555-8555-555555555555', templateId: '54545454-5454-4545-8545-545454545454', version: '17', imageReference: 'postgres:17', architectures: ['amd64', 'arm64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], selectable: sourceVersionSelectable, createdAt: new Date().toISOString() },
-      { id: upgradeVersionID, templateId: '54545454-5454-4545-8545-545454545454', version: '17.1', imageReference: 'postgres:17.1', architectures: ['amd64'], minCpu: 1, minMemoryBytes: 1073741824, minDiskBytes: 10737418240, defaultPort: 5432, manifest: {}, riskReport: [], createdAt: new Date().toISOString() },
-    ],
-  }] } }))
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', maintenance: false, cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 107374182400, portStart: 20000, portEnd: 29999 }] } }))
-  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: upgradeImageID, name: 'PostgreSQL 17.1 offline', filename: 'postgres-17.1.tar', sizeBytes: 134217728, sha256: 'd'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17.1'], architectures: ['amd64'], status: 'ready', usedByCount: 0, createdAt: new Date().toISOString() }] } }))
-  await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: upgradeRegistryID, name: 'Docker Hub mirror', url: 'https://docker.io', hasPassword: true, hasCaCertificate: false, status: 'online', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } }))
-  const instanceResponse = () => ({
-    id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555',
-    projectId: e2eProject.id, environment: 'development', labels: { team: 'checkout' }, purpose: 'Orders release regression', owner: 'Orders QA', expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(), status: instanceStatus, desiredState: 'running', autoRestart: true, restartFailures: 0,
-    cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0',
-    databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17',
-    configuration: { extraEnvironment: { TZ: 'UTC' } }, statusMessage: instanceStatusMessage, hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: new Date().toISOString(), lastHealthyAt: new Date().toISOString(),
-  })
-  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [instanceResponse()] } }))
-  const recoveryInstanceRoute = new RegExp(`/api/v1/instances/${instanceID}(?:\\?.*)?$`)
-  await page.route(recoveryInstanceRoute, async (route) => route.fulfill({ json: instanceResponse() }))
-  await page.route(`**/api/v1/instances/${instanceID}/cleanup-review`, async (route) => {
-    const backupCount = instanceBackups.length
-    await route.fulfill({ json: {
-      instanceId: instanceID,
-      instanceName: 'Orders DB',
-      status: instanceStatus,
-      purpose: 'Orders release regression',
-      owner: 'Orders QA',
-      expiresAt: instanceResponse().expiresAt,
-      backupCount,
-      deleteReady: backupCount === 0 && ['running', 'stopped', 'failed', 'degraded'].includes(instanceStatus),
-      blockers: backupCount > 0 ? ['backups_present'] : [],
-    } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => {
-    if (failTaskInventory) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task inventory outage' } } })
-    await route.fulfill({ json: { items: relatedTasks } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: { policy: instanceBackupPolicy } })
-    submittedBackupPolicyBody = route.request().postDataJSON()
-    instanceBackupPolicy = { instanceId: instanceID, ...submittedBackupPolicyBody, nextRunAt: new Date(Date.now() + 86400000).toISOString(), configuredBy: '12121212-1212-4121-8121-121212121212', configuredByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-    await route.fulfill({ json: { policy: instanceBackupPolicy } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => {
-    if (route.request().method() === 'GET') {
-      if (failBackupInventory) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary backup inventory outage' } } })
-      return route.fulfill({ json: { items: instanceBackups } })
-    }
-    submittedBackupBody = route.request().postDataJSON()
-    backupCreateRequestCount += 1
-    if (failBackupCreateRequest) return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: backup request state changed during audit' } } })
-    const backup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: String(submittedBackupBody?.name || 'Generated backup'), creationType: 'manual', status: 'creating', sizeBytes: 0, createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-    instanceBackups = [backup]
-    await route.fulfill({ status: 202, json: { backup, task: { id: '61616161-6161-4161-8161-616161616161', kind: 'instance.backup', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`, async (route) => {
-    submittedRestoreBody = route.request().postDataJSON()
-    backupRestoreRequestCount += 1
-    if (failBackupRestoreRequest) return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: restore request state changed during audit' } } })
-    await route.fulfill({ status: 202, json: { backup: { ...instanceBackups[0], status: 'restoring' }, task: { id: '62626262-6262-4262-8262-626262626262', kind: 'instance.restore', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
-    submittedBackupDeleteBody = route.request().postDataJSON()
-    backupDeleteRequestCount += 1
-    if (failBackupDeleteRequest) return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: delete request state changed during audit' } } })
-    instanceBackups = [{ ...instanceBackups[0], status: 'deleting' }]
-    const task = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'queued', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 0, stage: 'queued', message: '', payload: { instanceId: instanceID, backupId: backupID }, cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
-    relatedTasks = [task, ...relatedTasks]
-    await route.fulfill({ status: 202, json: { backup: instanceBackups[0], task } })
-  })
-  await page.route(`**/api/v1/tasks/${backupDeleteTaskID}/retry`, async (route) => {
-    backupDeleteRetryCount += 1
-    if (failBackupDeleteRetry) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task retry outage' } } })
-    const retried = { ...relatedTasks[0], id: backupDeleteRetryTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', createdAt: new Date(Date.now() + 1000).toISOString() }
-    relatedTasks = [retried, ...relatedTasks]
-    await route.fulfill({ status: 202, json: retried })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/actions/upgrade`, async (route) => {
-    submittedUpgradeBody = route.request().postDataJSON()
-    upgradeRequestCount += 1
-    if (failUpgradeRequest) return route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary upgrade queue outage during audit' } } })
-    const task = { id: '59595959-5959-4595-8595-595959595959', kind: 'instance.upgrade', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
-    relatedTasks = [task]
-    await route.fulfill({ status: 202, json: task })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/actions/reconfigure`, async (route) => {
-    submittedRuntimeBody = route.request().postDataJSON()
-    runtimeRequestCount += 1
-    if (failRuntimeRequest) {
-      relatedTasks = [{ id: '64646464-6464-4464-8464-646464646463', kind: 'instance.restart', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 40, stage: 'compose', message: 'task_started', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
-      return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'another instance operation is already running' } } })
-    }
-    await route.fulfill({ status: 202, json: { id: '64646464-6464-4464-8464-646464646464', kind: 'instance.reconfigure', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/actions/restart`, async (route) => {
-    restartRequestCount += 1
-    if (failRestartRequest) {
-      instanceStatus = 'restarting'
-      return route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: instance action is not allowed for the current status' } } })
-    }
-    const task = { id: '65656565-6565-4565-8565-656565656565', kind: 'instance.restart', status: 'queued', resourceType: 'instance', resourceId: instanceID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() }
-    instanceStatus = 'restarting'
-    relatedTasks = [task]
-    await route.fulfill({ status: 202, json: task })
-  })
-  await page.route('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry', async (route) => {
-    const retried = { ...relatedTasks[0], id: '88888888-8888-4888-8888-888888888888', status: 'queued', progress: 0, stage: 'queued', message: 'task_started' }
-    relatedTasks = [retried]
-    await route.fulfill({ status: 202, json: retried })
-  })
-  await page.route(`**/api/v1/tasks/${restoreOutcomeTaskID}/retry`, async (route) => {
-    restoreRetryCount += 1
-    const retried = { ...relatedTasks[0], id: '68686868-6868-4868-8868-686868686868', status: 'queued', progress: 0, stage: 'queued', message: 'task_started', result: {}, errorCode: '', errorMessage: '' }
-    relatedTasks = [retried]
-    instanceStatus = 'restoring'
-    instanceStatusMessage = ''
-    await route.fulfill({ status: 202, json: retried })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => {
-    connectionRequestCount += 1
-    return failConnection
-      ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: credential service could not read this instance secret' } } })
-      : route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', authentication: 'password', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/logs?**`, async (route) => failLogs
-    ? route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'resource temporarily unavailable: unable to reach the instance host over SSH' } } })
-    : route.fulfill({ status: 200, contentType: 'text/plain', body: '' }))
-  await page.route(`**/api/v1/instances/${instanceID}/metrics?**`, async (route) => route.fulfill({ json: { items: [
-    { collectedAt: new Date(Date.now() - 60000).toISOString(), cpuPercent: 12.5, memoryBytes: 2147483648, memoryPercent: 50, diskUsedBytes: 5368709120, diskTotalBytes: 21474836480 },
-    { collectedAt: new Date().toISOString(), cpuPercent: 17.5, memoryBytes: 2362232012, memoryPercent: 55, diskUsedBytes: 6442450944, diskTotalBytes: 21474836480 },
-  ] } }))
-  await page.goto(`/instances/${instanceID}`)
-  await expect(page.getByRole('heading', { name: /Orders DB/ })).toBeVisible()
-  await expect(page.getByText('实例正在运行，暂未发现健康问题。')).toBeVisible()
-  await expect(page.getByText('Orders release regression')).toBeVisible()
-  await expect(page.getByText('Orders QA')).toBeVisible()
-  await expect(page.getByText('100%', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('team=checkout', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '复制部署' })).toBeVisible()
-  await page.goto('/instances')
-  const sourceInstanceRow = page.getByRole('row').filter({ hasText: 'Orders DB' })
-  const listHandoffBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'orders_release_2026_07_30', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: '2026-07-29T10:00:00Z', completedAt: '2026-07-29T10:10:00Z', updatedAt: '2026-07-29T10:10:00Z' }
-  instanceBackups = [listHandoffBackup]
-  relatedTasks = [{ id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'completed', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: listHandoffBackup.name, backupCreatedAt: listHandoffBackup.createdAt, backupSha256: listHandoffBackup.sha256, restoreOutcome: 'target_backup_applied', healthVerifiedAt: '2026-07-30T02:30:00Z', instanceStatus: 'running' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: '2026-07-30T02:00:00Z', finishedAt: '2026-07-30T02:30:00Z' }]
-  failConnection = true
-  const directHandoffButton = sourceInstanceRow.getByRole('button', { name: '复制连接交付' })
-  await expect(directHandoffButton).toBeVisible()
-  await directHandoffButton.click()
-  const directHandoffDialog = page.getByRole('dialog', { name: '快速交付 · Orders DB' })
-  const directHandoffContext = directHandoffDialog.locator('.connection-handoff-context')
-  await expect(directHandoffContext.getByText('交付上下文')).toBeVisible()
-  await expect(directHandoffContext.getByText('E2E Project', { exact: true })).toBeVisible()
-  await expect(directHandoffContext.getByText('开发', { exact: true })).toBeVisible()
-  await expect(directHandoffContext.getByText('Orders release regression', { exact: true })).toBeVisible()
-  await expect(directHandoffContext.getByText('Orders QA', { exact: true })).toBeVisible()
-  await expect(directHandoffContext.getByText('预计到期', { exact: true })).toBeVisible()
-  await expect(directHandoffDialog.getByText('连接凭据尚未读取')).toBeVisible()
-  expect(connectionRequestCount).toBe(0)
-  await directHandoffDialog.getByRole('button', { name: '显示并复制完整摘要' }).click()
-  await expect(directHandoffDialog.getByText('连接交付摘要未复制')).toBeVisible()
-  await expect(directHandoffDialog.getByRole('button', { name: '重试并复制' })).toBeVisible()
-  expect(connectionRequestCount).toBe(1)
-  failConnection = false
-  await directHandoffDialog.getByRole('button', { name: '重试并复制' }).click()
-  await expect(directHandoffDialog.getByText('连接交付摘要已复制')).toBeVisible()
-  await expect(directHandoffDialog.getByText('orders_release_2026_07_30')).toBeVisible()
-  await expect(directHandoffDialog.getByText('10.0.0.8:25432')).toBeVisible()
-  expect(connectionRequestCount).toBe(2)
-  failConnection = true
-  await directHandoffDialog.getByRole('button', { name: '再次复制' }).click()
-  await expect(directHandoffDialog.getByText('连接交付摘要未复制')).toBeVisible()
-  await expect(directHandoffDialog.getByText('连接交付摘要已复制')).toHaveCount(0)
-  await expect(directHandoffDialog.getByRole('button', { name: '重试并复制' })).toBeVisible()
-  failConnection = false
-  await directHandoffDialog.getByRole('button', { name: '重试并复制' }).click()
-  await expect(directHandoffDialog.getByText('连接交付摘要已复制')).toBeVisible()
-  expect(connectionRequestCount).toBe(4)
-  await directHandoffDialog.locator('.instance-handoff-footer > button').click()
-  relatedTasks = []
-  instanceBackups = []
-  const sourceListCopy = sourceInstanceRow.getByRole('button', { name: '复制部署' })
-  await expect(sourceListCopy).toBeVisible()
-  await sourceListCopy.click()
-  const copyDeploymentDrawer = page.getByRole('dialog', { name: '复制部署 · Orders DB' })
-  await expect(copyDeploymentDrawer).toBeVisible()
-  await expect(copyDeploymentDrawer.getByText('已复用「Orders DB」的部署配置')).toBeVisible()
-  await expect(copyDeploymentDrawer.getByText('原负责人和原到期时间未复制', { exact: false })).toBeVisible()
-  await expect(copyDeploymentDrawer.getByLabel('名称')).toHaveValue('')
-  await expect(copyDeploymentDrawer.getByLabel('用途')).toHaveValue('Orders release regression')
-  await expect(copyDeploymentDrawer.getByLabel('负责人')).toHaveValue('e2e-admin')
-  await expect(copyDeploymentDrawer.getByLabel('标签')).toHaveValue('team=checkout')
-  await expect(copyDeploymentDrawer.getByLabel('部署主机')).toHaveCount(0)
-  await copyDeploymentDrawer.getByLabel('名称').fill('Orders DB Copy')
-  await copyDeploymentDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(copyDeploymentDrawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^2(?:\.00)?$/)
-  await expect(copyDeploymentDrawer.getByLabel('内存 GiB')).toHaveValue(/^4(?:\.0)?$/)
-  await expect(copyDeploymentDrawer.getByLabel('磁盘 GiB')).toHaveValue('20')
-  await expect(copyDeploymentDrawer.getByLabel('端口 (可选)')).toHaveValue('')
-  await expect(copyDeploymentDrawer.getByLabel('绑定地址')).toHaveValue('0.0.0.0')
-  await expect(copyDeploymentDrawer.getByLabel('部署主机')).toBeVisible()
-  await expect(copyDeploymentDrawer.getByText('1 / 1 台兼容主机可承载当前资源')).toBeVisible()
-  await copyDeploymentDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(copyDeploymentDrawer.getByLabel('用户名')).toHaveValue('app')
-  await expect(copyDeploymentDrawer.getByLabel('数据库名称')).toHaveValue('orders')
-  await expect(copyDeploymentDrawer.getByLabel('密码')).toHaveValue('')
-  await expect(copyDeploymentDrawer.getByRole('switch', { name: '异常自动重启' })).toBeChecked()
-  await expect(copyDeploymentDrawer.getByLabel('额外环境变量（JSON）')).toHaveValue('{\n  "TZ": "UTC"\n}')
-  await copyDeploymentDrawer.getByRole('button', { name: /取\s*消/ }).click()
-  await page.getByRole('dialog', { name: '放弃未保存的数据库配置？' }).getByRole('button', { name: '放弃更改' }).click()
-  await expect(copyDeploymentDrawer).toBeHidden()
-  await page.goto(`/instances?create=1&copy=99999999-9999-4999-8999-999999999999`)
-  const missingCopyDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(missingCopyDrawer.getByText('复制来源不可用')).toBeVisible()
-  await expect(missingCopyDrawer.getByText('已转为普通创建，请重新选择模板。', { exact: false })).toBeVisible()
-  await missingCopyDrawer.getByRole('button', { name: /取\s*消/ }).click()
-  sourceVersionSelectable = false
-  await page.goto('/instances')
-  await expect(page.getByRole('row').filter({ hasText: 'Orders DB' }).getByRole('button', { name: '复制部署' })).toBeDisabled()
-  await page.goto(`/instances?create=1&copy=${instanceID}`)
-  const unavailableTemplateDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(unavailableTemplateDrawer.getByText('源模板版本不能用于新部署')).toBeVisible()
-  await expect(unavailableTemplateDrawer.getByText('已转为普通创建，请选择可用版本。', { exact: false })).toBeVisible()
-  await unavailableTemplateDrawer.getByRole('button', { name: /取\s*消/ }).click()
-  sourceVersionSelectable = true
-  await page.goto(`/instances/${instanceID}`)
-  await page.getByRole('button', { name: '更多操作' }).click()
-  await expect(page.getByRole('menuitem', { name: '变更运行配置' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '升级' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '审查清理' })).toBeVisible()
-  await page.getByRole('menuitem', { name: '变更运行配置' }).click()
-  const runtimeDialog = page.getByRole('dialog', { name: '变更运行配置' })
-  await expect(runtimeDialog.getByText('运行中的实例会短暂重建容器')).toBeVisible()
-  await expect(runtimeDialog.getByText('请至少修改一项资源、环境变量或自动重启策略。')).toBeVisible()
-  const automaticRestart = runtimeDialog.getByRole('switch', { name: '异常自动重启' })
-  await expect(automaticRestart).toBeChecked()
-  await automaticRestart.click()
-  await runtimeDialog.getByLabel('CPU').fill('3')
-  await runtimeDialog.getByLabel('额外环境变量（JSON）').fill('{"TZ":"Asia/Shanghai"}')
-  await expect(runtimeDialog.getByText('容量校验通过')).toBeVisible()
-  await runtimeDialog.getByRole('button', { name: '应用配置' }).click()
-  await expect(runtimeDialog.getByText('变更运行配置未排队')).toBeVisible()
-  await expect(runtimeDialog.getByText('CPU、内存、磁盘预留、环境变量和自动重启策略均未因本次请求改变。', { exact: false })).toBeVisible()
-  await expect(runtimeDialog.getByText('本次变更请求未创建另一条任务', { exact: false })).toBeVisible()
-  await expect(runtimeDialog.getByLabel('CPU')).toHaveValue(/^3(?:\.00)?$/)
-  await expect(runtimeDialog.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
-  await expect(runtimeDialog.getByRole('switch', { name: '异常自动重启' })).not.toBeChecked()
-  await expect(runtimeDialog.getByRole('button', { name: '查看当前任务' })).toBeVisible()
-  await expect(runtimeDialog.getByRole('button', { name: '应用配置' })).toBeDisabled()
-  expect(runtimeRequestCount).toBe(1)
-  failRuntimeRequest = false
-  relatedTasks = []
-  await runtimeDialog.getByRole('button', { name: '刷新状态' }).click()
-  await expect(runtimeDialog.getByRole('button', { name: '应用配置' })).toBeEnabled()
-  await runtimeDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(page.locator('#main-content').getByText('变更运行配置未排队', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '检查并重新变更运行配置' }).click()
-  await expect(runtimeDialog.getByLabel('CPU')).toHaveValue(/^3(?:\.00)?$/)
-  await expect(runtimeDialog.getByLabel('额外环境变量（JSON）')).toHaveValue('{"TZ":"Asia/Shanghai"}')
-  await expect(runtimeDialog.getByRole('switch', { name: '异常自动重启' })).not.toBeChecked()
-  await runtimeDialog.getByRole('button', { name: '应用配置' }).click()
-  await expect.poll(() => submittedRuntimeBody).toEqual({ cpu: 3, memoryBytes: 4294967296, diskBytes: 21474836480, extraEnvironment: { TZ: 'Asia/Shanghai' }, autoRestart: false })
-  expect(runtimeRequestCount).toBe(2)
-  await page.getByRole('button', { name: '更多操作' }).click()
-  await page.getByRole('menuitem', { name: '升级' }).click()
-  const upgradeDialog = page.getByRole('dialog', { name: '升级' })
-  await expect(upgradeDialog.getByText('升级镜像来源')).toHaveCount(0)
-  await upgradeDialog.getByRole('combobox', { name: '版本' }).click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await expect(upgradeDialog.getByText('升级镜像来源')).toBeVisible()
-  await upgradeDialog.getByText('仓库凭据', { exact: true }).click()
-  await upgradeDialog.getByRole('combobox', { name: '镜像仓库' }).click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await expect(upgradeDialog.getByText('凭据与 docker.io 匹配')).toBeVisible()
-  await upgradeDialog.getByText('离线镜像', { exact: true }).click()
-  await upgradeDialog.getByRole('combobox', { name: '离线镜像' }).click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await upgradeDialog.getByRole('button', { name: /确\s*定/ }).click()
-  await expect(upgradeDialog.getByText('升级未排队')).toBeVisible()
-  await expect(upgradeDialog.getByText('数据库没有因本次请求停机、创建升级快照或切换模板与镜像', { exact: false })).toBeVisible()
-  await expect(upgradeDialog.getByText('控制服务暂时无法接受变更请求', { exact: false })).toBeVisible()
-  await expect(upgradeDialog.getByText('PostgreSQL 17.1 offline', { exact: false })).toBeVisible()
-  await expect(upgradeDialog.getByRole('button', { name: /确\s*定/ })).toBeEnabled()
-  expect(upgradeRequestCount).toBe(1)
-  failUpgradeRequest = false
-  await upgradeDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(page.locator('#main-content').getByText('升级未排队', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '检查并重新升级' }).click()
-  await expect(upgradeDialog.getByText('PostgreSQL 17.1 offline', { exact: false })).toBeVisible()
-  await expect(upgradeDialog.getByRole('radio', { name: '离线镜像' })).toBeChecked()
-  await upgradeDialog.getByRole('button', { name: /确\s*定/ }).click()
-  await expect.poll(() => submittedUpgradeBody).toEqual({ templateVersionId: upgradeVersionID, imageSource: 'offline', imageArtifactId: upgradeImageID, registryId: null })
-  expect(upgradeRequestCount).toBe(2)
-  relatedTasks = []
-  await page.reload()
-
-  await page.getByRole('tab', { name: /\u5907\u4efd \(0\)/ }).click()
-  await expect(page.getByText('尚未启用自动备份')).toBeVisible()
-  await page.getByRole('button', { name: '配置' }).click()
-  const backupPolicyDialog = page.getByRole('dialog', { name: '自动冷备份' })
-  await expect(backupPolicyDialog.getByText('自动备份会短暂停止运行中的数据库')).toBeVisible()
-  await backupPolicyDialog.getByRole('combobox', { name: '频率' }).click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await backupPolicyDialog.getByRole('combobox', { name: '星期' }).click()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  await backupPolicyDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect.poll(() => submittedBackupPolicyBody).toEqual({ enabled: true, frequency: 'weekly', weekday: 1, hour: 2, minute: 0, timezone: 'Asia/Shanghai', retentionCount: 7 })
-  await expect(page.getByText('每周一 02:00（Asia/Shanghai）')).toBeVisible()
-  await expect(page.getByText('仅自动清理计划备份，保留最近 7 份')).toBeVisible()
-  await expect(page.getByText('\u8be5\u5b9e\u4f8b\u8fd8\u6ca1\u6709\u5907\u4efd\u3002\u5728\u53d1\u5e03\u3001\u8fc1\u79fb\u6216\u98ce\u9669\u64cd\u4f5c\u524d\u521b\u5efa\u4e00\u4efd\u53ef\u6062\u590d\u5feb\u7167\u3002')).toBeVisible()
-  await page.getByRole('button', { name: '\u521b\u5efa\u5907\u4efd' }).click()
-  const createBackupDialog = page.getByRole('dialog', { name: '\u521b\u5efa\u5907\u4efd' })
-  await expect(createBackupDialog.getByText('\u521b\u5efa\u5907\u4efd\u4f1a\u4ea7\u751f\u77ed\u6682\u505c\u673a')).toBeVisible()
-  await createBackupDialog.getByLabel('\u5907\u4efd\u540d\u79f0').fill('\u53d1\u5e03\u524d\u5907\u4efd')
-  await createBackupDialog.getByRole('button', { name: /\u521b\s*\u5efa\s*\u5907\s*\u4efd/ }).click()
-  await expect.poll(() => submittedBackupBody).toEqual({ name: '\u53d1\u5e03\u524d\u5907\u4efd' })
-  await expect.poll(() => backupCreateRequestCount).toBe(1)
-  await expect(createBackupDialog.getByText('创建备份未排队')).toBeVisible()
-  await expect(createBackupDialog.getByText('本次请求未创建备份或任务；实例不会因本次请求停机，现有数据和运行状态保持不变。')).toBeVisible()
-  await expect(createBackupDialog.getByText(/页面已刷新；请核对当前状态/)).toBeVisible()
-  await page.waitForTimeout(3200)
-  await expect(createBackupDialog.getByText('创建备份未排队')).toBeVisible()
-  await createBackupDialog.getByRole('button', { name: /取\s*消/ }).click()
-  const createBackupFailure = page.locator('.backup-request-alert')
-  await expect(createBackupFailure.getByText('创建备份未排队')).toBeVisible()
-  await expect(createBackupFailure.getByRole('button', { name: '刷新状态' })).toBeVisible()
-  await expect(createBackupFailure.getByRole('button', { name: '查看实例日志' })).toBeVisible()
-  await createBackupFailure.getByRole('button', { name: '重新确认并创建备份' }).click()
-  await expect(createBackupDialog.getByLabel('\u5907\u4efd\u540d\u79f0')).toHaveValue('\u53d1\u5e03\u524d\u5907\u4efd')
-  failBackupCreateRequest = false
-  await createBackupDialog.getByRole('button', { name: /\u521b\s*\u5efa\s*\u5907\s*\u4efd/ }).click()
-  await expect.poll(() => backupCreateRequestCount).toBe(2)
-  await expect(page.locator('.backup-request-alert')).toHaveCount(0)
-  instanceBackups = [{ ...instanceBackups[0], status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), completedAt: new Date().toISOString() }]
-  await page.reload()
-  await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
-  const backupRow = page.getByRole('row').filter({ hasText: '\u53d1\u5e03\u524d\u5907\u4efd' })
-  await expect(backupRow.getByText('1 MiB')).toBeVisible()
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await expect(backupRow.getByText('\u53d1\u5e03\u524d\u5907\u4efd')).toBeInViewport()
-  await expect(backupRow.getByRole('button', { name: '\u6062\u590d' })).toBeInViewport()
-  await expect(backupRow.getByRole('button', { name: '\u5220\u9664' })).toBeInViewport()
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.getByRole('button', { name: '更多操作' }).click()
-  await page.getByRole('menuitem', { name: '审查清理' }).click()
-  let detailCleanupDialog = page.getByRole('dialog', { name: /审查清理.*Orders DB/ })
-  await expect(detailCleanupDialog.getByText('仍有 1 个托管备份；请先逐个确认并删除。')).toBeVisible()
-  await detailCleanupDialog.getByRole('button', { name: '查看备份' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups&cleanup=review$`))
-  const cleanupContinuation = page.locator('.cleanup-continuation-alert')
-  await expect(cleanupContinuation.getByText('处理备份后继续清理')).toBeVisible()
-  await expect(cleanupContinuation.getByText('仍有 1 个托管备份。请在下方逐个确认删除；任务完成后留在本页继续清理。')).toBeVisible()
-  await expect(cleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
-  await backupRow.getByRole('button', { name: '\u6062\u590d' }).click()
-  const restoreBackupDialog = page.getByRole('dialog', { name: '\u6062\u590d\u5907\u4efd' })
-  await expect(restoreBackupDialog.getByText('\u6062\u590d\u4f1a\u8986\u76d6\u5f53\u524d\u6570\u636e')).toBeVisible()
-  await restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d').fill('Orders DB')
-  await restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ }).click()
-  await expect.poll(() => submittedRestoreBody).toEqual({ confirmName: 'Orders DB' })
-  await expect.poll(() => backupRestoreRequestCount).toBe(1)
-  await expect(restoreBackupDialog.getByText('恢复未排队')).toBeVisible()
-  await expect(restoreBackupDialog.getByText('本次请求未创建恢复任务，也没有覆盖当前数据；现有数据库数据和运行状态保持不变。')).toBeVisible()
-  await expect(restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d')).toHaveValue('')
-  await expect(restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ })).toBeDisabled()
-  await restoreBackupDialog.getByRole('button', { name: /取\s*消/ }).click()
-  const restoreBackupFailure = page.locator('.backup-request-alert')
-  await expect(restoreBackupFailure.getByRole('button', { name: '重新确认并恢复' })).toBeVisible()
-  await restoreBackupFailure.getByRole('button', { name: '重新确认并恢复' }).click()
-  await expect(restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d')).toHaveValue('')
-  await restoreBackupDialog.getByLabel('\u8f93\u5165\u5b9e\u4f8b\u540d\u786e\u8ba4\u6062\u590d').fill('Orders DB')
-  failBackupRestoreRequest = false
-  await restoreBackupDialog.getByRole('button', { name: /\u6062\s*\u590d/ }).click()
-  await expect.poll(() => backupRestoreRequestCount).toBe(2)
-  await expect(page.locator('.backup-request-alert')).toHaveCount(0)
-  await page.reload()
-  await page.getByRole('tab', { name: /\u5907\u4efd \(1\)/ }).click()
-  await page.getByRole('row').filter({ hasText: '\u53d1\u5e03\u524d\u5907\u4efd' }).getByRole('button', { name: '\u5220\u9664' }).click()
-  const deleteBackupDialog = page.getByRole('dialog', { name: '\u5220\u9664\u5907\u4efd' })
-  await deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664').fill('\u53d1\u5e03\u524d\u5907\u4efd')
-  await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
-  await expect.poll(() => submittedBackupDeleteBody).toEqual({ confirmName: '\u53d1\u5e03\u524d\u5907\u4efd' })
-  await expect.poll(() => backupDeleteRequestCount).toBe(1)
-  await expect(deleteBackupDialog.getByText('删除未排队')).toBeVisible()
-  await expect(deleteBackupDialog.getByText('本次请求未创建删除任务，备份归档仍保留在主机上；当前数据库不受影响。')).toBeVisible()
-  await expect(deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664')).toHaveValue('')
-  await deleteBackupDialog.getByRole('button', { name: /取\s*消/ }).click()
-  const deleteBackupFailure = page.locator('.backup-request-alert')
-  await expect(deleteBackupFailure.getByRole('button', { name: '重新确认并删除' })).toBeVisible()
-  await expect(deleteBackupFailure.getByRole('button', { name: '查看实例日志' })).toHaveCount(0)
-  await deleteBackupFailure.getByRole('button', { name: '重新确认并删除' }).click()
-  await deleteBackupDialog.getByLabel('\u8f93\u5165\u5907\u4efd\u540d\u786e\u8ba4\u5220\u9664').fill('\u53d1\u5e03\u524d\u5907\u4efd')
-  failBackupDeleteRequest = false
-  await deleteBackupDialog.getByRole('button', { name: /\u5220\s*\u9664/ }).click()
-  await expect.poll(() => backupDeleteRequestCount).toBe(2)
-  await expect(cleanupContinuation.getByText('备份或实例操作仍在执行；完成后本页会自动重新检查清理条件。')).toBeVisible()
-  instanceBackups = [{ ...instanceBackups[0], status: 'ready', errorMessage: 'remote command failed: permission denied while deleting archive' }]
-  relatedTasks = [{
-    ...relatedTasks[0],
-    status: 'failed',
-    progress: 40,
-    stage: 'files',
-    message: 'removing_backup_archive_from_host',
-    errorCode: 'task_failed',
-    errorMessage: 'remote command failed: permission denied while deleting archive',
-    cancelable: false,
-    attempts: 1,
-    finishedAt: new Date().toISOString(),
-  }]
-  await cleanupContinuation.getByRole('button', { name: '刷新状态' }).click()
-  await expect(cleanupContinuation.getByText('有 1 个备份删除操作未完成，永久删除仍被阻断。请先按下方建议恢复，再从本页继续清理。')).toBeVisible()
-  await expect(cleanupContinuation.getByText('当前阶段未完成，平台无法从已有信息确定唯一原因。')).toBeVisible()
-  await expect(cleanupContinuation.getByText('备份可能仍保留在主机上，不会影响当前数据库运行。')).toBeVisible()
-  await expect(page.getByText('上次删除未完成')).toBeVisible()
-  await cleanupContinuation.getByRole('button', { name: '重试删除' }).click()
-  await expect.poll(() => backupDeleteRetryCount).toBe(1)
-  await expect(cleanupContinuation.getByText('备份删除重试未排队')).toBeVisible()
-  await expect(cleanupContinuation.getByText('备份仍保留在主机上，数据库运行不受本次重试影响。刷新状态并处理提示原因后可以再次尝试。')).toBeVisible()
-  failBackupDeleteRetry = false
-  await cleanupContinuation.getByRole('button', { name: '重试删除' }).click()
-  await expect.poll(() => backupDeleteRetryCount).toBe(2)
-  await expect(cleanupContinuation.getByText('备份或实例操作仍在执行；完成后本页会自动重新检查清理条件。')).toBeVisible()
-  instanceBackups = []
-  relatedTasks = [{ ...relatedTasks[0], status: 'succeeded', progress: 100, stage: 'files', finishedAt: new Date().toISOString() }]
-  await cleanupContinuation.getByRole('button', { name: '刷新状态' }).click()
-  await expect(cleanupContinuation.getByText('托管备份已清空，且没有进行中的操作。请重新执行一次服务端清理审查，然后进入名称确认。')).toBeVisible()
-  await cleanupContinuation.getByRole('button', { name: '继续清理审查' }).click()
-  detailCleanupDialog = page.getByRole('dialog', { name: /审查清理.*Orders DB/ })
-  await expect(detailCleanupDialog.getByText('已具备永久删除条件')).toBeVisible()
-  await detailCleanupDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups$`))
-
-  failBackupInventory = true
-  await page.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
-  const unavailableCleanupContinuation = page.locator('.cleanup-continuation-alert')
-  await expect(page.getByRole('tab', { name: '备份 (—)' })).toBeVisible()
-  await expect(unavailableCleanupContinuation.getByText(/暂时无法确认备份是否已清空或是否仍有进行中的操作/)).toBeVisible()
-  await expect(unavailableCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
-  failBackupInventory = false
-  await unavailableCleanupContinuation.getByRole('button', { name: '重试' }).click()
-  await expect(unavailableCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toBeVisible()
-  await unavailableCleanupContinuation.getByRole('button', { name: '退出清理引导' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups$`))
-
-  failTaskInventory = true
-  await page.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
-  const unavailableTaskContinuation = page.locator('.cleanup-continuation-alert')
-  await expect(unavailableTaskContinuation.getByText(/资源暂时不可用/)).toBeVisible()
-  await expect(unavailableTaskContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
-  failTaskInventory = false
-  await unavailableTaskContinuation.getByRole('button', { name: '重试' }).click()
-  await expect(unavailableTaskContinuation.getByRole('button', { name: '继续清理审查' })).toBeVisible()
-  await unavailableTaskContinuation.getByRole('button', { name: '退出清理引导' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=backups$`))
-  await page.getByRole('tab', { name: '\u8be6\u60c5' }).click()
-
-  instanceStatus = 'provisioning'
-  const deploymentTaskID = '99999999-9999-4999-8999-999999999999'
-  relatedTasks = [{ id: deploymentTaskID, kind: 'instance.create', status: 'running', resourceType: 'instance', resourceId: instanceID, progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
-  const deploymentTaskListRoute = /\/api\/v1\/tasks(?:\?.*)?$/
-  let deploymentCancelAttempts = 0
-  await page.route(deploymentTaskListRoute, async (route) => route.fulfill({ json: { items: relatedTasks } }))
-  await page.route(`**/api/v1/tasks/${deploymentTaskID}`, async (route) => route.fulfill({ json: relatedTasks[0] }))
-  await page.route(`**/api/v1/tasks/${deploymentTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/tasks/${deploymentTaskID}/cancel`, async (route) => {
-    deploymentCancelAttempts += 1
-    if (deploymentCancelAttempts === 1) {
-      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task service outage' } } })
-      return
-    }
-    relatedTasks = [{ ...relatedTasks[0], cancelAsked: true }]
-    await route.fulfill({ status: 202, json: relatedTasks[0] })
-  })
-  await page.reload()
-  await expect(page.getByText('42%', { exact: true })).toBeVisible()
-  await expect(page.getByText('正在准备数据库镜像')).toBeVisible()
-  await expect(page.getByText('系统下一步：渲染 Compose 配置。')).toBeVisible()
-  await expect(page.getByText('全部阶段完成后，本页将直接切换为连接信息交付入口。')).toBeVisible()
-  await page.getByRole('button', { name: '取消部署' }).click()
-  await expect(page.getByText('任务会在下一个安全检查点停止，并按操作策略恢复资源状态。')).toBeVisible()
-  await page.getByRole('button', { name: /确\s*认/ }).click()
-  await expect(page.getByText('取消部署请求未完成')).toBeVisible()
-  await expect(page.getByText(/本次请求没有改变任务，部署仍可能继续/)).toBeVisible()
-  await page.getByRole('button', { name: '取消部署' }).click()
-  await page.getByRole('button', { name: /确\s*认/ }).click()
-  await expect(page.getByText('已请求取消，正在等待任务到达安全检查点。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '取消部署' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '查看任务' })).toBeVisible()
-  await page.getByRole('button', { name: '查看任务' }).click()
-  let deploymentTaskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
-  await expect(deploymentTaskDrawer.getByText('数据库正在部署')).toBeVisible()
-  await expect(deploymentTaskDrawer.getByText(/任务会自动刷新.*完成后可从这里直接进入连接信息交付/)).toBeVisible()
-  await expect(deploymentTaskDrawer.getByRole('button', { name: '返回数据库进度' })).toBeVisible()
-  await expect(deploymentTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
-  await deploymentTaskDrawer.getByRole('button', { name: '返回数据库进度' }).click()
-  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}$`))
-
-  instanceStatus = 'failed'
-  relatedTasks = [{ ...relatedTasks[0], status: 'canceled', progress: 42, stage: 'canceled', message: 'task_canceled', errorCode: 'canceled', errorMessage: 'task canceled at a safe checkpoint', cancelable: false, finishedAt: new Date().toISOString() }]
-  await page.reload()
-  const canceledDeploymentActions = page.locator('.instance-operation-actions')
-  await expect(canceledDeploymentActions.getByRole('button', { name: '重试任务' })).toBeVisible()
-  await expect(canceledDeploymentActions.getByRole('button', { name: '审查清理' })).toBeVisible()
-  await expect(canceledDeploymentActions.getByRole('button', { name: '查看任务' })).toBeVisible()
-  await canceledDeploymentActions.getByRole('button', { name: '审查清理' }).click()
-  detailCleanupDialog = page.getByRole('dialog', { name: /审查清理.*Orders DB/ })
-  await expect(detailCleanupDialog.getByText('已具备永久删除条件')).toBeVisible()
-  await expect(detailCleanupDialog.getByText('Orders release regression')).toBeVisible()
-  await detailCleanupDialog.getByRole('button', { name: /取\s*消/ }).click()
-
-  instanceStatus = 'running'
-  relatedTasks = [{ id: deploymentTaskID, kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }]
-  await page.reload()
-  await expect(page.getByText('数据库已部署，可交付连接信息')).toBeVisible()
-  await expect(page.getByText(/查看明文凭据会写入审计日志/)).toBeVisible()
-  await expect(page.getByRole('button', { name: '查看部署记录' })).toBeVisible()
-  await page.getByRole('button', { name: '查看部署记录' }).click()
-  deploymentTaskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
-  await expect(deploymentTaskDrawer.getByText('部署完成，连接信息已就绪')).toBeVisible()
-  await expect(deploymentTaskDrawer.getByText(/显示凭据后可复制完整交付摘要/)).toBeVisible()
-  await expect(deploymentTaskDrawer.getByRole('button', { name: '前往连接信息' })).toBeVisible()
-  await expect(deploymentTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
-  const completedDeploymentRow = page.getByRole('row').filter({ hasText: '创建数据库实例' })
-  await expect(completedDeploymentRow.getByRole('button', { name: '前往连接信息' })).toBeVisible()
-  await deploymentTaskDrawer.getByRole('button', { name: '前往连接信息' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
-  let handoffContext = page.locator('.connection-handoff-context')
-  await expect(handoffContext.getByText('交付上下文')).toBeVisible()
-  await expect(handoffContext.getByText('E2E Project', { exact: true })).toBeVisible()
-  await expect(handoffContext.getByText('Orders release regression', { exact: true })).toBeVisible()
-  await expect(handoffContext.getByText('Orders QA', { exact: true })).toBeVisible()
-  await expect(page.getByText('连接信息受保护')).toBeVisible()
-  await page.getByRole('button', { name: '显示连接信息' }).click()
-  await expect(page.getByText('用户名和密码', { exact: true })).toBeVisible()
-  await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '隐藏连接信息' }).click()
-  await page.getByRole('tab', { name: '详情' }).click()
-  await page.unroute(deploymentTaskListRoute)
-  await page.unroute(`**/api/v1/tasks/${deploymentTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${deploymentTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${deploymentTaskID}/cancel`)
-
-  const restoredBackupCreatedAt = '2026-07-27T08:00:00.000Z'
-  const restoreHealthVerifiedAt = '2026-07-28T08:01:00.000Z'
-  instanceBackups = [{
-    id: backupID,
-    instanceId: instanceID,
-    hostId: '11111111-1111-4111-8111-111111111111',
-    templateVersionId: '55555555-5555-4555-8555-555555555555',
-    templateVersion: '17',
-    name: 'Orders release baseline',
-    creationType: 'manual',
-    status: 'ready',
-    sizeBytes: 268435456,
-    sha256: 'a'.repeat(64),
-    createdBy: '12121212-1212-4121-8121-121212121212',
-    createdByUsername: 'e2e-admin',
-    createdAt: restoredBackupCreatedAt,
-    completedAt: restoredBackupCreatedAt,
-    updatedAt: restoredBackupCreatedAt,
-  }]
-  relatedTasks = [{
-    id: restoreSuccessTaskID,
-    kind: 'instance.restore',
-    status: 'succeeded',
-    resourceType: 'instance',
-    resourceId: instanceID,
-    progress: 100,
-    stage: 'compose',
-    message: 'task_completed',
-    payload: { instanceId: instanceID, backupId: backupID },
-    result: {
-      instanceId: instanceID,
-      backupId: backupID,
-      backupName: 'Orders release baseline',
-      backupCreatedAt: restoredBackupCreatedAt,
-      backupSha256: 'a'.repeat(64),
-      restoreOutcome: 'target_backup_applied',
-      healthVerifiedAt: restoreHealthVerifiedAt,
-      instanceStatus: 'running',
-      desiredState: 'running',
-      status: 'running',
-    },
-    cancelable: false,
-    cancelAsked: false,
-    attempts: 1,
-    createdAt: restoreHealthVerifiedAt,
-    startedAt: restoreHealthVerifiedAt,
-    finishedAt: restoreHealthVerifiedAt,
-  }]
-  await page.reload()
-  const restoreVerificationNotice = page.locator('.restore-verification-alert')
-  await expect(restoreVerificationNotice.getByText('恢复已完成，目标备份已生效')).toBeVisible()
-  await expect(restoreVerificationNotice.getByText('Orders release baseline', { exact: true })).toBeVisible()
-  await expect(restoreVerificationNotice.getByText('SHA-256 aaaaaaaaaaaa…')).toBeVisible()
-  await expect(restoreVerificationNotice.getByText('归档校验及健康检查通过')).toBeVisible()
-  await expect(restoreVerificationNotice.getByRole('button', { name: '查看恢复任务' })).toBeVisible()
-  await expect(restoreVerificationNotice.getByRole('button', { name: '查看目标备份' })).toBeVisible()
-  await restoreVerificationNotice.getByRole('button', { name: '显示并交付连接信息' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=connection$`))
-  const restoreConnectionContext = page.locator('.restore-connection-context')
-  await expect(restoreConnectionContext.getByText('当前数据版本：Orders release baseline')).toBeVisible()
-  await expect(restoreConnectionContext.getByText('归档校验及健康检查通过')).toBeVisible()
-  await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '复制交付摘要' }).click()
-  await expect(page.getByText('连接信息交付摘要已复制')).toBeVisible()
-  await page.getByRole('button', { name: '隐藏连接信息' }).click()
-  await page.getByRole('tab', { name: '详情' }).click()
-
-  instanceStatus = 'failed'
-  relatedTasks = [{ id: '66666666-6666-4666-8666-666666666666', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 42, stage: 'image', message: 'preparing_database_image', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
-  await page.reload()
-  await expect(page.getByText('失败原因')).toBeVisible()
-  await expect(page.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
-  await expect(page.getByText(/数据库尚未就绪/)).toBeVisible()
-  await expect(page.getByText(/重新检测成功后重试/)).toBeVisible()
-  await expect(page.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-  await page.getByRole('button', { name: '技术详情' }).click()
-  await expect(page.getByText(/dial SSH 10.0.0.8/)).toBeVisible()
-  await page.getByRole('tab', { name: '连接信息' }).click()
-  await expect(page.getByText('连接可用性受当前状态影响')).toBeVisible()
-  await expect(page.getByText('实例当前为“失败”。连接信息仍可查看或复制，但请等待实例恢复为运行中后再尝试连接。')).toBeVisible()
-  await page.getByRole('tab', { name: '详情' }).click()
-  await expect(page.getByRole('button', { name: 'pause-circle 停止', exact: true })).not.toBeVisible()
-  await expect(page.getByRole('button', { name: 'reload 重启', exact: true })).not.toBeVisible()
-
-  instanceStatus = 'running'
-  instanceStatusMessage = 'Restore failed; the pre-restore database state was recovered'
-  relatedTasks = [{
-    id: restoreOutcomeTaskID,
-    kind: 'instance.restore',
-    status: 'failed',
-    resourceType: 'instance',
-    resourceId: instanceID,
-    progress: 75,
-    stage: 'compose',
-    message: 'starting_restored_database_and_checking_health',
-    result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' },
-    errorCode: 'health_check_failed',
-    errorMessage: 'restored instance did not become healthy',
-    cancelable: false,
-    cancelAsked: false,
-    attempts: 1,
-    createdAt: new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-  }]
-  await page.reload()
-  const recoveredRestoreNotice = page.locator('.restore-outcome-alert')
-  await expect(recoveredRestoreNotice.getByText('恢复未生效，已恢复操作前数据')).toBeVisible()
-  await expect(recoveredRestoreNotice.getByText(/不要把当前实例误认为已经恢复到目标备份/)).toBeVisible()
-  await expect(recoveredRestoreNotice.getByText('未生效', { exact: true })).toBeVisible()
-  await expect(recoveredRestoreNotice.getByText('已恢复操作前数据', { exact: true })).toBeVisible()
-  await expect(recoveredRestoreNotice.getByText('核对数据版本后可交付')).toBeVisible()
-  await expect(page.getByText('恢复未生效，已恢复操作前的数据库状态')).toBeVisible()
-  await expect(recoveredRestoreNotice.getByRole('button', { name: '重试恢复' })).toBeVisible()
-  await expect(recoveredRestoreNotice.getByRole('button', { name: '查看任务' })).toBeVisible()
-  await expect(recoveredRestoreNotice.getByRole('button', { name: '查看实例日志' })).toBeVisible()
-  await recoveredRestoreNotice.getByRole('button', { name: '重试恢复' }).click()
-  await expect.poll(() => restoreRetryCount).toBe(1)
-  await expect(page.getByText('排队中', { exact: true })).toBeVisible()
-
-  instanceStatus = 'failed'
-  instanceStatusMessage = 'Restore failed and automatic rollback did not complete'
-  relatedTasks = [{
-    ...relatedTasks[0],
-    id: restoreOutcomeTaskID,
-    status: 'failed',
-    progress: 75,
-    stage: 'compose',
-    message: 'starting_restored_database_and_checking_health',
-    result: { restoreOutcome: 'rollback_incomplete', instanceStatus: 'failed', desiredState: 'running' },
-    errorCode: 'health_check_failed',
-    errorMessage: 'restore failed and rollback snapshot could not be applied',
-    finishedAt: new Date().toISOString(),
-  }]
-  const rollbackBrowserErrors: string[] = []
-  const captureRollbackConsoleError = (event: { type: () => string; text: () => string }) => {
-    if (event.type() === 'error') rollbackBrowserErrors.push(event.text())
-  }
-  const captureRollbackPageError = (error: Error) => rollbackBrowserErrors.push(error.message)
-  page.on('console', captureRollbackConsoleError)
-  page.on('pageerror', captureRollbackPageError)
-  await page.reload()
-  const incompleteRestoreNotice = page.locator('.restore-outcome-alert')
-  await expect(incompleteRestoreNotice.getByText('自动回滚未完成，数据状态不可确认')).toBeVisible()
-  await expect(incompleteRestoreNotice.getByText('是否生效不可确认')).toBeVisible()
-  await expect(incompleteRestoreNotice.getByText('状态不可确认', { exact: true })).toBeVisible()
-  await expect(incompleteRestoreNotice.getByText('禁止交付')).toBeVisible()
-  await expect(page.getByText('恢复失败，自动回滚未能完成')).toBeVisible()
-  if (process.env.DBMOCK_VISUAL_EVIDENCE_DIR) {
-    await page.setViewportSize({ width: 1440, height: 1000 })
-    await page.screenshot({ path: `${process.env.DBMOCK_VISUAL_EVIDENCE_DIR}/10-after-rollback-incomplete-1440.png` })
-    await page.setViewportSize({ width: 1024, height: 900 })
-    await page.screenshot({ path: `${process.env.DBMOCK_VISUAL_EVIDENCE_DIR}/11-after-rollback-incomplete-1024.png` })
-    await page.setViewportSize({ width: 1280, height: 720 })
-  }
-  page.off('console', captureRollbackConsoleError)
-  page.off('pageerror', captureRollbackPageError)
-  expect(rollbackBrowserErrors).toEqual([])
-
-  instanceStatus = 'degraded'
-  instanceStatusMessage = ''
-  relatedTasks = [{ id: '77777777-7777-4777-8777-777777777778', kind: 'instance.create', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 30, stage: 'failed', message: 'preparing_database_image', errorCode: 'image_pull_failed', errorMessage: 'docker pull postgres:17 failed: unexpected EOF', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString() }]
-  await page.reload()
-  await expect(page.getByText('目标主机无法拉取所选数据库镜像。')).toBeVisible()
-  await page.getByRole('button', { name: '技术详情' }).click()
-  await expect(page.getByText('docker pull postgres:17 failed: unexpected EOF')).toBeVisible()
-  await expect(page.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'pause-circle 停止', exact: true })).not.toBeVisible()
-  await expect(page.getByRole('button', { name: 'reload 重启', exact: true })).not.toBeVisible()
-
-  instanceStatus = 'running'
-  relatedTasks = []
-  await page.reload()
-
-  expect(restartRequestCount).toBe(0)
-  await page.getByRole('button', { name: 'reload 重启', exact: true }).click()
-  let detailRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
-  await expect(detailRestartDialog.getByText('现有数据库连接将短暂中断')).toBeVisible()
-  await expect(detailRestartDialog.getByText('Orders DB · 运行中')).toBeVisible()
-  await detailRestartDialog.getByRole('button', { name: /取\s*消/ }).click()
-  expect(restartRequestCount).toBe(0)
-  await page.getByRole('button', { name: 'reload 重启', exact: true }).click()
-  detailRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
-  await detailRestartDialog.getByRole('button', { name: '确认重启' }).click()
-  await expect(detailRestartDialog.getByText('重启请求未创建任务')).toBeVisible()
-  await expect(detailRestartDialog.getByText('本次请求没有创建任务，也不会通过这次请求改变数据库运行状态。')).toBeVisible()
-  await expect(detailRestartDialog.getByText(/页面已刷新；确认当前状态/)).toBeVisible()
-  await expect(page.getByText('重启中', { exact: true }).first()).toBeVisible()
-  await expect(detailRestartDialog.getByRole('button', { name: '确认重启' })).toBeDisabled()
-  await detailRestartDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(page.getByRole('button', { name: '重试重启' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '刷新状态' })).toBeVisible()
-  await page.waitForTimeout(3200)
-  await expect(page.getByText('重启请求未创建任务')).toBeVisible()
-  await page.getByRole('button', { name: '查看实例日志' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=logs$`))
-  await expect(page.getByText('无法加载实例日志')).toBeVisible()
-  await page.getByRole('tab', { name: '详情' }).click()
-  instanceStatus = 'running'
-  await page.getByRole('button', { name: '刷新状态' }).click()
-  await expect(page.getByRole('button', { name: '重试重启' })).toBeVisible()
-  failRestartRequest = false
-  await page.getByRole('button', { name: '重试重启' }).click()
-  detailRestartDialog = page.getByRole('dialog', { name: '重启 Orders DB？' })
-  await expect(detailRestartDialog.getByText('Orders DB · 运行中')).toBeVisible()
-  expect(restartRequestCount).toBe(1)
-  await detailRestartDialog.getByRole('button', { name: '确认重启' }).click()
-  await expect.poll(() => restartRequestCount).toBe(2)
-  await expect(page.getByText('重启请求未创建任务')).toHaveCount(0)
-  await expect(page.getByText('排队中', { exact: true })).toBeVisible()
-
-  instanceStatus = 'running'
-  relatedTasks = []
-  await page.reload()
-
-  await page.getByRole('tab', { name: '连接信息' }).click()
-  handoffContext = page.locator('.connection-handoff-context')
-  await expect(handoffContext.getByText('交付上下文')).toBeVisible()
-  await expect(handoffContext.getByText('E2E Project', { exact: true })).toBeVisible()
-  await expect(handoffContext.getByText('Orders release regression', { exact: true })).toBeVisible()
-  await expect(handoffContext.getByText('Orders QA', { exact: true })).toBeVisible()
-  await expect(page.getByText('连接可用性受当前状态影响')).toHaveCount(0)
-  await expect(page.getByText('连接信息受保护')).toBeVisible()
-  failConnection = true
-  await page.getByRole('button', { name: '显示连接信息' }).click()
-  await expect(page.getByText('无法读取连接信息')).toBeVisible()
-  await expect(page.getByText('实例运行状态不受本次读取失败影响。请原地重试；如果持续失败，请让管理员检查控制服务日志、主密钥和该实例的凭据审计记录。')).toBeVisible()
-  await expect(page.getByText('e2e-secret', { exact: true })).toHaveCount(0)
-  failConnection = false
-  await page.getByRole('button', { name: /重\s*试/ }).click()
-  await expect(page.getByText('无法读取连接信息')).toHaveCount(0)
-  await expect(page.getByText('e2e-secret', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '复制交付摘要' }).click()
-  await expect(page.getByText('连接信息交付摘要已复制')).toBeVisible()
-  await page.getByRole('button', { name: '复制环境变量' }).click()
-  await expect(page.getByText('环境变量已复制')).toBeVisible()
-  await page.getByRole('button', { name: '隐藏连接信息' }).click()
-  await expect(page.getByText('e2e-secret', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '显示连接信息' }).click()
-
-  await page.getByRole('tab', { name: '日志' }).click()
-  await expect(page).toHaveURL(new RegExp(`${instanceID}\\?tab=logs$`))
-  await expect(page.getByText('无法加载实例日志')).toBeVisible()
-  await expect(page.getByText('暂时无法通过 SSH 连接实例主机，请检查主机网络与 SSH 配置')).toBeVisible()
-  failLogs = false
-  await page.getByRole('button', { name: /重\s*试/ }).click()
-  await expect(page.getByText('当前没有可显示的容器日志。实例刚启动时可能需要稍等片刻。')).toBeVisible()
-  await page.getByRole('tab', { name: '连接信息' }).click()
-  await expect(page.getByText('连接信息受保护')).toBeVisible()
-
-  await page.getByRole('tab', { name: '监控' }).click()
-  await expect(page.locator('.metric-stat').filter({ hasText: 'CPU' })).toContainText('17.5%')
-  await expect(page.getByText('最近 24 小时', { exact: true })).toBeVisible()
-  await page.unroute(`**/api/v1/instances/${instanceID}/metrics?**`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/logs?**`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/connection`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/cleanup-review`)
-  await page.unroute(`**/api/v1/instances/${instanceID}`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/actions/upgrade`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/actions/restart`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/backups`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/backup-policy`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/restore`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`)
-  await page.unroute(`**/api/v1/instances/${instanceID}/tasks`)
-  await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/retry`)
-  await page.unroute('**/api/v1/tasks/66666666-6666-4666-8666-666666666666/retry')
-  await page.unroute(`**/api/v1/tasks/${restoreOutcomeTaskID}/retry`)
-  await page.unroute('**/api/v1/templates')
-  await page.unroute('**/api/v1/images')
-  await page.unroute('**/api/v1/registries')
-  await page.unroute('**/api/v1/hosts')
-
-  await page.goto('/images')
-  await expect(page.getByText('尚未上传离线镜像。上传 docker save 导出的镜像包，即可在无法访问镜像仓库时部署数据库。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '上传离线镜像' })).toHaveCount(1)
-  await page.getByRole('button', { name: '上传离线镜像' }).click()
-  const uploadImageDialog = page.getByRole('dialog', { name: '上传离线镜像' })
-  await expect(uploadImageDialog.getByText('支持断点续传')).toBeVisible()
-  await expect(uploadImageDialog.getByLabel('名称')).toHaveValue('')
-  await uploadImageDialog.getByLabel(/预期 SHA-256/).fill('invalid')
-  await expect(uploadImageDialog.getByText('请输入 64 位十六进制 SHA-256')).toBeVisible()
-  await page.keyboard.press('Escape')
-  let discardImageDraftDialog = page.getByRole('dialog', { name: '放弃未保存的上传信息？' })
-  await expect(discardImageDraftDialog).toBeVisible()
-  await discardImageDraftDialog.getByRole('button', { name: '继续编辑' }).click()
-  await expect(uploadImageDialog.getByLabel(/预期 SHA-256/)).toHaveValue('invalid')
-  await uploadImageDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  discardImageDraftDialog = page.getByRole('dialog', { name: '放弃未保存的上传信息？' })
-  await discardImageDraftDialog.getByRole('button', { name: '放弃更改' }).click()
-  await expect(uploadImageDialog).not.toBeVisible()
-  await page.getByRole('tab', { name: /镜像仓库/ }).click()
-  await page.getByRole('button', { name: '添加仓库' }).first().click()
-  const addRegistryDialog = page.getByRole('dialog', { name: '添加仓库' })
-  await expect(addRegistryDialog.getByLabel('名称')).toBeFocused()
-  await addRegistryDialog.getByLabel('名称').fill('Internal Registry')
-  const registryURL = addRegistryDialog.getByLabel('镜像仓库 URL')
-  await registryURL.fill('https://harbor.example.test/team')
-  await expect(addRegistryDialog.getByRole('button', { name: /保\s*存/ })).toBeDisabled()
-  await expect(addRegistryDialog.getByText('请输入仅包含 http(s) 协议、主机名和可选端口的仓库地址。')).toBeVisible()
-  await registryURL.fill('http://registry:5000')
-  await registryURL.press('Tab')
-  await expect(addRegistryDialog.getByText('请输入仅包含 http(s) 协议、主机名和可选端口的仓库地址。')).not.toBeVisible()
-  await addRegistryDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  const discardRegistryDialog = page.getByRole('dialog', { name: '放弃未保存的仓库配置？' })
-  await discardRegistryDialog.getByRole('button', { name: '放弃更改' }).click()
-  await expect(addRegistryDialog).not.toBeVisible()
-
-  const imageID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-  const wrongArchitectureImageID = 'abababab-abab-4bab-8bab-abababababab'
-  const unusedImageID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
-  const registryID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-  let registryName = 'Engineering Harbor'
-  let registryStatus = 'unknown'
-  let registryStatusMessage = ''
-  let registryStatusCode: number | undefined
-  let registryLastTestedAt: string | undefined
-  const imageCreatedAt = new Date(Date.now() - 86400000).toISOString()
-  const unusedImageCreatedAt = new Date(Date.now() - 60 * 86400000).toISOString()
-  const registryUpdatedAt = new Date().toISOString()
-  const unusedImage = { id: unusedImageID, name: 'Legacy Redis offline', filename: 'redis-6.tar', sizeBytes: 67108864, sha256: 'c'.repeat(64), format: 'docker-archive', imageRefs: ['redis:6'], architectures: ['amd64'], status: 'ready', usedByCount: 0, createdAt: unusedImageCreatedAt }
-  const wrongArchitectureImage = { id: wrongArchitectureImageID, name: 'PostgreSQL 17 arm64 only', filename: 'postgresql-17-arm64.tar.gz', sizeBytes: 125829120, sha256: 'b'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['arm64'], status: 'ready', usedByCount: 1, createdAt: imageCreatedAt }
-  let unusedImageDeleted = false
-  let includeWrongArchitectureImage = false
-  await page.route('**/api/v1/images', async (route) => route.fulfill({ json: { items: [{ id: imageID, name: 'PostgreSQL 17 offline', filename: 'postgresql-17.tar.gz', sizeBytes: 125829120, sha256: 'a'.repeat(64), format: 'docker-archive', imageRefs: ['postgres:17'], architectures: ['amd64'], status: 'ready', usedByCount: 2, createdAt: imageCreatedAt }, ...(includeWrongArchitectureImage ? [wrongArchitectureImage] : []), ...(unusedImageDeleted ? [] : [unusedImage])] } }))
-  await page.route('**/api/v1/images/unused?olderThanDays=*', async (route) => route.fulfill({ json: { items: unusedImageDeleted ? [] : [unusedImage], totalBytes: unusedImageDeleted ? 0 : unusedImage.sizeBytes, olderThanDays: 30, cutoff: new Date(Date.now() - 30 * 86400000).toISOString() } }))
-  await page.route('**/api/v1/images/cleanup', async (route) => {
-    const body = route.request().postDataJSON()
-    expect(body).toMatchObject({ imageIds: [unusedImageID], olderThanDays: 30, confirm: 'DELETE' })
-    unusedImageDeleted = true
-    await route.fulfill({ json: { deletedCount: 1, skippedCount: 0, failedCount: 0, freedBytes: unusedImage.sizeBytes } })
-  })
-  let continuationHosts = [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'online', architecture: 'amd64', sshAddress: '10.0.0.8', connectionAddress: '10.0.0.8', cpuCount: 8, memoryBytes: 17179869184, diskFreeBytes: 85899345920, portStart: 20000, portEnd: 40000, maintenance: false }]
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
-  await page.route('**/api/v1/registries', async (route) => route.fulfill({ json: { items: [{ id: registryID, name: registryName, url: 'https://harbor.example.test', username: 'robot$dbmock', hasPassword: true, hasCaCertificate: true, status: registryStatus, statusMessage: registryStatusMessage, statusCode: registryStatusCode, lastTestedAt: registryLastTestedAt, createdAt: registryUpdatedAt, updatedAt: registryUpdatedAt }] } }))
-  await page.route(`**/api/v1/registries/${registryID}/test`, async (route) => {
-    registryStatus = 'online'
-    registryStatusMessage = 'registry_reachable'
-    registryStatusCode = 200
-    registryLastTestedAt = new Date().toISOString()
-    await route.fulfill({ json: { status: registryStatus, message: registryStatusMessage, statusCode: registryStatusCode, checkedAt: registryLastTestedAt } })
-  })
-  await page.route(`**/api/v1/registries/${registryID}`, async (route) => {
-    if (route.request().method() === 'PUT') {
-      const body = route.request().postDataJSON()
-      registryName = body.name
-      registryStatus = 'unknown'
-      registryStatusMessage = ''
-      registryStatusCode = undefined
-      registryLastTestedAt = undefined
-      expect(body.password).toBe('')
-      expect(body.caCertificate).toBe('')
-      expect(body.clearPassword).toBe(true)
-      expect(body.clearCaCertificate).toBe(true)
-      await route.fulfill({ json: { id: registryID, ...body, hasPassword: false, hasCaCertificate: false, status: 'unknown', createdAt: registryUpdatedAt, updatedAt: new Date().toISOString() } })
-      return
-    }
-    await route.continue()
-  })
-  await page.reload()
-  await page.getByRole('tab', { name: /离线镜像/ }).click()
-  await expect(page.getByRole('button', { name: 'PostgreSQL 17 offline', exact: true })).toBeVisible()
-  await expect(page.getByText('匹配 1 个版本')).toBeVisible()
-  await page.getByRole('button', { name: 'PostgreSQL 17 offline', exact: true }).click()
-  const imageDrawer = page.getByRole('dialog', { name: /PostgreSQL 17 offline/ })
-  await expect(imageDrawer.getByText('归档完整性检查已通过')).toBeVisible()
-  await expect(imageDrawer.getByText('部署就绪度')).toBeVisible()
-  await expect(imageDrawer.getByText('已匹配数据库目录')).toBeVisible()
-  await expect(imageDrawer.getByText(/当前有 1 台在线主机的架构兼容/)).toBeVisible()
-  await expect(imageDrawer.getByText('PostgreSQL 17', { exact: true })).toBeVisible()
-  await expect(imageDrawer.getByText('被 2 个数据库实例使用').first()).toBeVisible()
-  await expect(imageDrawer.getByRole('button', { name: '删除' })).toBeDisabled()
-  await expect(imageDrawer.getByText('a'.repeat(64))).toBeVisible()
-  includeWrongArchitectureImage = true
-  await imageDrawer.getByRole('button', { name: '创建数据库' }).click()
-  await expect(page).toHaveURL(new RegExp(`/instances\\?create=1&template=.+&image=${imageID}$`))
-  const createFromImageDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(createFromImageDrawer).toBeVisible()
-  await createFromImageDrawer.getByLabel('名称').fill('Offline PostgreSQL')
-  await createFromImageDrawer.getByRole('button', { name: '下一步' }).click()
-  await createFromImageDrawer.getByRole('button', { name: '下一步' }).click()
-  await expect(createFromImageDrawer.getByRole('radio', { name: '离线镜像' })).toBeChecked()
-  await expect(createFromImageDrawer.getByText(/PostgreSQL 17 offline · 120 MiB · amd64/)).toBeVisible()
-  await createFromImageDrawer.getByRole('combobox', { name: '离线镜像' }).click()
-  await expect(page.getByRole('option', { name: /PostgreSQL 17 arm64 only/ })).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  await createFromImageDrawer.getByRole('button', { name: /取\s*消/ }).click()
-  await page.getByRole('dialog', { name: '放弃未保存的数据库配置？' }).getByRole('button', { name: '放弃更改' }).click()
-  await page.goto('/images')
-  await page.getByRole('button', { name: '扫描未使用镜像' }).click()
-  const cleanupImagesDialog = page.getByRole('dialog', { name: '清理未使用镜像' })
-  await expect(cleanupImagesDialog.getByText('Legacy Redis offline')).toBeVisible()
-  await expect(cleanupImagesDialog.getByText('发现 1 个候选镜像，共 64 MiB')).toBeVisible()
-  await cleanupImagesDialog.getByRole('button', { name: '清理选中镜像' }).click()
-  await expect(page.getByText('已清理 1 个镜像，释放 64 MiB')).toBeVisible()
-  await expect(cleanupImagesDialog.getByText('没有可清理的镜像').first()).toBeVisible()
-  await cleanupImagesDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.getByRole('tab', { name: /镜像仓库/ }).click()
-  await expect(page.getByText('从控制服务验证仓库')).toBeVisible()
-  await page.getByRole('button', { name: '测试连通性' }).click()
-  await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
-  await expect(page.getByText('在线', { exact: true })).toBeVisible()
-  await page.reload()
-  await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
-  await page.getByRole('button', { name: '编辑' }).click()
-  const registryDialog = page.getByRole('dialog', { name: '编辑仓库' })
-  await expect(registryDialog.getByLabel('名称')).toHaveValue('Engineering Harbor')
-  await expect(registryDialog.getByText('已配置密码；留空将保持现有密码。')).toBeVisible()
-  await expect(registryDialog.getByText('已配置自定义 CA；留空将保持现有证书。')).toBeVisible()
-  await registryDialog.getByRole('checkbox', { name: '移除已配置的密码' }).check()
-  await registryDialog.getByRole('checkbox', { name: '移除已配置的自定义 CA' }).check()
-  await registryDialog.getByLabel('名称').fill('Platform Harbor')
-  await registryDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(page.getByRole('heading', { name: 'Platform Harbor' })).toBeVisible()
-  await expect(page.getByText('仓库可访问且认证成功')).toBeVisible()
-  await page.unroute(`**/api/v1/registries/${registryID}`)
-  await page.unroute(`**/api/v1/registries/${registryID}/test`)
-  await page.unroute('**/api/v1/images/cleanup')
-  await page.unroute('**/api/v1/images/unused?olderThanDays=*')
-  await page.unroute('**/api/v1/registries')
-  await page.unroute('**/api/v1/images')
-  await page.unroute('**/api/v1/hosts')
-
-  await page.goto('/catalog')
-  await expect(page.locator('.database-icon')).toHaveCount(20)
-  const customTemplateCard = page.locator('.template-card').filter({ hasText: 'E2E 自定义模板' })
-  await expect(customTemplateCard).toBeVisible()
-  await customTemplateCard.getByRole('button', { name: '详情' }).click()
-  const customTemplateDetails = page.getByRole('dialog', { name: '模板详情' })
-  const customVersionSelect = customTemplateDetails.getByRole('combobox', { name: '版本' })
-  await expect(customVersionSelect).toBeVisible()
-  await expect(customTemplateDetails.getByText('服务以特权模式运行')).toBeVisible()
-  await customVersionSelect.click()
-  await page.locator('.ant-select-dropdown:visible').getByText('v1.0.0', { exact: true }).click()
-  await expect(customTemplateDetails.getByText('example.invalid/e2e/db:1.0.0')).toBeVisible()
-  await expect(customTemplateDetails.getByText('服务以特权模式运行')).toHaveCount(0)
-  await expect(customTemplateDetails.getByText('未发现高风险配置')).toBeVisible()
-  await customTemplateDetails.getByRole('button', { name: '关闭', exact: true }).click()
-  await customTemplateCard.getByRole('button', { name: '删除模板 E2E 自定义模板' }).click()
-  const deleteTemplateDialog = page.getByRole('dialog', { name: '删除模板“E2E 自定义模板”？' })
-  await expect(deleteTemplateDialog.getByText('只有未被任何当前或历史数据库实例引用的自定义模板才能删除；删除后所有版本包都无法恢复。')).toBeVisible()
-  await deleteTemplateDialog.getByRole('button', { name: /删\s*除/ }).click()
-  await expect(page.getByText('自定义模板已删除')).toBeVisible()
-  await expect(page.locator('.database-icon')).toHaveCount(19)
-  await expect(page.getByRole('img', { name: 'MySQL' })).toBeVisible()
-  await expect(page.getByRole('img', { name: 'PostgreSQL' })).toBeVisible()
-  const cardLayout = await page.evaluate(() => Array.from(document.querySelectorAll('.template-card')).map((card) => {
-    const rect = card.getBoundingClientRect()
-    const offsetTop = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().top ?? 0) - rect.top)
-    const offsetLeft = (selector: string) => Math.round((card.querySelector(selector)?.getBoundingClientRect().left ?? 0) - rect.left)
-    return {
-      width: Math.round(rect.width),
-      right: Math.round(rect.right),
-      baselines: ['.template-card-header', '.template-card-description', '.template-card-tags', '.template-meta', '.ant-card-actions'].map(offsetTop),
-      rails: ['.database-icon', '.template-card-title', '.template-card-description', '.template-card-tags', '.template-meta'].map(offsetLeft),
-      tierRight: Math.round((card.querySelector('.template-card-tier')?.getBoundingClientRect().right ?? 0) - rect.left),
-    }
-  }))
-  expect(cardLayout[0].baselines).toEqual(cardLayout[1].baselines)
-  expect(cardLayout.every(({ baselines }) => JSON.stringify(baselines) === JSON.stringify(cardLayout[0].baselines))).toBe(true)
-  expect(cardLayout[0].rails).toEqual(cardLayout[1].rails)
-  expect(cardLayout.every(({ rails }) => JSON.stringify(rails) === JSON.stringify(cardLayout[0].rails))).toBe(true)
-  expect(cardLayout.every(({ rails }) => rails[0] === rails[4] && rails[1] === rails[2] && rails[2] === rails[3])).toBe(true)
-  expect(new Set(cardLayout.map(({ tierRight }) => tierRight)).size).toBe(1)
-  expect(Math.max(...cardLayout.map(({ right }) => right))).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth))
-  expect(Math.min(...cardLayout.map(({ width }) => width))).toBeGreaterThanOrEqual(360)
-  const catalogSearch = page.getByRole('searchbox', { name: '搜索数据库目录' })
-  await expect(catalogSearch).toHaveAttribute('placeholder', '搜索名称、分类、版本或镜像')
-  await catalogSearch.fill('关系型数据库')
-  await expect(page.locator('.template-card')).toHaveCount(6)
-  await catalogSearch.fill('mysql:8.4')
-  await expect(page.locator('.template-card')).toHaveCount(1)
-  const filteredCardWidth = await page.locator('.template-card').evaluate((card) => Math.round(card.getBoundingClientRect().width))
-  expect(filteredCardWidth).toBeLessThan(700)
-  await page.locator('.template-card').getByRole('button', { name: '详情' }).click()
-  const templateDetails = page.getByRole('dialog', { name: '模板详情' })
-  await expect(templateDetails.getByText('mysql:8.4')).toBeVisible()
-  await expect(templateDetails.getByText('3306')).toBeVisible()
-  await expect(templateDetails.getByText('最低资源')).toBeVisible()
-  await expect(templateDetails.getByRole('button', { name: '创建数据库' })).toBeVisible()
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
-  await templateDetails.getByRole('button', { name: '创建数据库' }).click()
-  const preselectedCreateDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(preselectedCreateDrawer).toBeVisible()
-  await expect(preselectedCreateDrawer.getByLabel('名称')).toBeVisible()
-  await expect(preselectedCreateDrawer.getByLabel('模板 / 版本')).toHaveCount(0)
-  await expect(preselectedCreateDrawer.getByText('基础信息', { exact: true })).toBeVisible()
-  await expect(preselectedCreateDrawer.getByRole('button', { name: '上一步' })).toBeEnabled()
-  await preselectedCreateDrawer.getByRole('button', { name: '上一步' }).click()
-  await expect(preselectedCreateDrawer.getByText('MySQL 8.4', { exact: true }).first()).toBeVisible()
-  await preselectedCreateDrawer.getByRole('button', { name: /取\s*消/ }).click()
-  await page.unroute('**/api/v1/hosts')
-  await page.goto('/catalog')
-  await catalogSearch.fill('definitely-no-such-database')
-  await expect(page.getByText('没有匹配的数据库模板。请调整搜索词或筛选条件。')).toBeVisible()
-  await page.getByRole('button', { name: '清除筛选' }).click()
-  await expect(page.locator('.database-icon')).toHaveCount(19)
-  await page.locator('.catalog-toolbar').getByText('自定义', { exact: true }).click()
-  await expect(page.getByText('尚未上传自定义模板。上传可信的 Compose 模板包后，它会出现在这里。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '上传 Compose 模板' })).toHaveCount(1)
-  await page.locator('.ant-empty').getByRole('button', { name: '上传 Compose 模板' }).click()
-  const uploadTemplateDialog = page.getByRole('dialog', { name: '上传 Compose 模板' })
-  await expect(uploadTemplateDialog.getByText('上传可信的 .zip 包，其中需包含 dbmock-template.yaml 和 docker-compose.yml；主机级能力将被允许并记录审计。')).toBeVisible()
-  await expect(uploadTemplateDialog.getByText('模板版本不可覆盖')).toBeVisible()
-  await expect(uploadTemplateDialog.getByText('相同 slug 可以追加新版本；相同 slug 与版本号不能再次上传。修改 Compose 或脚本时，请先更新清单中的版本号。')).toBeVisible()
-  await uploadTemplateDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.locator('.catalog-toolbar').getByText('全部', { exact: true }).click()
-  const sqlServerCard = page.locator('.template-card').filter({ hasText: 'SQL Server' })
-  await sqlServerCard.getByRole('button', { name: '创建' }).click()
-  const redirectedHostDialog = page.getByRole('dialog', { name: '接入主机' })
-  await expect(redirectedHostDialog).toBeVisible()
-  await expect(page).toHaveURL(/\/hosts\?returnTo=/)
-  await expect(redirectedHostDialog.getByText('需要接入兼容主机')).toBeVisible()
-  await expect(redirectedHostDialog.getByText(/SQL Server .*需要 amd64 架构的在线主机/)).toBeVisible()
-  const continuationSteps = redirectedHostDialog.locator('.host-continuation-steps')
-  await expect(continuationSteps.getByText('接入主机', { exact: true })).toBeVisible()
-  await expect(continuationSteps.getByText('检测能力', { exact: true })).toBeVisible()
-  await expect(continuationSteps.getByText('创建数据库', { exact: true })).toBeVisible()
-  const preservedReturn = new URL(page.url()).searchParams.get('returnTo')
-  expect(preservedReturn).toMatch(/^\/instances\?create=1&template=/)
-  await redirectedHostDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(page.locator('#main-content').getByText('需要接入兼容主机')).toBeVisible()
-  await page.getByRole('button', { name: '接入兼容主机' }).click()
-  await expect(page.getByRole('dialog', { name: '接入主机' })).toBeVisible()
-  await page.getByRole('dialog', { name: '接入主机' }).getByRole('button', { name: '关闭', exact: true }).click()
-  await page.getByRole('button', { name: '返回数据库' }).click()
-  await expect(page).toHaveURL(/\/instances$/)
-  const continuationConsoleErrors: string[] = []
-  const captureContinuationConsoleError = (entry: ConsoleMessage) => {
-    if (entry.type() === 'error') continuationConsoleErrors.push(entry.text())
-  }
-  page.on('console', captureContinuationConsoleError)
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: continuationHosts } }))
-  continuationHosts = [{ ...continuationHosts[0], architecture: 'arm64', name: 'ARM-only host' }]
-  await page.goto(`/hosts?returnTo=${encodeURIComponent(preservedReturn || '')}`)
-  await expect(page.getByText('在线主机与当前数据库不兼容')).toBeVisible()
-  await expect(page.getByText(/SQL Server .*需要 amd64 架构。当前 1 台在线可调度主机均不兼容/)).toBeVisible()
-  await expect(page.getByRole('button', { name: '继续创建数据库' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '接入兼容主机' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '主机', exact: true })).toHaveCount(1)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440)
-  await testInfo.attach('host-continuation-incompatible-1440', { body: await page.screenshot(), contentType: 'image/png' })
-  await page.route('**/api/v1/hosts/test', async (route) => route.fulfill({ json: { hostKey: 'SHA256:e2e-incompatible-host AAAA', os: 'linux', distro: 'ubuntu:24.04', architecture: 'arm64', dockerVersion: '27.5.1', composeVersion: '2.35.1', passwordlessSudo: true, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, dataRootWritable: true, portProbeAvailable: true, firstAvailablePort: 20000, verificationToken: 'e2e-incompatible-verification', verificationExpiresAt: '2026-07-28T12:10:00Z' } }))
-  await page.getByRole('button', { name: '接入兼容主机' }).click()
-  const incompatibleHostDialog = page.getByRole('dialog', { name: '接入主机' })
-  await expect(incompatibleHostDialog).toBeVisible()
-  await expect(page).toHaveURL(/\/hosts\?returnTo=/)
-  await incompatibleHostDialog.getByLabel('名称').fill('Incompatible ARM host')
-  await incompatibleHostDialog.getByLabel('SSH 地址').fill('192.0.2.72')
-  await incompatibleHostDialog.getByLabel('SSH 用户').fill('e2e')
-  await incompatibleHostDialog.getByLabel('私钥', { exact: true }).fill('visual-only')
-  await incompatibleHostDialog.getByRole('button', { name: '测试连接' }).click()
-  await expect(incompatibleHostDialog.getByText('检测到 arm64，当前部署需要 amd64')).toBeVisible()
-  await expect(incompatibleHostDialog.getByText(/此主机不能用于 SQL Server/)).toBeVisible()
-  await expect(incompatibleHostDialog.getByRole('button', { name: /保\s*存/ })).toBeDisabled()
-  await incompatibleHostDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.getByRole('dialog', { name: '放弃未保存的主机配置？' }).getByRole('button', { name: '放弃更改' }).click()
-  await page.unroute('**/api/v1/hosts/test')
-  continuationHosts = [{ ...continuationHosts[0], architecture: 'amd64', name: 'E2E Host' }]
-  await page.goto(`/hosts?returnTo=${encodeURIComponent(preservedReturn || '')}`)
-  await expect(page.getByText('兼容主机已就绪，可以继续创建数据库')).toBeVisible()
-  await expect(page.getByText(/SQL Server .*需要 amd64；已有 1 台兼容的在线可调度主机/)).toBeVisible()
-  await expect(page.getByRole('button', { name: '接入其他兼容主机' })).toBeVisible()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440)
-  await testInfo.attach('host-continuation-list-1440', { body: await page.screenshot(), contentType: 'image/png' })
-  await page.getByRole('button', { name: '继续创建数据库' }).click()
-  await expect(page).toHaveURL(/\/instances\?create=1&template=.+&host=11111111/)
-  const resumedCreateDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(resumedCreateDrawer).toBeVisible()
-  await expect(resumedCreateDrawer.getByText('创建数据库', { exact: true })).toHaveCount(1)
-  await expect(resumedCreateDrawer.getByText('已选中刚接入的主机 E2E Host')).toBeVisible()
-  await expect(resumedCreateDrawer.getByLabel('部署主机')).toHaveCount(0)
-  await expect(resumedCreateDrawer.getByRole('button', { name: '下一步' })).toBeVisible()
+  await expect(page.locator('.instance-table-card .ant-spin-spinning')).toHaveCount(0)
   await page.waitForTimeout(500)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440)
-  const resumedDrawerBounds = await resumedCreateDrawer.boundingBox()
-  expect(resumedDrawerBounds).not.toBeNull()
-  expect((resumedDrawerBounds?.x || 0) + (resumedDrawerBounds?.width || 0)).toBeLessThanOrEqual(1440)
-  await testInfo.attach('host-continuation-drawer-1440', { body: await page.screenshot(), contentType: 'image/png' })
-  await resumedCreateDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  continuationHosts = [...continuationHosts, { ...continuationHosts[0], id: '22222222-2222-4222-8222-222222222222', name: 'Offline continuation host', status: 'offline' }]
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.goto(`${preservedReturn}&host=22222222-2222-4222-8222-222222222222`)
-  const unavailableHostDrawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(unavailableHostDrawer.getByText('刚接入的主机暂不可用于当前部署')).toBeVisible()
-  await expect(unavailableHostDrawer.getByText('创建数据库', { exact: true })).toHaveCount(1)
-  await expect(unavailableHostDrawer.getByText('该主机可能已离线、进入维护模式或与模板架构不兼容。请选择其他兼容主机，或接入新的主机。')).toBeVisible()
-  await expect(unavailableHostDrawer.getByRole('button', { name: '接入主机' })).toBeVisible()
-  await expect(unavailableHostDrawer.getByRole('button', { name: '下一步' })).toBeVisible()
-  await page.waitForTimeout(500)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1024)
-  const unavailableDrawerBounds = await unavailableHostDrawer.boundingBox()
-  expect(unavailableDrawerBounds).not.toBeNull()
-  expect((unavailableDrawerBounds?.x || 0) + (unavailableDrawerBounds?.width || 0)).toBeLessThanOrEqual(1024)
-  const unavailableDrawerOverflow = await unavailableHostDrawer.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
-  expect(unavailableDrawerOverflow.scrollWidth).toBeLessThanOrEqual(unavailableDrawerOverflow.clientWidth)
-  await testInfo.attach('host-continuation-unavailable-1024', { body: await page.screenshot(), contentType: 'image/png' })
-  expect(continuationConsoleErrors).toEqual([])
-  page.off('console', captureContinuationConsoleError)
-  await unavailableHostDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.setViewportSize({ width: 1280, height: 720 })
-  await page.unroute('**/api/v1/hosts')
-  await page.goto('/catalog')
-
-  const taskID = '22222222-2222-4222-8222-222222222222'
-  const hostUpdatedAt = new Date().toISOString()
-  let recoveryHostStatus = 'online'
-  let hostTaskStatus = 'running'
-  let hostTaskCancelAsked = false
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [{ id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: recoveryHostStatus, sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: true, os: 'linux', distro: 'Ubuntu 24.04', architecture: 'amd64', dockerVersion: '27.5.1', composeVersion: '2.35.1', cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true, consecutiveFailures: recoveryHostStatus === 'online' ? 0 : 2, labels: { team: 'platform' }, lastCheckedAt: hostUpdatedAt, lastSeenAt: hostUpdatedAt, createdAt: hostUpdatedAt, updatedAt: hostUpdatedAt }] } }))
-  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
-  await page.route('**/api/v1/instances?hostId=**', async (route) => route.fulfill({ json: { items: [{ id: instanceID, name: 'Orders DB', hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', environment: 'development', labels: {}, status: 'running', desiredState: 'running', autoRestart: true, restartFailures: 0, cpu: 2, memoryBytes: 4294967296, reservedDiskBytes: 21474836480, hostPort: 25432, containerPort: 5432, bindAddress: '0.0.0.0', databaseUsername: 'app', databaseName: 'orders', templateSlug: 'postgresql', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', connectionAddress: '10.0.0.8', createdAt: hostUpdatedAt }] } }))
-  await page.route('**/api/v1/tasks?resourceType=host&resourceId=**', async (route) => route.fulfill({ json: { items: [{ id: taskID, kind: 'host_probe', status: hostTaskStatus, resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: hostTaskStatus === 'running' ? 35 : 100, stage: hostTaskStatus === 'running' ? 'probe' : 'completed', message: hostTaskStatus === 'running' ? 'checking_host_and_template' : 'completed', cancelable: hostTaskStatus === 'running', cancelAsked: hostTaskCancelAsked, attempts: 1, createdAt: hostUpdatedAt }] } }))
-  await page.route(`**/api/v1/tasks/${taskID}`, async (route) => route.fulfill({ json: { id: taskID, kind: 'host_probe', status: hostTaskStatus, resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: hostTaskStatus === 'running' ? 35 : 100, stage: hostTaskStatus === 'running' ? 'probe' : 'completed', message: hostTaskStatus === 'running' ? 'checking_host_and_template' : 'completed', cancelable: hostTaskStatus === 'running', cancelAsked: hostTaskCancelAsked, attempts: 1, createdAt: new Date().toISOString() } }))
-  await page.route(`**/api/v1/tasks/${taskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/tasks/${taskID}/cancel`, async (route) => {
-    hostTaskCancelAsked = true
-    await route.fulfill({ status: 202, json: { id: taskID, kind: 'host_probe', status: 'running', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 35, stage: 'probe', message: 'checking_host_and_template', cancelable: true, cancelAsked: true, attempts: 1, createdAt: hostUpdatedAt } })
-  })
-  await page.goto(`/tasks?task=${taskID}`)
-  let taskDrawer = page.getByRole('dialog', { name: /检测主机.*22222222/ })
-  await expect(taskDrawer).toBeVisible()
-  await expect(taskDrawer.getByText('任务尚未产生执行记录。')).toBeVisible()
-  await taskDrawer.getByRole('button', { name: '取消任务' }).click()
-  await expect(page.getByText('任务会在下一个安全检查点停止，并按操作策略恢复资源状态。')).toBeVisible()
-  await page.getByRole('button', { name: /确\s*认/ }).click()
-  await taskDrawer.getByRole('button', { name: '查看对应资源' }).click()
-  await expect(page).toHaveURL(/\/hosts\?host=11111111/)
-  let linkedHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
-  await expect(linkedHostDialog).toBeVisible()
-  await expect(linkedHostDialog.getByText('调度容量', { exact: true })).toBeVisible()
-  await expect(linkedHostDialog.getByText('Orders DB', { exact: true })).toBeVisible()
-  await expect(linkedHostDialog.getByText('35%', { exact: true })).toBeVisible()
-  await expect(linkedHostDialog.getByText('team=platform', { exact: true })).toBeVisible()
-  await expect(linkedHostDialog.getByRole('button', { name: '编辑' })).toBeDisabled()
-  hostTaskStatus = 'succeeded'
-  await page.reload()
-  linkedHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
-  await expect(linkedHostDialog).toBeVisible()
-  await expect(linkedHostDialog.getByRole('button', { name: '编辑' })).toBeEnabled()
-  await linkedHostDialog.getByRole('button', { name: '编辑' }).click()
-  const editHostDialog = page.getByRole('dialog', { name: '编辑' })
-  await expect(editHostDialog).toBeVisible()
-  await expect(page.getByRole('dialog')).toHaveCount(1)
-  await editHostDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(page.getByRole('dialog', { name: 'E2E Host' })).toBeVisible()
-  await page.getByRole('dialog', { name: 'E2E Host' }).getByRole('button', { name: '关闭', exact: true }).click()
-  await page.unroute('**/api/v1/tasks?resourceType=host&resourceId=**')
-  await page.unroute(`**/api/v1/tasks/${taskID}/cancel`)
-  await page.unroute(`**/api/v1/tasks/${taskID}`)
-  await page.unroute(`**/api/v1/tasks/${taskID}/logs`)
-
-  const failedTaskID = '33333333-3333-4333-8333-333333333333'
-  const retriedTaskID = '33333333-3333-4333-8333-333333333334'
-  const healthFailureTaskID = '33333333-3333-4333-8333-333333333336'
-  const healthRetriedTaskID = '33333333-3333-4333-8333-333333333337'
-  const retryBlockerTaskID = '33333333-3333-4333-8333-333333333338'
-  const failedTask = { id: failedTaskID, kind: 'instance_create', status: 'failed', resourceType: 'instance', resourceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', progress: 72, stage: 'compose', message: 'starting_docker_compose_project', errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: Connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 600000).toISOString(), startedAt: new Date(Date.now() - 540000).toISOString(), finishedAt: new Date(Date.now() - 300000).toISOString() }
-  const healthFailureTask = { ...failedTask, id: healthFailureTaskID, kind: 'instance_restore', resourceId: '77777777-7777-4777-8777-777777777777', progress: 90, stage: 'health', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'database did not become healthy', createdAt: new Date(Date.now() - 480000).toISOString() }
-  const healthRetriedTask = { ...healthFailureTask, id: healthRetriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', payload: { operationId: healthFailureTaskID }, result: {}, errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
-  let retryBlockerTask = { ...healthFailureTask, id: retryBlockerTaskID, kind: 'instance_backup', status: 'running', progress: 42, stage: 'files', message: 'creating_backup_archive', payload: { operationId: retryBlockerTaskID }, result: {}, errorCode: '', errorMessage: '', attempts: 1, startedAt: new Date(Date.now() - 60000).toISOString(), finishedAt: undefined, createdAt: new Date(Date.now() - 90000).toISOString() }
-  const restoreSuccessTask = { ...failedTask, id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceId: instanceID, progress: 100, stage: 'compose', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: 'Orders release baseline', backupCreatedAt: restoredBackupCreatedAt, backupSha256: 'a'.repeat(64), restoreOutcome: 'target_backup_applied', healthVerifiedAt: restoreHealthVerifiedAt, instanceStatus: 'running', desiredState: 'running', status: 'running' }, errorCode: '', errorMessage: '', createdAt: restoreHealthVerifiedAt, startedAt: restoreHealthVerifiedAt, finishedAt: restoreHealthVerifiedAt }
-  let retriedTask: Record<string, unknown> = { ...failedTask, id: retriedTaskID, status: 'queued', progress: 0, stage: 'queued', message: '', errorCode: '', errorMessage: '', attempts: 0, startedAt: undefined, finishedAt: undefined, createdAt: new Date().toISOString() }
-  const completedHostTask = { ...failedTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host_probe', status: 'succeeded', resourceType: 'host', resourceId: '11111111-1111-4111-8111-111111111111', progress: 100, stage: 'probe', message: 'task_completed', errorCode: '', errorMessage: '', finishedAt: new Date().toISOString() }
-  const taskCenterBackupTask = { ...failedTask, id: backupDeleteTaskID, kind: 'instance.backup.delete', resourceType: 'backup', resourceId: backupID, progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'task_failed', errorMessage: 'remote command failed: permission denied while deleting archive', createdAt: new Date(Date.now() - 420000).toISOString() }
-  recoveryHostStatus = 'offline'
-  let recoveryHostTasks: Record<string, unknown>[] = []
-  await page.route('**/api/v1/tasks?resourceType=host&resourceId=**', async (route) => route.fulfill({ json: { items: recoveryHostTasks } }))
-  await page.route('**/api/v1/hosts/11111111-1111-4111-8111-111111111111/actions/probe', async (route) => {
-    recoveryHostStatus = 'online'
-    recoveryHostTasks = [completedHostTask]
-    await route.fulfill({ status: 202, json: completedHostTask })
-  })
-  let attentionItems: Record<string, unknown>[] = [{ resourceType: 'instance', resourceId: instanceID, resourceName: 'Orders DB', resourceStatus: 'failed', hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', taskId: failedTaskID, taskKind: 'instance_create', taskStatus: 'failed', taskStage: 'compose', errorCode: 'ssh_unreachable', updatedAt: failedTask.finishedAt }]
-  let lifecycleItems: Record<string, unknown>[] = []
-  await page.route('**/api/v1/dashboard', async (route) => route.fulfill({ json: { hosts: { online: 1 }, instances: { failed: 1 }, activeTasks: attentionItems[0]?.taskStatus === 'queued' ? 1 : 0, openAlerts: 0, users: 1, projects: 0, attentionItems, lifecycleInstances: lifecycleItems } }))
-  const taskListRoute = /\/api\/v1\/tasks(?:\?.*)?$/
-  const taskCenterItems = [failedTask, healthFailureTask, taskCenterBackupTask, completedHostTask]
-  await page.route(taskListRoute, async (route) => {
-    const requestedResourceType = new URL(route.request().url()).searchParams.get('resourceType')
-    await route.fulfill({ json: { items: requestedResourceType ? taskCenterItems.filter((task) => task.resourceType === requestedResourceType) : taskCenterItems } })
-  })
-  await page.route(`**/api/v1/tasks/${failedTaskID}`, async (route) => route.fulfill({ json: failedTask }))
-  await page.route(`**/api/v1/tasks/${failedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 1, level: 'error', message: 'ssh_connection_timed_out', createdAt: failedTask.finishedAt }] } }))
-  await page.route(`**/api/v1/tasks/${healthFailureTaskID}`, async (route) => route.fulfill({ json: healthFailureTask }))
-  await page.route(`**/api/v1/tasks/${healthFailureTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 2, level: 'error', message: 'database did not become healthy', createdAt: healthFailureTask.finishedAt }] } }))
-  await page.route(`**/api/v1/tasks/${retryBlockerTaskID}`, async (route) => route.fulfill({ json: retryBlockerTask }))
-  await page.route(`**/api/v1/tasks/${retryBlockerTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/tasks/${healthRetriedTaskID}`, async (route) => route.fulfill({ json: healthRetriedTask }))
-  await page.route(`**/api/v1/tasks/${healthRetriedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/tasks/${restoreSuccessTaskID}`, async (route) => route.fulfill({ json: restoreSuccessTask }))
-  await page.route(`**/api/v1/tasks/${restoreSuccessTaskID}/logs`, async (route) => route.fulfill({ json: { items: [{ id: 3, level: 'info', message: 'task_completed', createdAt: restoreSuccessTask.finishedAt }] } }))
-  await page.route(`**/api/v1/tasks/${backupDeleteTaskID}`, async (route) => route.fulfill({ json: taskCenterBackupTask }))
-  await page.route(`**/api/v1/tasks/${backupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/tasks/${failedTaskID}/retry`, async (route) => {
-    attentionItems = [{ resourceType: 'instance', resourceId: instanceID, resourceName: 'Orders DB', resourceStatus: 'failed', hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', updatedAt: new Date().toISOString() }]
-    await route.fulfill({ status: 202, json: retriedTask })
-  })
-  let healthRetryRejected = true
-  await page.route(`**/api/v1/tasks/${healthFailureTaskID}/retry`, async (route) => {
-    if (healthRetryRejected) {
-      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'resource conflict: another operation is already queued or running for this resource' } } })
-      return
-    }
-    if (!taskCenterItems.some((task) => task.id === healthRetriedTaskID)) taskCenterItems.push(healthRetriedTask)
-    await route.fulfill({ status: 202, json: healthRetriedTask })
-  })
-  await page.route(`**/api/v1/tasks/${retriedTaskID}`, async (route) => route.fulfill({ json: retriedTask }))
-  await page.route(`**/api/v1/tasks/${retriedTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: instanceResponse() }))
-  await page.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: instanceBackups } }))
-  await page.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
-  await page.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => {
-    if (failTaskInventory) {
-      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary task inventory outage' } } })
-      return
-    }
-    await route.fulfill({ json: { items: relatedTasks } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/connection`, async (route) => route.fulfill({ json: { address: '10.0.0.8', port: 25432, username: 'app', password: 'e2e-secret', database: 'orders', authentication: 'password', uri: 'postgresql://app:e2e-secret@10.0.0.8:25432/orders', jdbc: 'jdbc:postgresql://10.0.0.8:25432/orders' } }))
-  const workbenchBrowserErrors: string[] = []
-  page.on('console', (message) => { if (message.type() === 'error') workbenchBrowserErrors.push(message.text()) })
-  page.on('pageerror', (error) => workbenchBrowserErrors.push(error.message))
-  await page.goto('/')
-  await expect(page.getByText('1 项待恢复')).toBeVisible()
-  await expect(page.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
-  await expect(page.getByText(/在主机页重新检测成功后重试/)).toBeVisible()
-  const attentionRetryButton = page.locator('.workbench-attention-actions').getByRole('button', { name: /重试任务/ })
-  await expect(attentionRetryButton).toHaveCount(0)
-  await page.locator('.workbench-attention-actions').getByRole('button', { name: '检查故障主机' }).click()
-  await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
-  let recoveryHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
-  await expect(recoveryHostDialog.getByText('先恢复主机，再重试原任务')).toBeVisible()
-  await expect(recoveryHostDialog.getByText('Orders DB', { exact: true }).first()).toBeVisible()
-  await expect(recoveryHostDialog.getByRole('button', { name: '重新检测' })).toHaveCount(1)
-  await recoveryHostDialog.getByRole('button', { name: '重新检测' }).click()
-  await expect(recoveryHostDialog.getByText('主机已就绪，可以重试原任务')).toBeVisible()
-  await recoveryHostDialog.getByRole('button', { name: '重试原任务' }).click()
-  await expect(page).toHaveURL(new RegExp(`recoveryTask=${retriedTaskID}`))
-  await expect(recoveryHostDialog.getByText('重试任务正在执行')).toBeVisible()
-  retriedTask = { ...retriedTask, status: 'succeeded', progress: 100, stage: 'health', message: 'task_completed', finishedAt: new Date().toISOString() }
-  await page.reload()
-  recoveryHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
-  await expect(recoveryHostDialog.getByText('重试已完成，请确认实例状态')).toBeVisible()
-  relatedTasks = [retriedTask]
-  instanceStatus = 'degraded'
-  instanceStatusMessage = 'Container health check is starting'
-  await recoveryHostDialog.getByRole('button', { name: '返回实例确认状态' }).click()
-  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}\\?recoveryTask=${retriedTaskID}$`))
-  const recoveryConfirmation = page.locator('.recovery-confirmation-alert')
-  await expect(recoveryConfirmation.getByText('恢复任务已完成，健康状态正在收敛')).toBeVisible()
-  await expect(recoveryConfirmation.getByText(/页面每 10 秒自动刷新/)).toBeVisible()
-  await expect(recoveryConfirmation.getByText('创建数据库实例', { exact: true })).toBeVisible()
-  await expect(recoveryConfirmation.getByText('健康验证中', { exact: true })).toBeVisible()
-  await expect(recoveryConfirmation.getByRole('button', { name: '查看本次恢复任务' })).toBeVisible()
-  await expect(recoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
-  instanceStatus = 'running'
-  instanceStatusMessage = ''
-  await recoveryConfirmation.getByRole('button', { name: '刷新健康状态' }).click()
-  await expect(recoveryConfirmation.getByText('恢复任务已完成，已核对当前实例状态')).toBeVisible()
-  await expect(recoveryConfirmation.getByText('运行中', { exact: true })).toBeVisible()
-  await expect(recoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' })).toBeVisible()
-  await expect(page.getByText('数据库已部署，可交付连接信息')).toHaveCount(0)
-  await recoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' }).click()
-  await expect(page.getByRole('tab', { name: '连接信息' })).toHaveAttribute('aria-selected', 'true')
-  expect(new URL(page.url()).searchParams.get('recoveryTask')).toBe(retriedTaskID)
-  await page.getByRole('tab', { name: '详情' }).click()
-  await recoveryConfirmation.getByRole('button', { name: '结束本次确认' }).click()
-  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}$`))
-  expect(workbenchBrowserErrors).toEqual([])
-  failTaskInventory = true
-  await page.goto(`/instances/${instanceID}?recoveryTask=${retriedTaskID}`)
-  const recoveryConfirmationLoadFailure = page.locator('.recovery-confirmation-alert')
-  await expect(recoveryConfirmationLoadFailure.getByText('暂时无法核对恢复任务')).toBeVisible()
-  await expect(recoveryConfirmationLoadFailure.getByText(/任务记录加载失败/)).toBeVisible()
-  const recoveryConfirmationRetry = recoveryConfirmationLoadFailure.getByRole('button', { name: /重\s*试/ })
-  await expect(recoveryConfirmationRetry).toBeVisible()
-  failTaskInventory = false
-  await recoveryConfirmationRetry.click()
-  await expect(page.getByText('恢复任务已完成，已核对当前实例状态')).toBeVisible()
-  await page.goto(`/instances/${instanceID}?recoveryTask=missing-task`)
-  const unavailableRecoveryConfirmation = page.locator('.recovery-confirmation-alert')
-  await expect(unavailableRecoveryConfirmation.getByText('本次恢复上下文不可用')).toBeVisible()
-  await expect(unavailableRecoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
-  await unavailableRecoveryConfirmation.getByRole('button', { name: '结束本次确认' }).click()
-  retriedTask = { ...retriedTask, status: 'queued', progress: 0, stage: 'queued', message: '', finishedAt: undefined }
-  expect(workbenchBrowserErrors).toEqual([expect.stringContaining('503')])
-  await page.goto('/tasks')
-  await expect(page.getByText('共 4 个任务')).toBeVisible()
-  const hostFailureRow = page.getByRole('row').filter({ hasText: '创建数据库实例' })
-  await expect(hostFailureRow.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(hostFailureRow.getByRole('button', { name: /重试/ })).toHaveCount(0)
-  const healthFailureRow = page.getByRole('row').filter({ hasText: '恢复数据库实例' })
-  await expect(healthFailureRow.getByRole('button', { name: /重试/ })).toBeVisible()
-  await expect(healthFailureRow.getByRole('button', { name: '检查故障主机' })).toHaveCount(0)
-  const backupFailureRow = page.getByRole('row').filter({ hasText: '删除实例备份' })
-  await expect(backupFailureRow.getByText('实例备份', { exact: true })).toBeVisible()
-  await expect(backupFailureRow.getByRole('button', { name: /Orders DB$/ })).toBeVisible()
-  await page.getByRole('searchbox', { name: '搜索任务' }).fill('Orders DB')
-  await expect(page.getByText('筛选出 2 / 4 个任务')).toBeVisible()
-  await expect(page.getByRole('button', { name: '创建数据库实例' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '删除实例备份' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '检测主机' })).toHaveCount(0)
-  await page.getByRole('searchbox', { name: '搜索任务' }).fill('')
-  await page.getByRole('combobox', { name: '资源' }).click()
-  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByText('实例备份', { exact: true }).click()
-  await expect(page.getByText('共 1 个任务')).toBeVisible()
-  await expect(page.getByRole('button', { name: '删除实例备份' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '创建数据库实例' })).toHaveCount(0)
-  await page.getByRole('combobox', { name: '资源' }).click()
-  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByText('全部资源', { exact: true }).click()
-  await expect(page.getByText('共 4 个任务')).toBeVisible()
-  await backupFailureRow.getByRole('button', { name: /Orders DB$/ }).click()
-  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}\\?tab=backups&cleanup=review$`))
-  await page.goto('/tasks')
-  await page.setViewportSize({ width: 760, height: 900 })
-  const mobileHostFailure = page.locator('.task-mobile-item').filter({ hasText: '创建数据库实例' })
-  await expect(mobileHostFailure.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(mobileHostFailure.getByRole('button', { name: /重试/ })).toHaveCount(0)
-  await mobileHostFailure.getByRole('button', { name: '检查故障主机' }).click()
-  await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
-  await expect(page.getByRole('dialog', { name: 'E2E Host' }).getByText('主机已就绪，可以重试原任务')).toBeVisible()
-  await page.getByRole('dialog', { name: 'E2E Host' }).getByRole('button', { name: '关闭', exact: true }).click()
-  await page.setViewportSize({ width: 1280, height: 720 })
-  await page.goto(`/tasks?task=${backupDeleteTaskID}`)
-  let backupTaskDrawer = page.getByRole('dialog', { name: /删除实例备份.*63636363/ })
-  await expect(backupTaskDrawer.getByText('对 Orders DB 执行「删除实例备份」。')).toBeVisible()
-  await expect(backupTaskDrawer.getByRole('button', { name: /Orders DB$/ })).toBeVisible()
-  await expect(backupTaskDrawer.getByRole('button', { name: '查看实例备份' })).toBeVisible()
-  await backupTaskDrawer.getByRole('button', { name: '查看实例备份' }).click()
-  await expect(page).toHaveURL(new RegExp(`/instances/${instanceID}\\?tab=backups&cleanup=review$`))
-  await page.goto(`/tasks?task=${failedTaskID}`)
-  taskDrawer = page.getByRole('dialog', { name: /创建数据库实例.*33333333/ })
-  await expect(taskDrawer.getByText('在「应用 Compose」阶段失败')).toBeVisible()
-  await expect(taskDrawer.getByText('控制平台无法通过 SSH 连接目标主机。')).toBeVisible()
-  await expect(taskDrawer.getByText(/数据库尚未就绪/)).toBeVisible()
-  await expect(taskDrawer.getByText(/重新检测成功后重试/)).toBeVisible()
-  await expect(taskDrawer.getByText('部署未完成，暂不可交付')).toBeVisible()
-  await expect(taskDrawer.getByText(/连接信息尚未确认可用/)).toBeVisible()
-  await expect(taskDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-  await expect(taskDrawer.getByRole('button', { name: '查看数据库' })).toBeVisible()
-  await expect(taskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
-  await taskDrawer.getByRole('button', { name: '技术详情' }).click()
-  await expect(taskDrawer.getByText(/Connection timed out/)).toBeVisible()
-  await taskDrawer.getByRole('button', { name: '检查故障主机' }).click()
-  await expect(page).toHaveURL(new RegExp(`host=11111111.*recoveryTask=${failedTaskID}`))
-  await expect(page.getByRole('dialog', { name: 'E2E Host' }).getByText('主机已就绪，可以重试原任务')).toBeVisible()
-  await page.getByRole('dialog', { name: 'E2E Host' }).getByRole('button', { name: '关闭', exact: true }).click()
-  await page.goto(`/tasks?task=${healthFailureTaskID}`)
-  const restoreFailureDrawer = page.getByRole('dialog', { name: /恢复数据库实例/ })
-  await expect(restoreFailureDrawer.getByText(/目标备份未生效；实例已恢复到本次操作前的数据和运行状态/)).toBeVisible()
-  await expect(restoreFailureDrawer.getByText(/修复健康检查或资源问题后重试恢复/)).toBeVisible()
-  await expect(restoreFailureDrawer.getByRole('button', { name: '重试任务' })).toBeVisible()
-  taskCenterItems.push(retryBlockerTask)
-  await restoreFailureDrawer.getByRole('button', { name: '重试任务' }).click()
-  await expect(restoreFailureDrawer.getByText('任务重试未进入队列')).toBeVisible()
-  await expect(restoreFailureDrawer.getByText('同一资源上的「备份数据库实例」仍在排队或执行。')).toBeVisible()
-  await expect(restoreFailureDrawer.getByText(/本次请求没有创建新的重试任务/)).toBeVisible()
-  await expect(restoreFailureDrawer.getByText('当前占用资源的任务')).toBeVisible()
-  await expect(restoreFailureDrawer.getByRole('button', { name: '重试任务' })).toBeDisabled()
-  await restoreFailureDrawer.getByRole('button', { name: '查看当前任务' }).click()
-  const blockerTaskDrawer = page.getByRole('dialog', { name: /备份数据库实例.*33333333/ })
-  await expect(blockerTaskDrawer).toBeVisible()
-  await expect(blockerTaskDrawer.getByText('42%', { exact: true })).toBeVisible()
-  await blockerTaskDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(page.getByText('任务重试未进入队列')).toBeVisible()
-  retryBlockerTask = { ...retryBlockerTask, status: 'succeeded', progress: 100, stage: 'completed', message: 'task_completed', finishedAt: new Date().toISOString() }
-  taskCenterItems[taskCenterItems.findIndex((task) => task.id === retryBlockerTaskID)] = retryBlockerTask
-  healthRetryRejected = false
-  await page.getByRole('button', { name: '刷新任务证据' }).click()
-  await expect(page.getByText(/证据已刷新，未发现新重试任务或进行中冲突/)).toBeVisible()
-  const recoveredHealthFailureRow = page.getByRole('row').filter({ hasText: '恢复数据库实例' })
-  await expect(recoveredHealthFailureRow.getByRole('button', { name: /重试/ })).toBeEnabled()
-  await page.getByRole('button', { name: '重试任务' }).click()
-  const healthRetriedDrawer = page.getByRole('dialog', { name: /恢复数据库实例.*33333333/ })
-  await expect(healthRetriedDrawer).toBeVisible()
-  await expect(healthRetriedDrawer.getByText('排队中', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('任务重试未进入队列')).toHaveCount(0)
-  await page.goto(`/tasks?task=${restoreSuccessTaskID}`)
-  const restoreSuccessDrawer = page.getByRole('dialog', { name: /恢复数据库实例/ })
-  await expect(restoreSuccessDrawer.getByText('恢复结果可验证')).toBeVisible()
-  await expect(restoreSuccessDrawer.getByText('Orders release baseline', { exact: true })).toBeVisible()
-  await expect(restoreSuccessDrawer.getByText('归档校验及健康检查通过')).toBeVisible()
-  await expect(restoreSuccessDrawer.getByText(/可直接作为连接信息交付依据/)).toBeVisible()
-  await expect(restoreSuccessDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-
-  const cleanupBlockedID = '44444444-4444-4444-8444-444444444441'
-  const cleanupReadyID = '44444444-4444-4444-8444-444444444442'
-  const cleanupDeleteTaskID = '44444444-4444-4444-8444-444444444443'
-  const cleanupBatchFirstID = '44444444-4444-4444-8444-444444444451'
-  const cleanupBatchSecondID = '44444444-4444-4444-8444-444444444452'
-  const cleanupBatchRejectedID = '44444444-4444-4444-8444-444444444453'
-  const cleanupBlocked = { id: cleanupBlockedID, name: '订单回归 PostgreSQL', purpose: '订单 4.2 发布回归', owner: '支付 QA', expiresAt: new Date(Date.now() - 172800000).toISOString(), status: 'running', environment: 'testing', templateName: 'PostgreSQL', templateVersion: '17', hostName: 'E2E Host', backupCount: 2, deleteReady: false, blockers: ['backups_present'] }
-  const cleanupReady = { ...cleanupBlocked, id: cleanupReadyID, name: '缓存兼容 Redis', purpose: '缓存客户端兼容验证', owner: '基础架构 QA', expiresAt: new Date(Date.now() + 259200000).toISOString(), status: 'stopped', templateName: 'Redis', templateVersion: '7.4', backupCount: 0, deleteReady: true, blockers: [] }
-  const cleanupBatchFirst = { ...cleanupReady, id: cleanupBatchFirstID, name: '结算回归 PostgreSQL', purpose: '结算发布回归', owner: '结算 QA', expiresAt: new Date(Date.now() - 86400000).toISOString() }
-  const cleanupBatchSecond = { ...cleanupReady, id: cleanupBatchSecondID, name: '库存联调 PostgreSQL', purpose: '库存与订单联调', owner: '供应链 QA', expiresAt: new Date(Date.now() + 86400000).toISOString() }
-  const cleanupBatchRejected = { ...cleanupReady, id: cleanupBatchRejectedID, name: '营销压测 PostgreSQL', purpose: '营销容量压测', owner: '营销 QA', expiresAt: new Date(Date.now() + 259200000).toISOString() }
-  attentionItems = []
-  lifecycleItems = [cleanupBatchFirst, cleanupBatchSecond, cleanupBatchRejected]
-  let cleanupReviewAttempts = 0
-  let cleanupDecisionAttempts = 0
-  let cleanupDeleteAttempts = 0
-  let cleanupDecisionBody: Record<string, unknown> = {}
-  const cleanupBatchBodies: Array<Record<string, unknown>> = []
-  await page.route('**/api/v1/instances/batch-cleanup-decisions', async (route) => {
-    const body = route.request().postDataJSON() as Record<string, unknown>
-    cleanupBatchBodies.push(body)
-    const decision = body.decision
-    const instanceIDs = body.instanceIds as string[]
-    if (decision === 'retain') {
-      const selected = [cleanupBatchFirst, cleanupBatchSecond].filter((item) => instanceIDs.includes(item.id))
-      lifecycleItems = []
-      await route.fulfill({ json: { decision, days: 0, updated: selected.map((item) => ({ instanceId: item.id, instanceName: item.name, instance: { ...item, expiresAt: undefined } })), rejected: [] } })
-      return
-    }
-    if (cleanupBatchBodies.filter((item) => item.decision === 'extend').length === 1) {
-      lifecycleItems = [cleanupBatchRejected]
-      await route.fulfill({ json: {
-        decision,
-        days: 7,
-        updated: [cleanupBatchFirst, cleanupBatchSecond].map((item) => ({ instanceId: item.id, instanceName: item.name, instance: { ...item, expiresAt: new Date(Date.now() + 1209600000).toISOString() } })),
-        rejected: [{ instanceId: cleanupBatchRejected.id, instanceName: cleanupBatchRejected.name, code: 'resource_conflict', message: 'resource conflict: cleanup decisions cannot change after deletion starts' }],
-      } })
-      return
-    }
-    lifecycleItems = []
-    await route.fulfill({ json: { decision, days: 7, updated: [{ instanceId: cleanupBatchRejected.id, instanceName: cleanupBatchRejected.name, instance: { ...cleanupBatchRejected, expiresAt: new Date(Date.now() + 1209600000).toISOString() } }], rejected: [] } })
-  })
-  await page.route(`**/api/v1/instances/${cleanupBlockedID}/cleanup-review`, async (route) => {
-    cleanupReviewAttempts += 1
-    if (cleanupReviewAttempts === 1) {
-      await route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary review outage' } } })
-      return
-    }
-    await route.fulfill({ json: { instanceId: cleanupBlockedID, instanceName: cleanupBlocked.name, status: cleanupBlocked.status, purpose: cleanupBlocked.purpose, owner: cleanupBlocked.owner, expiresAt: cleanupBlocked.expiresAt, backupCount: 2, deleteReady: false, blockers: ['backups_present'] } })
-  })
-  await page.route(`**/api/v1/instances/${cleanupBlockedID}/cleanup-decision`, async (route) => {
-    cleanupDecisionAttempts += 1
-    cleanupDecisionBody = route.request().postDataJSON()
-    if (cleanupDecisionAttempts === 1) {
-      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'expiry changed during review' } } })
-      return
-    }
-    lifecycleItems = [cleanupReady]
-    await route.fulfill({ json: { ...cleanupBlocked, expiresAt: new Date(Date.now() + 604800000).toISOString() } })
-  })
-  await page.route(`**/api/v1/instances/${cleanupReadyID}/cleanup-review`, async (route) => route.fulfill({ json: { instanceId: cleanupReadyID, instanceName: cleanupReady.name, status: cleanupReady.status, purpose: cleanupReady.purpose, owner: cleanupReady.owner, expiresAt: cleanupReady.expiresAt, backupCount: 0, deleteReady: true, blockers: [] } }))
-  await page.route(`**/api/v1/instances/${cleanupReadyID}/actions/delete`, async (route) => {
-    cleanupDeleteAttempts += 1
-    expect(route.request().postDataJSON()).toEqual({ confirmName: cleanupReady.name })
-    if (cleanupDeleteAttempts === 1) {
-      await route.fulfill({ status: 409, json: { error: { code: 'resource_conflict', message: 'a backup was added during review' } } })
-      return
-    }
-    lifecycleItems = []
-    await route.fulfill({ status: 202, json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'queued', resourceType: 'instance', resourceId: cleanupReadyID, progress: 0, stage: 'queued', message: '', cancelable: true, cancelAsked: false, attempts: 0, createdAt: new Date().toISOString() } })
-  })
-  await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}`, async (route) => route.fulfill({ json: { id: cleanupDeleteTaskID, kind: 'instance_delete', status: 'succeeded', resourceType: 'instance', resourceId: cleanupReadyID, progress: 100, stage: 'completed', message: 'task_completed', result: { instanceId: cleanupReadyID, instanceName: cleanupReady.name, hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', releasedHostPort: 26379, releasedBindAddress: '0.0.0.0', composeProjectRemoved: true, managedDirectoryRemoved: true, status: 'deleted' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() } }))
-  await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-
-  await page.goto('/')
-  if (await page.getByText('集中审查清理候选').count()) {
-  await page.getByRole('checkbox', { name: '选择当前 3 项' }).check()
-  await expect(page.getByText('已选择 3 个清理候选')).toBeVisible()
-  await page.getByRole('button', { name: '批量延期 3 项' }).click()
-  let cleanupBatchDialog = page.getByRole('dialog', { name: '批量延期 3 个数据库' })
-  await expect(cleanupBatchDialog.getByText('每项从当前到期日或今天的较晚者延期 7 天')).toBeVisible()
-  await expect(cleanupBatchDialog.getByText('不会改动数据库运行状态、数据、备份或连接信息')).toBeVisible()
-  await expect(cleanupBatchDialog.getByText(cleanupBatchFirst.name, { exact: true })).toBeVisible()
-  await expect(cleanupBatchDialog.getByText(cleanupBatchSecond.name, { exact: true })).toBeVisible()
-  await expect(cleanupBatchDialog.getByText(cleanupBatchRejected.name, { exact: true })).toBeVisible()
-  await cleanupBatchDialog.getByRole('button', { name: '确认延期 3 项' }).click()
-  await expect(page.getByText('2 项已更新，1 项需处理')).toBeVisible()
-  await expect(page.getByRole('alert').filter({ hasText: '2 项已更新，1 项需处理' }).getByText(cleanupBatchRejected.name, { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '只重试失败的 1 项' }).click()
-  await expect(page.getByText('3 项清理决定已更新')).toBeVisible()
-  expect(cleanupBatchBodies[0]).toEqual({ instanceIds: [cleanupBatchFirstID, cleanupBatchSecondID, cleanupBatchRejectedID], decision: 'extend', days: 7 })
-  expect(cleanupBatchBodies[1]).toEqual({ instanceIds: [cleanupBatchRejectedID], decision: 'extend', days: 7 })
-
-  lifecycleItems = [cleanupBatchFirst, cleanupBatchSecond]
-  await page.reload()
-  await page.getByRole('checkbox', { name: '选择当前 2 项' }).check()
-  await page.getByRole('button', { name: '批量长期保留 2 项' }).click()
-  cleanupBatchDialog = page.getByRole('dialog', { name: '批量长期保留 2 个数据库' })
-  await expect(cleanupBatchDialog.getByText('清空所选数据库的预计到期时间')).toBeVisible()
-  await expect(cleanupBatchDialog.getByText('长期保留', { exact: true })).toHaveCount(2)
-  await cleanupBatchDialog.getByRole('button', { name: '确认长期保留 2 项' }).click()
-  await expect(page.getByText('2 项清理决定已更新')).toBeVisible()
-  expect(cleanupBatchBodies[2]).toEqual({ instanceIds: [cleanupBatchFirstID, cleanupBatchSecondID], decision: 'retain', days: 0 })
-
-  lifecycleItems = [cleanupBlocked]
-  await page.reload()
-  await expect(page.getByText('需先处理阻断')).toBeVisible()
-  await expect(page.getByRole('button', { name: '2 个备份需处理' })).toBeVisible()
-  await page.getByText('可复核 0', { exact: true }).click()
-  await expect(page.getByText('当前筛选下没有清理候选。')).toBeVisible()
-  await page.getByText('全部 1', { exact: true }).click()
-  await page.getByRole('button', { name: '审查清理' }).click()
-  let cleanupDialog = page.getByRole('dialog', { name: /审查清理.*订单回归 PostgreSQL/ })
-  await expect(cleanupDialog.getByText('无法检查清理条件')).toBeVisible()
-  await cleanupDialog.getByRole('button', { name: '重试' }).click()
-  await expect(cleanupDialog.getByText('仍有 2 个托管备份；请先逐个确认并删除。')).toBeVisible()
-  await expect(cleanupDialog.getByRole('button', { name: '继续永久删除' })).toBeDisabled()
-  await cleanupDialog.getByRole('button', { name: /取\s*消/ }).click()
-  await expect(cleanupDialog).toBeHidden()
-
-  await page.getByRole('button', { name: '审查清理' }).click()
-  cleanupDialog = page.getByRole('dialog', { name: /审查清理.*订单回归 PostgreSQL/ })
-  await cleanupDialog.getByRole('button', { name: '延期 7 天' }).click()
-  await expect(cleanupDialog.getByText('清理决定未完成')).toBeVisible()
-  await cleanupDialog.getByRole('button', { name: '延期 7 天' }).click()
-  await expect(page.getByText('已从当前到期日或今天（取较晚者）延期 7 天')).toBeVisible()
-  expect(cleanupDecisionBody).toEqual({ decision: 'extend', days: 7 })
-  await expect(page.getByText(cleanupReady.name, { exact: true })).toBeVisible()
-  await expect(page.getByText('可进入删除复核')).toBeVisible()
-
-  await page.getByRole('button', { name: '审查清理' }).click()
-  cleanupDialog = page.getByRole('dialog', { name: /审查清理.*缓存兼容 Redis/ })
-  await expect(cleanupDialog.getByText('已具备永久删除条件')).toBeVisible()
-  await cleanupDialog.getByRole('button', { name: '继续永久删除' }).click()
-  const deleteCleanupDialog = page.getByRole('dialog', { name: /永久删除确认.*缓存兼容 Redis/ })
-  const queueDeleteButton = deleteCleanupDialog.getByRole('button', { name: '创建永久删除任务' })
-  await expect(queueDeleteButton).toBeDisabled()
-  await deleteCleanupDialog.getByLabel(`输入实例名称 ${cleanupReady.name} 确认删除`).fill(cleanupReady.name)
-  await queueDeleteButton.click()
-  await expect(deleteCleanupDialog.getByText('清理决定未完成')).toBeVisible()
-  await queueDeleteButton.click()
-  await expect(page.getByText('永久删除任务已创建')).toBeVisible()
-  await expect(deleteCleanupDialog).toBeHidden()
-  await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${cleanupDeleteTaskID}$`))
-  const cleanupDeleteTaskDrawer = page.getByRole('dialog', { name: /删除数据库实例.*44444444/ })
-  await expect(cleanupDeleteTaskDrawer.getByText(`“${cleanupReady.name}”已安全删除`)).toBeVisible()
-  await expect(cleanupDeleteTaskDrawer.getByText('0.0.0.0:26379', { exact: true })).toBeVisible()
-  await expect(cleanupDeleteTaskDrawer.getByText('Compose 项目与托管目录', { exact: true })).toBeVisible()
-  await expect(cleanupDeleteTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
-  await expect(cleanupDeleteTaskDrawer.getByRole('button', { name: '返回数据库实例' })).toBeVisible()
-  }
-  await expect(page.getByText('集中审查清理候选')).toHaveCount(0)
+  await expect(page.getByRole('columnheader', { name: '环境' })).toHaveCount(0)
+  await expect(page.getByRole('columnheader', { name: '生命周期' })).toHaveCount(0)
+  await expect(page.getByLabel('项目')).toHaveCount(0)
+  await expect(page.getByLabel('环境')).toHaveCount(0)
+  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '复制部署' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('instances-1440.png'), fullPage: true })
 
-  await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}`)
-  await page.unroute(`**/api/v1/instances/${cleanupReadyID}/actions/delete`)
-  await page.unroute(`**/api/v1/instances/${cleanupReadyID}/cleanup-review`)
-  await page.unroute(`**/api/v1/instances/${cleanupBlockedID}/cleanup-decision`)
-  await page.unroute(`**/api/v1/instances/${cleanupBlockedID}/cleanup-review`)
-  await page.unroute('**/api/v1/instances/batch-cleanup-decisions')
-  await page.unroute(`**/api/v1/tasks/${retriedTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${retriedTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${backupDeleteTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${healthRetriedTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${healthRetriedTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${retryBlockerTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${retryBlockerTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}/retry`)
-  await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${healthFailureTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${restoreSuccessTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${restoreSuccessTaskID}`)
-  await page.unroute(`**/api/v1/tasks/${failedTaskID}/retry`)
-  await page.unroute(`**/api/v1/tasks/${failedTaskID}/logs`)
-  await page.unroute(`**/api/v1/tasks/${failedTaskID}`)
-  await page.unroute(taskListRoute)
-  await page.unroute('**/api/v1/dashboard')
-  await page.unroute('**/api/v1/instances')
-  await page.unroute('**/api/v1/instances?hostId=**')
-  await page.unroute('**/api/v1/hosts')
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.waitForTimeout(500)
+  await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('instances-1024.png'), fullPage: true })
 
-  const alertID = '66666666-6666-4666-8666-666666666666'
-  const relatedAlertID = '66666666-6666-4666-8666-666666666667'
-  const webhookID = '77777777-7777-4777-8777-777777777777'
-  const failedDeliveryID = '88888888-8888-4888-8888-888888888888'
-  const testDeliveryID = '88888888-8888-4888-8888-888888888889'
-  const alertHost = { id: '11111111-1111-4111-8111-111111111111', name: 'E2E Host', status: 'offline', sshUser: 'e2e', sshAddress: '10.0.0.8', sshPort: 22, connectionAddress: '10.0.0.8', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, cpuCount: 8, memoryBytes: 17179869184, diskTotalBytes: 107374182400, diskFreeBytes: 85899345920, maintenance: false, autoRestartDefault: true }
-  let alertStatus = 'open'
-  let alertAcknowledgedAt: string | undefined
-  let alertAcknowledgedBy: string | undefined
-  let alertResolvedAt: string | undefined
-  let alertResolvedBy: string | undefined
-  let webhookHasSecret = true
-  let retriedDelivery = false
-  let testQueued = false
-  let deliveryPolls = 0
-  await page.route('**/api/v1/alerts', async (route) => route.fulfill({ json: { items: [
-    { id: alertID, severity: 'critical', type: 'host_offline', resourceType: 'host', resourceId: alertHost.id, title: 'Host is offline', message: 'ssh: connect to host 10.0.0.8 port 22: Connection timed out', details: { consecutiveFailures: 4 }, status: alertStatus, createdAt: new Date(Date.now() - 300000).toISOString(), acknowledgedAt: alertAcknowledgedAt, acknowledgedBy: alertAcknowledgedBy, resolvedAt: alertResolvedAt, resolvedBy: alertResolvedBy },
-    { id: relatedAlertID, severity: 'warning', type: 'disk_warning', resourceType: 'host', resourceId: alertHost.id, title: 'Disk usage is high', message: '/var/lib/docker is 86% full', details: { usagePercent: 86, path: '/var/lib/docker' }, status: 'acknowledged', createdAt: new Date(Date.now() - 900000).toISOString(), acknowledgedAt: new Date(Date.now() - 600000).toISOString(), acknowledgedBy: 'platform-ops' },
-  ] } }))
-  await page.route(`**/api/v1/alerts/${alertID}/acknowledged`, async (route) => { alertStatus = 'acknowledged'; alertAcknowledgedAt = new Date().toISOString(); alertAcknowledgedBy = 'e2e-admin'; await route.fulfill({ json: { ok: true } }) })
-  await page.route(`**/api/v1/alerts/${alertID}/resolved`, async (route) => { alertStatus = 'resolved'; alertResolvedAt = new Date().toISOString(); alertResolvedBy = 'e2e-admin'; await route.fulfill({ json: { ok: true } }) })
-  await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [alertHost] } }))
-  await page.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [] } }))
-  await page.route('**/api/v1/webhooks', async (route) => route.fulfill({ json: { items: [{ id: webhookID, name: 'Engineering alerts', url: 'https://hooks.example.test/dbmock', hasSecret: webhookHasSecret, events: ['alert.created', 'task.failed'], enabled: true, lastDeliveryStatus: 'failed', lastDeliveryAt: new Date().toISOString(), failedDeliveries: 1, queuedDeliveries: 0, createdAt: new Date(Date.now() - 86400000).toISOString(), updatedAt: new Date().toISOString() }] } }))
-  await page.route(`**/api/v1/webhooks/${webhookID}`, async (route) => {
-    if (route.request().method() === 'PUT') {
-      const body = route.request().postDataJSON()
-      expect(body.events).toEqual(['*'])
-      if (body.clearSecret) webhookHasSecret = false
-      await route.fulfill({ json: { id: webhookID, ...body, hasSecret: webhookHasSecret } })
-      return
-    }
-    await route.fulfill({ json: { id: webhookID } })
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.getByRole('button', { name: '复制连接交付' }).click()
+  const handoff = page.getByRole('dialog', { name: '快速交付 · Orders DB' })
+  await expect(handoff).toBeVisible()
+  await expect(handoff.getByText('PostgreSQL 17')).toBeVisible()
+  await expect(handoff.getByText('项目', { exact: true })).toHaveCount(0)
+  await expect(handoff.getByText('环境', { exact: true })).toHaveCount(0)
+  await expect(handoff.getByText('负责人', { exact: true })).toHaveCount(0)
+  await handoff.getByRole('button', { name: '显示并复制完整摘要' }).click()
+  await expect(handoff.getByText('连接交付摘要已复制')).toBeVisible()
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied).toContain('PostgreSQL 17')
+  expect(copied).toContain('postgresql://dbmock:generated-secret@10.0.0.8:25432/app')
+  expect(copied).not.toContain('项目:')
+  expect(copied).not.toContain('环境:')
+  await handoff.getByRole('button', { name: '关闭', exact: true }).click()
+
+  await page.getByRole('button', { name: '运行操作 · Orders DB' }).click()
+  await page.getByRole('menuitem', { name: '停止' }).click()
+  const stopDialog = page.getByRole('dialog', { name: '停止 Orders DB？' })
+  await expect(stopDialog.getByText('停止会中断现有数据库连接')).toBeVisible()
+  await stopDialog.getByRole('button', { name: '确认停止' }).click()
+  await expect.poll(() => stopPayload).toEqual({ instanceIds: [instanceID] })
+  const notificationClose = page.locator('.ant-notification-notice-close')
+  if (await notificationClose.isVisible()) await notificationClose.click()
+  await page.getByRole('button', { name: '关闭提示' }).click()
+  await expect(page.getByRole('button', { name: '关闭提示' })).toHaveCount(0)
+
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: '创建数据库' }).click()
+  const drawer = page.getByRole('dialog', { name: '创建数据库' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByText('数据库与名称')).toBeVisible()
+  await expect(drawer.getByText('资源与主机')).toBeVisible()
+  await expect(drawer.getByText('确认', { exact: true })).toBeVisible()
+  await expect(drawer.locator('.ant-steps-item')).toHaveCount(3)
+  await expect(drawer.locator('.ant-steps-item-process')).toContainText('数据库与名称')
+  await page.waitForTimeout(500)
+
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1440.png'), fullPage: true })
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.waitForTimeout(500)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1024.png'), fullPage: true })
+
+  const templateSelect = drawer.getByRole('combobox', { name: '模板 / 版本' })
+  await templateSelect.click()
+  await expect(page.getByText('PostgreSQL 17', { exact: true }).last()).toBeVisible()
+  await expect(page.getByText('TiDB 8.5', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Team Custom DB 1.0', { exact: true })).toHaveCount(0)
+  await page.getByText('PostgreSQL 17', { exact: true }).last().click()
+  await drawer.getByLabel('部署名称').fill('orders_test')
+  await drawer.getByRole('button', { name: '下一步' }).click()
+
+  await expect(drawer.locator('.ant-steps-item-process')).toContainText('资源与主机')
+  await expect(drawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^1(?:\.0+)?$/)
+  await expect(drawer.getByRole('spinbutton', { name: '内存 GiB' })).toHaveValue(/^1(?:\.0+)?$/)
+  await expect(drawer.getByRole('spinbutton', { name: '磁盘 GiB' })).toHaveValue(/^10(?:\.0+)?$/)
+  await expect(drawer.getByText('将从公开仓库拉取内置模板镜像')).toBeVisible()
+  for (const removedLabel of ['项目', '环境', '用途', '负责人', '预计到期时间', '监听地址', '镜像来源', '自动重启', '额外环境变量（JSON）']) {
+    await expect(drawer.getByLabel(removedLabel, { exact: true })).toHaveCount(0)
+  }
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('create-database-step-2-1024.png'), fullPage: true })
+  await drawer.getByRole('button', { name: '下一步' }).click()
+
+  await expect(drawer.locator('.ant-steps-item-process')).toContainText('确认')
+  await expect(drawer.getByText('orders_test')).toBeVisible()
+  await expect(drawer.getByText('创建时自动生成，可在连接信息中查看')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('create-database-confirm-1024.png'), fullPage: true })
+  await drawer.getByRole('button', { name: /^创\s*建$/ }).click()
+  await expect.poll(() => createPayload).toEqual({
+    name: 'orders_test',
+    templateVersionId: templateVersionID,
+    hostId: null,
+    cpu: 1,
+    memoryBytes: GiB,
+    diskBytes: 10 * GiB,
+    templateParameters: {},
   })
-  await page.route(`**/api/v1/webhooks/${webhookID}/test`, async (route) => { testQueued = true; await route.fulfill({ status: 202, json: { queued: true, deliveryId: testDeliveryID } }) })
-  await page.route(`**/api/v1/webhooks/${webhookID}/deliveries`, async (route) => {
-    deliveryPolls += 1
-    const now = new Date().toISOString()
-    const items = [{ id: failedDeliveryID, webhookId: webhookID, eventId: '99999999-9999-4999-8999-999999999999', eventType: 'task.failed', status: retriedDelivery ? 'pending' : 'failed', attempts: retriedDelivery ? 0 : 5, nextAttemptAt: now, responseStatus: retriedDelivery ? undefined : 503, responseBody: retriedDelivery ? '' : 'temporarily unavailable', errorMessage: retriedDelivery ? '' : 'webhook returned HTTP 503', createdAt: new Date(Date.now() - 600000).toISOString(), updatedAt: now }]
-    if (testQueued) items.unshift({ id: testDeliveryID, webhookId: webhookID, eventId: '99999999-9999-4999-8999-999999999998', eventType: 'webhook.test', status: deliveryPolls > 2 ? 'delivered' : 'pending', attempts: deliveryPolls > 2 ? 1 : 0, nextAttemptAt: now, responseStatus: deliveryPolls > 2 ? 204 : undefined, responseBody: '', errorMessage: '', createdAt: now, updatedAt: now })
-    await route.fulfill({ json: { items } })
-  })
-  await page.route(`**/api/v1/webhooks/${webhookID}/deliveries/${failedDeliveryID}/retry`, async (route) => { retriedDelivery = true; await route.fulfill({ status: 202, json: { queued: true } }) })
-
-  await page.goto('/alerts')
-  await expect(page.getByRole('button', { name: '主机已离线' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'E2E Host' })).toHaveCount(2)
-  await expect(page.getByRole('button', { name: 'E2E Host' }).first()).toBeVisible()
-  await expect(page.locator('.ant-badge-count')).toHaveCount(0)
-  await page.getByRole('button', { name: '主机已离线' }).click()
-  let alertDrawer = page.getByRole('dialog', { name: '告警详情' })
-  await expect(alertDrawer.getByText('平台无法通过 SSH 连接主机。')).toBeVisible()
-  await expect(alertDrawer.getByText(/Connection timed out/)).toBeVisible()
-  await expect(alertDrawer.getByText('受影响资源仍处于异常状态')).toBeVisible()
-  await expect(alertDrawer.getByText(/E2E Host 当前状态为「离线」/)).toBeVisible()
-  await expect(alertDrawer.getByText('同一资源的其他未解决告警')).toBeVisible()
-  await expect(alertDrawer.getByRole('button', { name: '磁盘使用率较高' })).toBeVisible()
-  await expect(alertDrawer.getByText('连续检测失败')).toBeVisible()
-  await alertDrawer.getByRole('button', { name: '标记已解决' }).click()
-  await expect(page.getByText('确认将告警标记为已解决？')).toBeVisible()
-  await expect(page.getByText(/E2E Host 当前仍为「离线」/)).toBeVisible()
-  await page.getByRole('button', { name: /取\s*消/ }).click()
-  await alertDrawer.getByRole('button', { name: '确认告警' }).click()
-  await expect(alertDrawer.getByText('已确认').first()).toBeVisible()
-  await expect(alertDrawer.getByText('e2e-admin')).toBeVisible()
-  await alertDrawer.getByRole('button', { name: '查看对应资源' }).click()
-  await expect(page).toHaveURL(/\/hosts\?host=11111111/)
-  const alertHostDialog = page.getByRole('dialog', { name: 'E2E Host' })
-  await expect(alertHostDialog).toBeVisible()
-  await alertHostDialog.getByRole('button', { name: '关闭', exact: true }).click()
-
-  await page.goto('/alerts?tab=webhooks')
-  await expect(page.getByRole('heading', { name: 'Engineering alerts' })).toBeVisible()
-  await expect(page.getByText('新告警')).toBeVisible()
-  await expect(page.getByText('1 条失败投递')).toBeVisible()
-  await page.getByRole('button', { name: '编辑' }).click()
-  const webhookDialog = page.getByRole('dialog', { name: '编辑 Webhook' })
-  await expect(webhookDialog.getByLabel('名称')).toHaveValue('Engineering alerts')
-  await expect(webhookDialog.getByText('已配置签名密钥；留空将保持现有密钥不变。')).toBeVisible()
-  await webhookDialog.getByRole('combobox', { name: '订阅事件' }).click()
-  const allEventsOption = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').filter({ hasText: '全部事件' })
-  await expect(allEventsOption).toBeVisible()
-  await expect(allEventsOption).toHaveClass(/ant-select-item-option-active/)
-  await page.keyboard.press('Enter')
-  await page.keyboard.press('Escape')
-  await expect(allEventsOption).toBeHidden()
-  await webhookDialog.getByRole('checkbox', { name: '移除已配置的 HMAC 密钥' }).check()
-  await expect(webhookDialog.getByRole('textbox', { name: 'HMAC 密钥' })).toBeDisabled()
-  await webhookDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(page.getByText('HMAC 签名已开启')).toHaveCount(0)
-  await page.getByRole('button', { name: '投递记录' }).click()
-  let deliveryDrawer = page.getByRole('dialog', { name: /投递记录.*Engineering alerts/ })
-  await expect(deliveryDrawer.getByText('503')).toBeVisible()
-  await deliveryDrawer.getByRole('button', { name: '重新投递' }).click()
-  await expect(deliveryDrawer.getByText('等待中')).toBeVisible()
-  await deliveryDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.locator('.webhook-card').getByRole('button', { name: '测试 Webhook' }).click()
-  deliveryDrawer = page.getByRole('dialog', { name: /投递记录.*Engineering alerts/ })
-  await expect(deliveryDrawer.getByText('测试请求')).toBeVisible()
-  await expect(deliveryDrawer.getByText('已送达')).toBeVisible({ timeout: 10000 })
-  await deliveryDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.unroute(`**/api/v1/webhooks/${webhookID}/deliveries/${failedDeliveryID}/retry`)
-  await page.unroute(`**/api/v1/webhooks/${webhookID}/deliveries`)
-  await page.unroute(`**/api/v1/webhooks/${webhookID}/test`)
-  await page.unroute(`**/api/v1/webhooks/${webhookID}`)
-  await page.unroute('**/api/v1/webhooks')
-  await page.unroute('**/api/v1/instances')
-  await page.unroute('**/api/v1/hosts')
-  await page.unroute(`**/api/v1/alerts/${alertID}/resolved`)
-  await page.unroute(`**/api/v1/alerts/${alertID}/acknowledged`)
-  await page.unroute('**/api/v1/alerts')
-
-  await page.goto('/audit')
-  await page.locator('.audit-toolbar-actions').getByRole('button', { name: /清理/ }).click()
-  let clearAuditDialog = page.getByRole('dialog', { name: '清理审计日志' })
-  await clearAuditDialog.getByLabel('输入 CLEAR 以确认').fill('CLEAR')
-  await expect(clearAuditDialog.getByRole('button', { name: '永久清理' })).toBeEnabled()
-  await clearAuditDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.locator('.audit-toolbar-actions').getByRole('button', { name: /清理/ }).click()
-  clearAuditDialog = page.getByRole('dialog', { name: '清理审计日志' })
-  await expect(clearAuditDialog.getByLabel('输入 CLEAR 以确认')).toHaveValue('')
-  await expect(clearAuditDialog.getByRole('button', { name: '永久清理' })).toBeDisabled()
-  await clearAuditDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.goto('/')
-
-  await page.goto('/users')
-  await page.getByRole('button', { name: '编辑 e2e-admin' }).click()
-  const currentUserDialog = page.getByRole('dialog', { name: /编辑.*e2e-admin/ })
-  await expect(page.getByRole('row').filter({ hasText: 'e2e-admin' }).getByText('当前账号')).toBeVisible()
-  await expect(currentUserDialog.getByText('当前登录账号不能禁用；如需停用，请先使用其他账号登录。')).toBeVisible()
-  await expect(currentUserDialog.getByText('设置新密码后，当前设备保持登录，其他设备上的会话会立即退出。')).toBeVisible()
-  await expect(currentUserDialog.getByText('当前登录账号不能修改自己的角色；请由其他管理员操作。')).toBeVisible()
-  await expect(currentUserDialog.getByLabel('角色')).toBeDisabled()
-  await expect(currentUserDialog.getByRole('switch', { name: '禁用账号' })).toBeDisabled()
-  await currentUserDialog.getByRole('button', { name: '关闭', exact: true }).click()
-
-  await page.getByRole('button', { name: '创建用户' }).click()
-  const createUserDialog = page.getByRole('dialog', { name: '创建用户' })
-  await expect(createUserDialog.getByText('按职责分配最小权限；新账号默认建议使用只读角色。')).toBeVisible()
-  await expect(createUserDialog.getByText('只读', { exact: true })).toBeVisible()
-  await expect(createUserDialog.getByLabel('用户名')).toBeFocused()
-  await createUserDialog.getByLabel('用户名').fill('e2e-developer')
-  await createUserDialog.getByLabel('昵称').fill('E2E Developer')
-  await createUserDialog.getByLabel('密码').fill('developer-password')
-  await page.keyboard.press('Escape')
-  const discardUserDraftDialog = page.getByRole('dialog', { name: '放弃未保存的用户配置？' })
-  await expect(discardUserDraftDialog).toBeVisible()
-  await discardUserDraftDialog.getByRole('button', { name: '继续编辑' }).click()
-  await expect(createUserDialog.getByLabel('用户名')).toHaveValue('e2e-developer')
-  await expect(createUserDialog.getByLabel('昵称')).toHaveValue('E2E Developer')
-  await expect(createUserDialog.getByLabel('密码')).toHaveValue('developer-password')
-  await createUserDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(page.getByRole('button', { name: '编辑 E2E Developer' })).toBeVisible()
-  const developerRow = page.getByRole('row').filter({ hasText: 'e2e-developer' })
-  await expect(developerRow.getByText('只读', { exact: true })).toBeVisible()
-
-  const developerContext = await browser.newContext()
-  const developerPage = await developerContext.newPage()
-  await developerPage.goto('/')
-  await developerPage.locator('#username').fill('e2e-developer')
-  await developerPage.locator('#password').fill('developer-password')
-  await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
-  await expect(developerPage.getByText('当前账号为只读角色')).toBeVisible()
-  await expect(developerPage.getByText('用户', { exact: true })).toHaveCount(0)
-  await expect(developerPage.getByText('系统设置', { exact: true })).toHaveCount(0)
-  await expect(developerPage.getByText('审计日志', { exact: true })).toHaveCount(0)
-  await developerPage.goto('/projects')
-  const viewerProjectCard = developerPage.locator('.project-card').filter({ hasText: 'E2E Project' })
-  await expect(viewerProjectCard.getByText('PostgreSQL 17', { exact: true })).toBeVisible()
-  await expect(viewerProjectCard.getByText('2 CPU · 4.0 GiB · 20.0 GiB')).toBeVisible()
-  await expect(viewerProjectCard.getByRole('button', { name: /创建数据库/ })).toHaveCount(0)
-  await expect(viewerProjectCard.getByRole('button', { name: /编辑/ })).toHaveCount(0)
-  const viewerProjectCreate = await developerPage.request.post('/api/v1/projects', { data: { name: 'viewer-must-not-create' } })
-  expect(viewerProjectCreate.status()).toBe(403)
-  const viewerBatchStop = await developerPage.request.post('/api/v1/instances/batch-actions/stop', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
-  expect(viewerBatchStop.status()).toBe(403)
-  const viewerBatchRestart = await developerPage.request.post('/api/v1/instances/batch-actions/restart', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
-  expect(viewerBatchRestart.status()).toBe(403)
-  const viewerCleanupDecision = await developerPage.request.post('/api/v1/instances/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/cleanup-decision', { data: { decision: 'extend', days: 7 } })
-  expect(viewerCleanupDecision.status()).toBe(403)
-  const viewerBatchCleanupDecision = await developerPage.request.post('/api/v1/instances/batch-cleanup-decisions', { data: { instanceIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'], decision: 'retain', days: 0 } })
-  expect(viewerBatchCleanupDecision.status()).toBe(403)
-  const viewerUsers = await developerPage.request.get('/api/v1/users')
-  expect(viewerUsers.status()).toBe(403)
-  await developerPage.goto('/instances')
-  const viewerSourceInstanceRow = developerPage.getByRole('row').filter({ hasText: 'Orders DB' })
-  await expect(viewerSourceInstanceRow.getByRole('button', { name: /复制部署/ })).toHaveCount(0)
-  await expect(viewerSourceInstanceRow.getByRole('button', { name: /复制连接交付/ })).toHaveCount(0)
-  await expect(developerPage.getByRole('button', { name: '创建数据库' })).toHaveCount(0)
-  const viewerTaskCenterBackup = { ...taskCenterBackupTask, errorCode: 'task_failed', errorMessage: 'permission denied while deleting backup archive' }
-  const viewerDeleteTask = { id: cleanupDeleteTaskID, kind: 'instance.delete', status: 'succeeded', resourceType: 'instance', resourceId: cleanupReadyID, progress: 100, stage: 'completed', message: 'task_completed', result: { instanceId: cleanupReadyID, instanceName: cleanupReady.name, hostId: '11111111-1111-4111-8111-111111111111', hostName: 'E2E Host', releasedHostPort: 26379, releasedBindAddress: '0.0.0.0', composeProjectRemoved: true, managedDirectoryRemoved: true, status: 'deleted' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
-  await developerPage.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [failedTask, viewerTaskCenterBackup] } }))
-  await developerPage.route(`**/api/v1/tasks/${cleanupDeleteTaskID}`, async (route) => route.fulfill({ json: viewerDeleteTask }))
-  await developerPage.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await developerPage.route('**/api/v1/hosts', async (route) => route.fulfill({ status: 503, json: { error: { code: 'resource_unavailable', message: 'temporary host list outage' } } }))
-  await developerPage.route('**/api/v1/instances', async (route) => route.fulfill({ json: { items: [] } }))
-  await developerPage.goto('/tasks')
-  const viewerHostFailureRow = developerPage.getByRole('row').filter({ hasText: '创建数据库实例' })
-  await expect(viewerHostFailureRow.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(viewerHostFailureRow.getByRole('button', { name: /重试/ })).toHaveCount(0)
-  const viewerBackupTaskRow = developerPage.getByRole('row').filter({ hasText: '删除实例备份' })
-  await expect(viewerBackupTaskRow.getByText('实例备份', { exact: true })).toBeVisible()
-  await expect(viewerBackupTaskRow.getByRole('button', { name: instanceID.slice(0, 8) })).toBeVisible()
-  await expect(viewerBackupTaskRow.getByRole('button', { name: /重试/ })).toHaveCount(0)
-  await viewerBackupTaskRow.getByRole('button', { name: instanceID.slice(0, 8) }).click()
-  await expect(developerPage).toHaveURL(new RegExp(`/instances/${instanceID}\\?tab=backups&cleanup=review$`))
-  await developerPage.goto(`/tasks?task=${cleanupDeleteTaskID}`)
-  const viewerDeleteTaskDrawer = developerPage.getByRole('dialog', { name: /删除数据库实例.*44444444/ })
-  await expect(viewerDeleteTaskDrawer.getByText(`“${cleanupReady.name}”已安全删除`)).toBeVisible()
-  await expect(viewerDeleteTaskDrawer.getByText('0.0.0.0:26379', { exact: true })).toBeVisible()
-  await expect(viewerDeleteTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
-  await expect(viewerDeleteTaskDrawer.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-  await expect(viewerDeleteTaskDrawer.getByRole('button', { name: '返回数据库实例' })).toBeVisible()
-  await developerPage.unroute('**/api/v1/tasks')
-  await developerPage.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}`)
-  await developerPage.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`)
-  await developerPage.unroute('**/api/v1/hosts')
-  await developerPage.unroute('**/api/v1/instances')
-  const viewerFailedBackup = { id: backupID, instanceId: instanceID, hostId: '11111111-1111-4111-8111-111111111111', templateVersionId: '55555555-5555-4555-8555-555555555555', templateVersion: '17', name: 'Viewer cleanup backup', creationType: 'manual', status: 'ready', sizeBytes: 1048576, sha256: 'e'.repeat(64), errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', createdBy: '12121212-1212-4121-8121-121212121212', createdByUsername: 'e2e-admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-  const viewerFailedBackupTask = { id: backupDeleteTaskID, kind: 'instance.backup.delete', status: 'failed', resourceType: 'backup', resourceId: backupID, hostId: '11111111-1111-4111-8111-111111111111', progress: 40, stage: 'files', message: 'removing_backup_archive_from_host', payload: { instanceId: instanceID, backupId: backupID }, errorCode: 'ssh_unreachable', errorMessage: 'dial SSH 10.0.0.8:22: connection timed out', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
-  const viewerRestoreTask = { id: restoreOutcomeTaskID, kind: 'instance.restore', status: 'failed', resourceType: 'instance', resourceId: instanceID, progress: 75, stage: 'compose', message: 'starting_restored_database_and_checking_health', result: { restoreOutcome: 'pre_restore_recovered', instanceStatus: 'running', desiredState: 'running' }, errorCode: 'health_check_failed', errorMessage: 'restored instance did not become healthy', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
-  const viewerRestoreSuccessTask = { id: restoreSuccessTaskID, kind: 'instance.restore', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'compose', message: 'task_completed', payload: { instanceId: instanceID, backupId: backupID }, result: { backupId: backupID, backupName: 'Viewer cleanup backup', backupCreatedAt: viewerFailedBackup.createdAt, backupSha256: viewerFailedBackup.sha256, restoreOutcome: 'target_backup_applied', healthVerifiedAt: new Date().toISOString(), instanceStatus: 'running', desiredState: 'running', status: 'running' }, cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() }
-  let viewerInstanceTasks: Array<Record<string, unknown>> = [viewerRestoreTask]
-  let viewerInstanceStatus = 'running'
-  let viewerInstanceStatusMessage = 'Restore failed; the pre-restore database state was recovered'
-  await developerPage.route(`**/api/v1/instances/${instanceID}/backups`, async (route) => route.fulfill({ json: { items: [viewerFailedBackup] } }))
-  await developerPage.route(`**/api/v1/instances/${instanceID}/backup-policy`, async (route) => route.fulfill({ json: { policy: null } }))
-  await developerPage.route(`**/api/v1/instances/${instanceID}/tasks`, async (route) => route.fulfill({ json: { items: viewerInstanceTasks } }))
-  await developerPage.route(`**/api/v1/instances/${instanceID}`, async (route) => route.fulfill({ json: { ...instanceResponse(), status: viewerInstanceStatus, statusMessage: viewerInstanceStatusMessage } }))
-  await developerPage.goto(`/instances/${instanceID}`)
-  const viewerRestoreNotice = developerPage.locator('.restore-outcome-alert')
-  await expect(viewerRestoreNotice.getByText('恢复未生效，已恢复操作前数据')).toBeVisible()
-  await expect(viewerRestoreNotice.getByRole('button', { name: '重试恢复' })).toHaveCount(0)
-  await expect(viewerRestoreNotice.getByRole('button', { name: '查看任务' })).toBeVisible()
-  await expect(viewerRestoreNotice.getByRole('button', { name: '查看实例日志' })).toBeVisible()
-  viewerInstanceStatusMessage = ''
-  viewerInstanceTasks = [viewerRestoreSuccessTask]
-  await developerPage.reload()
-  const viewerRestoreVerification = developerPage.locator('.restore-verification-alert')
-  await expect(viewerRestoreVerification.getByText('恢复已完成，目标备份已生效')).toBeVisible()
-  await expect(viewerRestoreVerification.getByText('Viewer cleanup backup', { exact: true })).toBeVisible()
-  await expect(viewerRestoreVerification.getByText(/需要管理员或运维显示并交付数据库凭据/)).toBeVisible()
-  await expect(viewerRestoreVerification.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
-  await expect(viewerRestoreVerification.getByRole('button', { name: '查看恢复任务' })).toBeVisible()
-  await expect(viewerRestoreVerification.getByRole('button', { name: '查看目标备份' })).toBeVisible()
-  const viewerDeploymentTask = { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'task_completed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }
-  const viewerRecoveryTask = { ...viewerDeploymentTask, id: '99999999-9999-4999-8999-999999999998', kind: 'instance.restart' }
-  viewerInstanceTasks = [viewerRecoveryTask]
-  await developerPage.goto(`/instances/${instanceID}?recoveryTask=${viewerRecoveryTask.id}`)
-  const viewerRecoveryConfirmation = developerPage.locator('.recovery-confirmation-alert')
-  await expect(viewerRecoveryConfirmation.getByText('恢复任务已完成，已核对当前实例状态')).toBeVisible()
-  await expect(viewerRecoveryConfirmation.getByText(/无权读取数据库凭据/)).toBeVisible()
-  await expect(viewerRecoveryConfirmation.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
-  await expect(viewerRecoveryConfirmation.getByRole('button', { name: '查看本次恢复任务' })).toBeVisible()
-  viewerInstanceTasks = [{ ...viewerDeploymentTask, status: 'running', progress: 42, stage: 'image', message: 'preparing_database_image', cancelable: true, finishedAt: undefined }]
-  await developerPage.goto(`/instances/${instanceID}`)
-  await expect(developerPage.getByText('系统下一步：渲染 Compose 配置。')).toBeVisible()
-  await expect(developerPage.getByRole('button', { name: '取消部署' })).toHaveCount(0)
-  viewerInstanceTasks = [{ ...viewerDeploymentTask, status: 'canceled', progress: 42, stage: 'canceled', message: 'task_canceled', errorCode: 'canceled', errorMessage: 'task canceled at a safe checkpoint', finishedAt: new Date().toISOString() }]
-  viewerInstanceStatus = 'failed'
-  viewerInstanceStatusMessage = 'Instance creation was canceled before the database was started'
-  await developerPage.reload()
-  const viewerCanceledDeploymentActions = developerPage.locator('.instance-operation-actions')
-  await expect(viewerCanceledDeploymentActions.getByRole('button', { name: '审查清理' })).toHaveCount(0)
-  await expect(viewerCanceledDeploymentActions.getByRole('button', { name: '重试任务' })).toHaveCount(0)
-  await expect(viewerCanceledDeploymentActions.getByRole('button', { name: '查看任务' })).toBeVisible()
-  viewerInstanceTasks = [viewerDeploymentTask]
-  viewerInstanceStatus = 'running'
-  viewerInstanceStatusMessage = ''
-  await developerPage.reload()
-  await expect(developerPage.getByText('数据库已部署，可交付连接信息')).toBeVisible()
-  await expect(developerPage.getByText('部署已完成，但当前账号无权查看数据库凭据。')).toBeVisible()
-  await expect(developerPage.getByRole('button', { name: '显示并交付连接信息' })).toHaveCount(0)
-  await expect(developerPage.getByRole('button', { name: '查看部署记录' })).toBeVisible()
-  await developerPage.route('**/api/v1/tasks', async (route) => route.fulfill({ json: { items: [viewerDeploymentTask] } }))
-  await developerPage.route(`**/api/v1/tasks/${viewerDeploymentTask.id}`, async (route) => route.fulfill({ json: viewerDeploymentTask }))
-  await developerPage.route(`**/api/v1/tasks/${viewerDeploymentTask.id}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
-  await developerPage.getByRole('button', { name: '查看部署记录' }).click()
-  const viewerDeploymentTaskDrawer = developerPage.getByRole('dialog', { name: /创建数据库实例.*99999999/ })
-  await expect(viewerDeploymentTaskDrawer.getByText('部署完成，连接信息已就绪')).toBeVisible()
-  await expect(viewerDeploymentTaskDrawer.getByText(/当前账号无权查看数据库凭据/)).toBeVisible()
-  await expect(viewerDeploymentTaskDrawer.getByRole('button', { name: '前往连接信息' })).toHaveCount(0)
-  await expect(viewerDeploymentTaskDrawer.getByRole('button', { name: '查看数据库' })).toBeVisible()
-  const viewerDeploymentRow = developerPage.getByRole('row').filter({ hasText: '创建数据库实例' })
-  await expect(viewerDeploymentRow.getByRole('button', { name: '查看数据库' })).toBeVisible()
-  await viewerDeploymentTaskDrawer.getByRole('button', { name: '查看数据库' }).click()
-  await expect(developerPage).toHaveURL(new RegExp(`/instances/${instanceID}$`))
-  await developerPage.unroute('**/api/v1/tasks')
-  await developerPage.unroute(`**/api/v1/tasks/${viewerDeploymentTask.id}`)
-  await developerPage.unroute(`**/api/v1/tasks/${viewerDeploymentTask.id}/logs`)
-  viewerInstanceTasks = [viewerFailedBackupTask, { id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', status: 'succeeded', resourceType: 'instance', resourceId: instanceID, progress: 100, stage: 'health', message: 'database_health_check_passed', cancelable: false, cancelAsked: false, attempts: 1, createdAt: new Date(Date.now() - 1000).toISOString(), finishedAt: new Date().toISOString() }]
-  await developerPage.goto(`/instances/${instanceID}?tab=backups&cleanup=review`)
-  const viewerCleanupContinuation = developerPage.locator('.cleanup-continuation-alert')
-  await expect(viewerCleanupContinuation.getByText('当前账号可以查看阻断条件，但需要管理员或运维删除备份并继续清理。')).toBeVisible()
-  await expect(viewerCleanupContinuation.getByText(/有 1 个备份删除操作未完成/)).toBeVisible()
-  await expect(viewerCleanupContinuation.getByRole('button', { name: '检查故障主机' })).toBeVisible()
-  await expect(viewerCleanupContinuation.getByRole('button', { name: '重试删除' })).toHaveCount(0)
-  await expect(viewerCleanupContinuation.getByRole('button', { name: '继续清理审查' })).toHaveCount(0)
-  await expect(developerPage.getByRole('button', { name: '创建备份' })).toHaveCount(0)
-  await developerPage.goto('/')
-  await developerPage.getByRole('button', { name: '账号菜单' }).click()
-  await developerPage.getByRole('menuitem', { name: '个人账号' }).click()
-  const accountDialog = developerPage.getByRole('dialog', { name: '个人账号' })
-  await expect(accountDialog.getByText('所有角色都可以维护自己的显示信息和登录密码。')).toBeVisible()
-  await expect(accountDialog.getByLabel('昵称')).toHaveValue('E2E Developer')
-  await accountDialog.getByLabel('昵称').fill('E2E Developer Self')
-  await accountDialog.getByRole('button', { name: '保存个人资料' }).click()
-  await expect(developerPage.getByText('个人资料已保存')).toBeVisible()
-  await accountDialog.getByLabel('昵称').fill('E2E Developer')
-  await accountDialog.getByRole('button', { name: '保存个人资料' }).click()
-  await accountDialog.getByRole('tab', { name: '修改密码' }).click()
-  await accountDialog.getByLabel('当前密码').fill('wrong-password')
-  await accountDialog.getByLabel('新密码', { exact: true }).fill('developer-password-self')
-  await accountDialog.getByLabel('确认新密码').fill('developer-password-self')
-  await accountDialog.getByRole('button', { name: '修改密码' }).click()
-  await expect(developerPage.getByText(/当前密码不正确/)).toBeVisible()
-  await accountDialog.getByLabel('当前密码').fill('developer-password')
-  await accountDialog.getByRole('button', { name: '修改密码' }).click()
-  await expect(developerPage.getByText('密码已修改', { exact: true })).toBeVisible()
-  await accountDialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(developerPage.getByText('当前账号为只读角色')).toBeVisible()
-  await developerPage.goto('/users')
-  await expect(developerPage).toHaveURL(/\/dashboard$/)
-  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
-
-  await page.getByRole('button', { name: '编辑 E2E Developer' }).click()
-  let developerDialog = page.getByRole('dialog', { name: /编辑.*e2e-developer/ })
-  await expect(developerDialog.getByLabel('昵称')).toBeFocused()
-  await expect(developerDialog.getByText('设置新密码后，该用户在所有设备上的现有会话会立即退出。')).toBeVisible()
-  await expect(developerDialog.getByText('禁用后，该用户会立即退出且无法再次登录；重新启用后可继续使用原密码。')).toBeVisible()
-  await developerDialog.getByLabel(/密码/).fill('developer-password-reset')
-  await developerDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(developerDialog).toBeHidden()
-
-  await developerPage.locator('.app-sider').getByText('主机', { exact: true }).click()
-  await expect(developerPage.getByRole('heading', { name: '登录' })).toBeVisible()
-  await expect(developerPage.getByText('会话已结束')).toBeVisible()
-  await developerPage.locator('#username').fill('e2e-developer')
-  await developerPage.locator('#password').fill('developer-password-self')
-  await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('登录状态已失效，请重新登录')).toBeVisible()
-  await developerPage.locator('#password').fill('developer-password-reset')
-  await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
-
-  await page.getByRole('button', { name: '编辑 E2E Developer' }).click()
-  developerDialog = page.getByRole('dialog', { name: /编辑.*e2e-developer/ })
-  await developerDialog.getByRole('switch', { name: '禁用账号' }).click()
-  await developerDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(developerDialog).toBeHidden()
-  await expect(developerRow.getByText('已禁用', { exact: true })).toBeVisible()
-  await developerPage.reload()
-  await expect(developerPage.getByRole('heading', { name: '登录' })).toBeVisible()
-
-  await page.getByRole('button', { name: '编辑 E2E Developer' }).click()
-  developerDialog = page.getByRole('dialog', { name: /编辑.*e2e-developer/ })
-  await developerDialog.getByRole('switch', { name: '禁用账号' }).click()
-  await developerDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(developerRow.getByText('正常', { exact: true })).toBeVisible()
-
-  await developerPage.locator('#username').fill('e2e-developer')
-  await developerPage.locator('#password').fill('developer-password-reset')
-  await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
-  await developerPage.close()
-
-  await page.getByRole('button', { name: '编辑 e2e-admin' }).click()
-  const selfPasswordDialog = page.getByRole('dialog', { name: /编辑.*e2e-admin/ })
-  await selfPasswordDialog.getByLabel(/密码/).fill('e2e-password-updated')
-  await selfPasswordDialog.getByRole('button', { name: /保\s*存/ }).click()
-  await expect(selfPasswordDialog).toBeHidden()
-  await expect(page.getByRole('heading', { name: '用户' })).toBeVisible()
-
-  await page.goto('/audit')
-  await expect(page.getByText('重置用户密码', { exact: true })).toBeVisible()
-  await expect(page.getByText('修改自己的密码', { exact: true })).toHaveCount(3)
-  await expect(page.getByText('更新个人资料', { exact: true })).toHaveCount(2)
-  await expect(page.getByText('禁用用户', { exact: true })).toBeVisible()
-  await expect(page.getByText('启用用户', { exact: true })).toBeVisible()
-  const passwordResetAuditRow = page.getByRole('row').filter({ hasText: '重置用户密码' })
-  await passwordResetAuditRow.getByRole('button', { name: '详情 重置用户密码' }).click()
-  const auditDrawer = page.getByRole('dialog', { name: /重置用户密码/ })
-  await expect(auditDrawer.getByText('记录的变更')).toBeVisible()
-  await expect(auditDrawer.getByText('密码已修改')).toBeVisible()
-  await expect(auditDrawer.getByText('会话已撤销')).toBeVisible()
-  await expect(auditDrawer.getByText('请求标识')).toBeVisible()
-  await expect(auditDrawer.getByRole('button', { name: '查看对应资源' })).toBeVisible()
-  await expect(auditDrawer.getByText('developer-password-reset')).toHaveCount(0)
-  await auditDrawer.getByRole('button', { name: '关闭', exact: true }).click()
-  const auditExport = await page.request.get('/api/v1/audit/export?resourceType=user')
-  expect(auditExport.ok()).toBeTruthy()
-  const auditCSV = await auditExport.text()
-  expect(auditCSV).toContain('Request ID')
-  expect(auditCSV).toContain('user.password_reset')
-  expect(auditCSV).toContain('passwordChanged')
-  expect(auditCSV).not.toContain('developer-password-reset')
-  await page.goto('/')
-
-  await page.getByRole('button', { name: 'English' }).click()
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
-  await expect(page.getByText('Workbench', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('Connect a deployable host first', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Add host' })).toBeVisible()
-  await page.goto('/hosts')
-  await expect(page.getByText('Direct SSH only. Linux can optionally install Docker; macOS requires Docker Desktop.')).toBeVisible()
-
-  await page.reload()
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
-  await page.getByRole('button', { name: 'Account menu' }).click()
-  await page.getByRole('menuitem', { name: 'Sign out' }).click()
-  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
-  await page.locator('#username').fill('e2e-admin')
-  await page.locator('#password').fill('e2e-password-updated')
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByText('Workbench', { exact: true }).first()).toBeVisible()
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
-
-  await page.getByRole('button', { name: 'Chinese (Simplified)' }).click()
-  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
-  await expect(page.getByRole('button', { name: 'English' })).toBeEnabled()
-  await expect(page.getByText('主机', { exact: true }).first()).toBeVisible()
-  await page.reload()
-  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
-  await expect(page.getByText('主机', { exact: true }).first()).toBeVisible()
-  const health = await page.request.get('/api/v1/health')
-  expect(health.ok()).toBeTruthy()
+  await expect(page).toHaveURL(new RegExp(`/instances/${createdInstanceID}$`))
+  await expect(page.getByRole('heading', { name: 'orders_test' })).toBeVisible()
+  const createdNotificationClose = page.locator('.ant-notification-notice-close')
+  if (await createdNotificationClose.isVisible()) await createdNotificationClose.click()
+  await expect(createdNotificationClose).toHaveCount(0)
+  await page.waitForTimeout(500)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('created-database-detail-1024.png'), fullPage: true })
+  expect(consoleErrors).toEqual([])
+  expect(httpErrors).toEqual([])
 })
