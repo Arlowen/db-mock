@@ -1,74 +1,76 @@
-# DB Mock deployment
+# DB Mock MVP deployment
 
-## Prerequisites
+This document covers the supported online Docker Compose installation, HTTPS, upgrade, and core
+troubleshooting. Offline bundles, private/offline database images, and a settings center are outside the MVP.
 
-- Control plane: Linux x86_64/arm64, or macOS with Docker Desktop.
-- Docker Engine 24+ and Docker Compose v2; at least 2 CPUs, 4 GiB RAM, and 20 GiB free disk.
-- The default listener is `0.0.0.0:8080`. The browser and control-plane container must be able to reach managed hosts over SSH.
-- Managed Linux hosts require direct SSH. Installing or upgrading Docker through DB Mock requires passwordless `sudo` for the SSH user.
-- The managed host's SSH user must be able to create the configured data root and read and write files inside it.
-- Managed hosts must provide at least one of `ss`, `lsof`, or `netstat` so DB Mock can validate the port pool and avoid active listeners.
-- Configure the Linux Docker daemon proxy from the host action menu. Configure macOS proxy settings in Docker Desktop first.
+## 1. Prerequisites
 
-## Online installation
+Control plane:
 
-Run these commands from the source repository root:
+- Linux `amd64`/`arm64`, or macOS with Docker Desktop.
+- Docker Engine 24+ and Docker Compose v2.
+- At least 2 CPUs, 4 GiB RAM, and 20 GiB free disk.
+- Internet access to the DB Mock, PostgreSQL, and selected public database images.
+- Network access from the browser to DB Mock and from the DB Mock container to target-host SSH.
+
+Target database host:
+
+- Directly reachable Linux or macOS SSH host, without a jump server.
+- Docker Engine and Docker Compose v2 already installed and available to the SSH user.
+- A dedicated writable data root, `/opt/dbmock` by default.
+- At least one of `ss`, `lsof`, or `netstat` for port-pool verification.
+- A reserved test-database port range and organization-approved firewall rules.
+
+DB Mock does not install Docker or modify firewalls/security groups.
+
+## 2. Online installation
+
+From the repository root:
 
 ```bash
 cp deploy/.env.example deploy/.env
-# Edit deploy/.env and replace DBMOCK_POSTGRES_PASSWORD and the public URL.
-make up
+# Edit deploy/.env: replace DBMOCK_POSTGRES_PASSWORD and verify DBMOCK_PUBLIC_URL.
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
 ```
 
-Alternatively, run `./scripts/install.sh` to generate a PostgreSQL password and start the stack. The
-script first pulls `ghcr.io/arlowen/db-mock:latest` and falls back to building the application image
-from the current checkout when no published image is available. Open `DBMOCK_PUBLIC_URL` and create
-the first platform account.
+Alternatively, use `./scripts/install.sh`. It generates a PostgreSQL password when `deploy/.env` is
+missing, pulls published images, and falls back to building the application from the current checkout.
 
-`DBMOCK_TIMEZONE` is the first-run IANA timezone default. After creating the first account, change the
-timezone in System settings; the runtime setting immediately controls audit, task, alert, and monitoring
-timestamps without a service restart.
-
-Process-level configuration is strict. Durations use Go duration syntax such as `720h`, task worker
-concurrency must be between `1` and `32`, and the upload hard ceiling must stay within the supported range.
-An invalid value prevents startup and names the offending variable instead of silently using a default.
-`DBMOCK_PUBLIC_URL` must be the exact browser-facing HTTP or HTTPS origin without user information, a path,
-query parameters, or a fragment.
-
-The application container serves both the API and embedded Web UI. The stack contains DB Mock and
-PostgreSQL only; no Nginx or separate frontend service is required.
-
-## Offline installation
-
-Each GitHub Release contains `amd64` and `arm64` offline bundles plus a top-level `SHA256SUMS` file.
-You can also build either bundle on an internet-connected machine with Docker:
+Verify the default HTTP deployment:
 
 ```bash
-./scripts/package-offline.sh v0.1.0 amd64
-./scripts/package-offline.sh v0.1.0 arm64
+curl -fsS http://127.0.0.1:8080/api/v1/health
+docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail=200 dbmock
 ```
 
-Copy and extract `dist/dbmock-v0.1.0-linux-amd64-offline.tar.gz` on the offline control plane:
+Open `DBMOCK_PUBLIC_URL` and create the first administrator. `DBMOCK_TIMEZONE` is persisted during first
+initialization; verify it before creating that account because the MVP has no settings page.
 
-```bash
-tar -xzf dbmock-v0.1.0-linux-amd64-offline.tar.gz
-cd dbmock-offline
-./offline-install.sh
-```
+## 3. MVP configuration
 
-The offline bundle is a standalone flattened directory. Its `compose.yaml`,
-`.env.example`, and install script live at the extracted bundle root and do not
-use the source repository's `deploy/` paths.
+Never commit `deploy/.env`.
 
-The bundle contains only the control-plane and PostgreSQL images. Upload database images from
-`docker save` as `.tar`, `.tar.gz`, or `.tgz` in the Images & registries page.
-Installation and offline upgrades verify the bundled image checksums before starting Compose with
-`--pull never --no-build`, so the offline host never contacts a registry or tries to build from missing source.
+| Variable | Purpose | Default/requirement |
+| --- | --- | --- |
+| `DBMOCK_POSTGRES_PASSWORD` | Metadata PostgreSQL password | Replace with a strong random value |
+| `DBMOCK_IMAGE` | DB Mock image | `ghcr.io/arlowen/db-mock:latest` |
+| `POSTGRES_IMAGE` | Metadata database image | `postgres:17-alpine` |
+| `DBMOCK_PUBLIC_URL` | Exact browser-facing HTTP/HTTPS origin | No path, query, or fragment |
+| `DBMOCK_BIND_ADDRESS` | Published bind address | `0.0.0.0`; narrow behind a proxy |
+| `DBMOCK_PORT` | Published port | `8080` |
+| `DBMOCK_TIMEZONE` | First-run IANA timezone | `Asia/Shanghai` |
+| `DBMOCK_SESSION_DURATION` | Go-duration session lifetime | `720h` |
+| `DBMOCK_TASK_WORKERS` | Persistent task concurrency | `4`, valid range `1–32` |
+| `DBMOCK_TRUSTED_PROXIES` | Direct proxies allowed to set `X-Forwarded-For` | Empty |
 
-## HTTPS
+Invalid duration, concurrency, public URL, TLS key pair, or trusted-proxy ranges prevent startup and name
+the offending variable.
 
-The Go service provides HTTP by default. Put a certificate and private key under `deploy/tls/` and
-configure their container paths in `deploy/.env`:
+## 4. HTTPS
+
+For built-in TLS, put the certificate and private key under `deploy/tls/` and use container paths:
 
 ```dotenv
 DBMOCK_PUBLIC_URL=https://dbmock.example.com:8080
@@ -76,109 +78,80 @@ DBMOCK_TLS_CERT_FILE=/etc/dbmock/tls/server.crt
 DBMOCK_TLS_KEY_FILE=/etc/dbmock/tls/server.key
 ```
 
-Run `make up` again. The certificate and key must be configured together, and the public URL must use
-HTTPS. DB Mock reads and validates the matching key pair before it connects to PostgreSQL or starts workers.
-The certificate directory must be searchable and both files readable by the container's `dbmock` user. On
-Linux its stable UID/GID is `100:101`, so the private key can remain readable only by its owner and that group.
-Container health checks and disaster-recovery probes automatically switch to internal HTTPS; only these
-container-local probes skip hostname verification.
+The files must be configured together, match, and be readable by container UID/GID `100:101`.
 
-A reverse proxy may terminate TLS instead. Leave `DBMOCK_TLS_CERT_FILE` and `DBMOCK_TLS_KEY_FILE` empty,
-set `DBMOCK_PUBLIC_URL` to the browser-facing `https://` origin, and preserve the original `Host` header.
-Set `DBMOCK_BIND_ADDRESS` to `127.0.0.1` or a private address reachable only by the proxy. An HTTPS public
-URL enables Secure session cookies and HSTS whether TLS terminates in DB Mock or at the proxy.
+A reverse proxy may terminate TLS instead. Leave the built-in certificate variables empty, set
+`DBMOCK_PUBLIC_URL` to the public `https://` origin, and narrow `DBMOCK_BIND_ADDRESS` to loopback or the proxy
+network. HTTPS public URLs still enable Secure cookies and HSTS.
 
-DB Mock ignores every `X-Forwarded-For` header by default and records the direct peer as the session and
-audit source IP. Configure only the proxy IPs or CIDRs that can connect directly to the application when
-the original client IP must be retained:
+DB Mock ignores forwarded client addresses unless the direct proxy is explicitly trusted:
 
 ```dotenv
 DBMOCK_TRUSTED_PROXIES=10.0.0.10,10.0.1.0/24
 ```
 
-DB Mock accepts `X-Forwarded-For` only from these trusted peers and walks a continuous trusted proxy chain
-from right to left. List every hop in a multi-proxy chain. Configure the edge proxy to overwrite any
-client-supplied header and each downstream proxy to append its peer correctly. DB Mock rejects `0.0.0.0/0`
-and `::/0`; do not configure a network broader than the actual proxies. `Forwarded` and `X-Real-IP` are not read.
+Never configure `0.0.0.0/0`, `::/0`, or a network broader than the actual proxies. The edge proxy must
+overwrite client-supplied `X-Forwarded-For`.
 
-## Upgrade and operations
+## 5. Persistence and upgrade
+
+Named volumes:
+
+- `dbmock_postgres_data`: accounts, hosts, databases, tasks, and metadata.
+- `dbmock_dbmock_data`: credential master key and compatibility artifacts.
+
+Regular `docker compose down` keeps these volumes. Do not delete the application-data volume: losing the
+master key makes stored SSH and database credentials unreadable. Preserve `deploy/.env` and TLS files separately.
+
+Upgrade with:
 
 ```bash
 ./scripts/upgrade.sh
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
 make logs
-curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
-The command above is for the default HTTP deployment. With built-in TLS, use the public HTTPS URL and let
-`curl` validate the production CA chain, for example
-`curl -fsS https://dbmock.example.com:8080/api/v1/health`.
+The script creates a control-plane recovery archive under `backups/` before pulling new images. This is a
+low-level upgrade safeguard, not an MVP management UI. Skip it only when a separately verified recovery copy
+exists. Migrations support forward upgrades; do not assume that pointing `DBMOCK_IMAGE` at an older version is
+a safe database downgrade.
 
-The upgrade script creates a control-plane backup under `backups/` before it pulls and starts the new
-version. Only set `DBMOCK_SKIP_PRE_UPGRADE_BACKUP=true` when a separately verified recovery copy exists.
-
-During a normal stop or upgrade, Compose allows up to four minutes for in-flight database tasks to run
-their recovery steps and persist an interrupted state. Force-stop the controller only when incomplete
-recovery is an accepted risk; after restart, inspect and retry interrupted operations from the Tasks page.
-
-After signing in, use Settings to change the monitoring interval, metric retention, disk thresholds,
-and individual alert-type switches. Changes take effect on the next monitoring cycle without a
-restart. A password or private key rejected by the target host raises a dedicated alert that resolves
-after the credential is updated and the next probe succeeds.
-
-Settings also controls the runtime file limit and browser chunk size for offline image uploads. New
-upload sessions use the policy immediately. `DBMOCK_MAX_UPLOAD_BYTES` remains the deployment hard
-ceiling, and an upload already in progress may finish with the file size accepted when it started.
-
-The Images page can scan offline archives unused for 7 to 365 days, preview the candidates and
-recoverable space, and clean a selected set manually. Only controller-side files with no active
-instance reference and no actual distribution during the selected period are eligible. DB Mock never
-automatically removes images that Docker has already loaded on target hosts.
-
-### Control-plane backup and restore
-
-PostgreSQL metadata, the credential master key, and uploaded artifacts live in named Compose volumes.
-Create a consistent backup with:
+## 6. Operations and troubleshooting
 
 ```bash
-make backup
-# Or choose the destination explicitly.
-./scripts/backup-platform.sh /secure/path/dbmock-control-plane.tar.gz
+# Status and logs
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+docker compose --env-file deploy/.env -f deploy/compose.yaml logs --tail=200 postgres dbmock
+
+# Stop while keeping volumes
+make down
+
+# Start again
+make up
 ```
 
-The application briefly stops to freeze writes. If the stack was already stopped, the script starts only
-PostgreSQL temporarily and returns it to the stopped state afterward. The `0600` archive contains the master
-key that can decrypt every stored credential, so copy it immediately to restricted off-host storage. For
-production, encrypt it with a separate passphrase file and store that file independently:
+Do not run `docker compose down -v` without a verified backup and an explicit decision to erase the trial.
+
+If DB Mock does not start, validate Compose, inspect PostgreSQL health, then read the first application ERROR.
+Check the public URL, PostgreSQL password, port conflicts, and TLS file permissions before changing data volumes.
+
+If a target host fails verification, test the same SSH account on that host:
 
 ```bash
-openssl rand -base64 32 > /secure/path/dbmock-backup.pass
-chmod 600 /secure/path/dbmock-backup.pass
-DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
-  ./scripts/backup-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+docker version
+docker compose version
+test -w /opt/dbmock
+command -v ss || command -v lsof || command -v netstat
 ```
 
-Validate an archive without changing the stack, then restore it explicitly:
+Install or repair Docker through the organization's normal host process, then probe again in DB Mock.
 
-```bash
-DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
-  DBMOCK_RESTORE_VALIDATE_ONLY=true \
-  ./scripts/restore-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
+For a failed database deployment, use the task stage, stable error, and redacted log. Verify public-image pull,
+host capacity, port availability, SSH, and Docker. Probe the host after repair and retry only through the preserved
+task/resource context. Do not click repeatedly when the request result is uncertain.
 
-DBMOCK_PLATFORM_BACKUP_PASSPHRASE_FILE=/secure/path/dbmock-backup.pass \
-  DBMOCK_RESTORE_CONFIRM=RESTORE \
-  ./scripts/restore-platform.sh /secure/path/dbmock-control-plane.tar.gz.enc
-```
+If connection details are correct but the client cannot connect, confirm the database is healthy, use the external
+connection address and host port, and inspect firewall/security-group policy. DB Mock does not open the port.
 
-Restore completely replaces the current PostgreSQL database and application data volume. Before overwriting
-them, the script creates a `dbmock-control-plane-pre-restore-*` safety backup. It starts the current application
-and waits for health; any restore or health failure triggers an automatic rollback. The safety backup remains
-after success until you archive or remove it according to your retention policy. In an extracted offline
-bundle, the scripts live at its root; use `./backup-platform.sh` and
-`./restore-platform.sh` with the same arguments and environment variables.
-Control-plane archives do not include `deploy/.env`, TLS certificates, or TLS private keys, so preserve those
-deployment files separately.
-Never manually remove `dbmock_postgres_data` or `dbmock_dbmock_data`; losing the master key makes stored SSH,
-registry, and database credentials unreadable.
-
-DB Mock never modifies host firewalls or cloud security groups. Operators must expose the selected
-instance ports according to their network policy.
+If deletion is blocked, wait for active tasks or remove legacy managed backups through the same delete dialog. Never
+bypass the server review by deleting only platform metadata.
