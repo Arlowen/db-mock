@@ -81,6 +81,7 @@ make up
 - [技术架构](docs/architecture.md)
 - [部署说明](docs/zh/deployment.md)
 - [公司内部试用清单](docs/internal-trial-checklist.md)
+- [MVP 最终验收](docs/mvp-acceptance-2026-08-04.md)
 - [核心工作流审计](docs/core-workflow-audit-2026-07-31.md)
 
 ## 本地开发
