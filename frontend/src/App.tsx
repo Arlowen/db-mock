@@ -4,19 +4,14 @@ import { useAuth } from './contexts/AuthContext'
 import { useSystemSettings } from './contexts/SystemSettingsContext'
 import { AppLayout } from './layouts/AppLayout'
 import { AuthPage } from './pages/AuthPages'
-import { ProjectsPage } from './pages/ProjectsPage'
 import { HostsPage } from './pages/HostsPage'
-import { CatalogPage } from './pages/CatalogPage'
 import { InstanceDetailPage } from './pages/InstanceDetailPage'
 import { InstancesPage } from './pages/InstancesPage'
-import { ImagesPage } from './pages/ImagesPage'
 import { TasksPage } from './pages/TasksPage'
-import { AlertsPage } from './pages/AlertsPage'
-import { UsersPage } from './pages/UsersPage'
-import { AuditPage } from './pages/AuditPage'
-import { SettingsPage } from './pages/SettingsPage'
 import { DashboardPage } from './pages/DashboardPage'
-import { permissionsFor } from './lib/permissions'
+
+const databaseLegacyRoutes = ['projects', 'catalog', 'images']
+const dashboardLegacyRoutes = ['alerts', 'users', 'audit', 'settings']
 
 export default function App() {
   const { loading, initialized, user } = useAuth()
@@ -24,6 +19,17 @@ export default function App() {
   if (loading || settingsLoading) return <div className="full-spin"><Spin size="large" /></div>
   if (!initialized) return <AuthPage setup />
   if (!user) return <AuthPage setup={false} />
-  const permissions = permissionsFor(user)
-  return <Routes><Route element={<AppLayout />}><Route index element={<Navigate to="/dashboard" replace />} /><Route path="dashboard" element={<DashboardPage />} /><Route path="projects" element={<ProjectsPage />} /><Route path="hosts" element={<HostsPage />} /><Route path="catalog" element={<CatalogPage />} /><Route path="instances" element={<InstancesPage />} /><Route path="instances/:id" element={<InstanceDetailPage />} /><Route path="images" element={<ImagesPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="alerts" element={<AlertsPage />} /><Route path="users" element={permissions.canManageUsers ? <UsersPage /> : <Navigate to="/" replace />} /><Route path="audit" element={permissions.canViewAudit ? <AuditPage /> : <Navigate to="/" replace />} /><Route path="settings" element={permissions.canManageSettings ? <SettingsPage /> : <Navigate to="/" replace />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes>
+  return <Routes>
+    <Route element={<AppLayout />}>
+      <Route index element={<Navigate to="/dashboard" replace />} />
+      <Route path="dashboard" element={<DashboardPage />} />
+      <Route path="hosts" element={<HostsPage />} />
+      <Route path="instances" element={<InstancesPage />} />
+      <Route path="instances/:id" element={<InstanceDetailPage />} />
+      <Route path="tasks" element={<TasksPage />} />
+      {databaseLegacyRoutes.map((path) => <Route key={path} path={`${path}/*`} element={<Navigate to="/instances" replace />} />)}
+      {dashboardLegacyRoutes.map((path) => <Route key={path} path={`${path}/*`} element={<Navigate to="/dashboard" replace />} />)}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Route>
+  </Routes>
 }

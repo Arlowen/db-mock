@@ -195,6 +195,16 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   await page.route('**/api/v1/projects', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [] } }) })
   await page.route('**/api/v1/images', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [] } }) })
   await page.route('**/api/v1/registries', (route) => route.fulfill({ json: { items: [] } }))
+  await page.route('**/api/v1/dashboard', (route) => route.fulfill({ json: {
+    hosts: { online: hosts.length },
+    instances: { running: instances.length },
+    activeTasks: 0,
+    openAlerts: 0,
+    users: 1,
+    projects: 0,
+    attentionItems: [],
+    lifecycleInstances: [],
+  } }))
   await page.route('**/api/v1/instances', async (route) => {
     if (route.request().method() === 'POST') {
       createPayload = route.request().postDataJSON()
@@ -255,6 +265,21 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   await page.route(`**/api/v1/instances/${createdInstanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/backup-policy`, (route) => route.fulfill({ json: { policy: null } }))
 
+  for (const legacyPath of ['/projects/team-a', '/catalog', '/images?tab=registries']) {
+    await page.goto(legacyPath)
+    await expect(page).toHaveURL(/\/instances$/)
+    await expect(page.getByRole('heading', { name: '数据库' })).toBeVisible()
+  }
+  for (const legacyPath of ['/alerts?tab=webhooks', '/users', '/audit', '/settings/uploads']) {
+    await page.goto(legacyPath)
+    await expect(page).toHaveURL(/\/dashboard$/)
+    await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
+  }
+  await page.goto('/removed-feature')
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
+
+  hostSupportingRequests = 0
   await page.goto('/hosts')
   await page.setViewportSize({ width: 1440, height: 1000 })
   await expect(page.getByRole('heading', { name: '主机' })).toBeVisible()

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '../i18n'
-import { api, ApiError, errorMessage, sessionInvalidatedEvent, uploadInChunks } from './api'
+import { api, ApiError, errorMessage, sessionInvalidatedEvent } from './api'
 
 describe('API session invalidation', () => {
   const originalFetch = globalThis.fetch
@@ -124,81 +124,5 @@ describe('API error messages', () => {
     await i18n.changeLanguage('en-US')
     expect(errorMessage(new ApiError(400, 'invalid_input', 'invalid input: unexpected backend validation detail')))
       .toBe('Invalid input: unexpected backend validation detail')
-  })
-})
-
-describe('chunked image uploads', () => {
-  const originalFetch = globalThis.fetch
-
-  beforeEach(() => localStorage.clear())
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-    vi.restoreAllMocks()
-  })
-
-  it('resumes from the persisted offset and exposes the verification phase', async () => {
-    const file = new File([new Uint8Array(10)], 'postgres.tar', { lastModified: 1234 })
-    localStorage.setItem('dbmock-upload:postgres.tar:10:1234', 'upload-1')
-    const requests: Array<{ url: string; method: string }> = []
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      const method = init?.method ?? 'GET'
-      requests.push({ url, method })
-      if (method === 'GET') return Response.json({ id: 'upload-1', receivedBytes: 4, totalBytes: 10, status: 'uploading' })
-      if (method === 'PUT') return new Response(null, { status: 204 })
-      return Response.json({ id: 'image-1' })
-    })
-    const progress: number[] = []
-    const phases: string[] = []
-
-    await uploadInChunks(file, (value) => progress.push(value), '', 'PostgreSQL', (phase) => phases.push(phase))
-
-    expect(requests).toEqual([
-      { url: '/api/v1/images/uploads/upload-1', method: 'GET' },
-      { url: '/api/v1/images/uploads/upload-1/chunk?offset=4', method: 'PUT' },
-      { url: '/api/v1/images/uploads/upload-1/complete', method: 'POST' },
-    ])
-    expect(progress).toEqual([40, 100])
-    expect(phases).toEqual(['resuming', 'uploading', 'verifying'])
-    expect(localStorage.getItem('dbmock-upload:postgres.tar:10:1234')).toBeNull()
-  })
-
-  it('deletes an invalid upload session so choosing the same file starts cleanly', async () => {
-    const file = new File([new Uint8Array(4)], 'broken.tar', { lastModified: 5678 })
-    const methods: string[] = []
-    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const method = init?.method ?? 'GET'
-      methods.push(method)
-      if (method === 'POST' && methods.length === 1) return Response.json({ id: 'upload-2', receivedBytes: 0 })
-      if (method === 'PUT' || method === 'DELETE') return new Response(null, { status: 204 })
-      return Response.json({ error: { code: 'invalid_input', message: 'invalid input: file is not a Docker save or OCI image archive' } }, { status: 400 })
-    })
-
-    await expect(uploadInChunks(file, () => undefined)).rejects.toMatchObject({ status: 400, code: 'invalid_input' })
-
-    expect(methods).toEqual(['POST', 'PUT', 'POST', 'DELETE'])
-    expect(localStorage.getItem('dbmock-upload:broken.tar:4:5678')).toBeNull()
-  })
-
-  it('uses the runtime chunk size from system settings', async () => {
-    const file = new File([new Uint8Array(10)], 'chunked.tar', { lastModified: 9012 })
-    const requests: Array<{ method: string; url: string; size?: number }> = []
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const method = init?.method ?? 'GET'
-      requests.push({ method, url: String(input), size: init?.body instanceof Blob ? init.body.size : undefined })
-      if (method === 'POST' && requests.length === 1) return Response.json({ id: 'upload-3', receivedBytes: 0 })
-      if (method === 'PUT') return new Response(null, { status: 204 })
-      return Response.json({ id: 'image-3' })
-    })
-
-    await uploadInChunks(file, () => undefined, '', 'Chunked image', () => undefined, undefined, 4)
-
-    expect(requests).toEqual([
-      { method: 'POST', url: '/api/v1/images/uploads', size: undefined },
-      { method: 'PUT', url: '/api/v1/images/uploads/upload-3/chunk?offset=0', size: 4 },
-      { method: 'PUT', url: '/api/v1/images/uploads/upload-3/chunk?offset=4', size: 4 },
-      { method: 'PUT', url: '/api/v1/images/uploads/upload-3/chunk?offset=8', size: 2 },
-      { method: 'POST', url: '/api/v1/images/uploads/upload-3/complete', size: undefined },
-    ])
   })
 })

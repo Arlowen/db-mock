@@ -269,9 +269,7 @@ button { font: inherit; }
 .upgrade-source-options { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .upgrade-source-options .ant-radio-button-wrapper { padding-inline: 8px; text-align: center; }
 .upgrade-source-panel > .ant-select { width: 100%; }
-.cleanup-continuation-alert, .backup-request-alert, .backup-storage-alert, .backup-modal-alert { margin-bottom: 16px; }
-.cleanup-continuation-body { display: flex; flex-direction: column; gap: 10px; }
-.cleanup-continuation-actions { margin-top: 2px; }
+.backup-request-alert, .backup-storage-alert, .backup-modal-alert { margin-bottom: 16px; }
 .cleanup-backup-failure-list { display: grid; gap: 10px; }
 .cleanup-backup-failure { display: grid; gap: 10px; padding: 12px; border: 1px solid #f3c6c2; border-radius: 8px; background: rgba(255, 255, 255, .72); }
 .cleanup-backup-failure-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -852,8 +850,6 @@ button { font: inherit; }
   .task-failure-guidance-grid { grid-template-columns: 1fr; }
   .backup-policy-summary { align-items: flex-start; flex-wrap: wrap; }
   .backup-policy-copy { min-width: calc(100% - 56px); }
-  .cleanup-continuation-actions { width: 100%; display: grid; }
-  .cleanup-continuation-actions .ant-btn { width: 100%; }
   .cleanup-backup-failure-header { flex-direction: column; }
   .cleanup-backup-failure-actions { width: 100%; display: grid; }
   .cleanup-backup-failure-actions .ant-btn { width: 100%; }

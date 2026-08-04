@@ -1,6 +1,4 @@
 import i18n from '../i18n'
-import { getStoredValue, removeStoredValue, setStoredValue } from './storage'
-import type { ImageArtifact } from './types'
 
 export const sessionInvalidatedEvent = 'dbmock:session-invalidated'
 
@@ -60,69 +58,4 @@ export function errorMessage(error: unknown): string {
     return `${summary}: ${localized}`
   }
   return error instanceof Error ? error.message : String(error)
-}
-
-export type ImageUploadPhase = 'resuming' | 'uploading' | 'verifying'
-
-function imageUploadResumeKey(file: File): string {
-  return `dbmock-upload:${file.name}:${file.size}:${file.lastModified}`
-}
-
-export async function discardImageUpload(file: File): Promise<void> {
-  const resumeKey = imageUploadResumeKey(file)
-  const uploadID = getStoredValue(resumeKey)
-  if (!uploadID) return
-  try { await api(`/images/uploads/${uploadID}`, { method: 'DELETE' }) } finally { removeStoredValue(resumeKey) }
-}
-
-export async function uploadInChunks(
-  file: File,
-  onProgress: (percent: number) => void,
-  expectedSha256 = '',
-  displayName = file.name,
-  onPhase: (phase: ImageUploadPhase) => void = () => undefined,
-  signal?: AbortSignal,
-  chunkBytes = 8 * 1024 * 1024,
-): Promise<ImageArtifact> {
-  const resumeKey = imageUploadResumeKey(file)
-  let upload: { id: string; receivedBytes: number; totalBytes?: number; status?: string } | undefined
-  const previousID = getStoredValue(resumeKey)
-  if (previousID) {
-    try {
-      const candidate = await api<typeof upload>(`/images/uploads/${previousID}`)
-      if (candidate?.totalBytes === file.size && candidate.status === 'uploading') upload = candidate
-    } catch { removeStoredValue(resumeKey) }
-  }
-  if (!upload) {
-    onPhase('uploading')
-    upload = await api<{ id: string; receivedBytes: number }>('/images/uploads', {
-      method: 'POST',
-      body: { filename: file.name, totalBytes: file.size, sha256: expectedSha256 },
-      signal,
-    })
-    setStoredValue(resumeKey, upload.id)
-  } else {
-    onPhase('resuming')
-  }
-  const chunkSize = Number.isSafeInteger(chunkBytes) && chunkBytes > 0 ? chunkBytes : 8 * 1024 * 1024
-  let offset = upload.receivedBytes
-  onProgress(Math.round((offset / file.size) * 100))
-  while (offset < file.size) {
-    const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size))
-    await api(`/images/uploads/${upload.id}/chunk?offset=${offset}`, { method: 'PUT', body: chunk, signal })
-    offset += chunk.size
-    onProgress(Math.round((offset / file.size) * 100))
-    onPhase('uploading')
-  }
-  onPhase('verifying')
-  try {
-    const result = await api<ImageArtifact>(`/images/uploads/${upload.id}/complete`, { method: 'POST', body: { name: displayName }, signal })
-    removeStoredValue(resumeKey)
-    return result
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 400) {
-      await discardImageUpload(file).catch(() => removeStoredValue(resumeKey))
-    }
-    throw error
-  }
 }
