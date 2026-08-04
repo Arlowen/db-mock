@@ -16,14 +16,10 @@ const values = {
 }
 
 describe('mvpHostPayload', () => {
-  it('uses non-managing defaults for a new host', () => {
+  it('uses simple policy defaults for a new host', () => {
     expect(mvpHostPayload(values)).toMatchObject({
-      manageDocker: false,
       maintenance: false,
       autoRestartDefault: true,
-      proxyHttp: '',
-      proxyHttps: '',
-      proxyNoProxy: '',
       labels: {},
     })
   })
@@ -31,10 +27,6 @@ describe('mvpHostPayload', () => {
   it('preserves hidden compatibility fields when an existing host is edited', () => {
     const existing = {
       projectId: 'project-id',
-      manageDocker: true,
-      proxyHttp: 'http://proxy.test:3128',
-      proxyHttps: 'http://proxy.test:3128',
-      proxyNoProxy: 'localhost',
       maintenance: true,
       autoRestartDefault: false,
       labels: { zone: 'lab' },
@@ -42,10 +34,6 @@ describe('mvpHostPayload', () => {
 
     expect(mvpHostPayload(values, existing)).toMatchObject({
       projectId: 'project-id',
-      manageDocker: true,
-      proxyHttp: 'http://proxy.test:3128',
-      proxyHttps: 'http://proxy.test:3128',
-      proxyNoProxy: 'localhost',
       maintenance: true,
       autoRestartDefault: false,
       labels: { zone: 'lab' },

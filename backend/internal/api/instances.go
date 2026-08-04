@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,7 +17,6 @@ import (
 func (s *Server) instanceRoutes(r chi.Router) {
 	r.Get("/", s.listInstances)
 	r.With(requireOperator).Post("/", s.createInstance)
-	r.With(requireOperator).Post("/batch-actions/{action}", s.batchInstanceAction)
 	r.Get("/{id}", s.getInstance)
 	r.Get("/{id}/tasks", s.listInstanceRelatedTasks)
 	r.Get("/{id}/cleanup-review", s.getInstanceCleanupReview)
@@ -215,79 +213,6 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.audit(r, actor, "instance."+action, "instance", &id, instance.Name, &task.ID, "success", "")
 	httpx.JSON(w, http.StatusAccepted, task)
-}
-
-func (s *Server) batchInstanceAction(w http.ResponseWriter, r *http.Request) {
-	action := chi.URLParam(r, "action")
-	var input struct {
-		InstanceIDs []uuid.UUID `json:"instanceIds"`
-	}
-	if err := httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	outcomes, err := s.instances.BatchAction(r.Context(), actor.User.ID, action, input.InstanceIDs)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	type acceptedItem struct {
-		InstanceID   uuid.UUID   `json:"instanceId"`
-		InstanceName string      `json:"instanceName"`
-		Task         domain.Task `json:"task"`
-	}
-	type rejectedItem struct {
-		InstanceID   uuid.UUID `json:"instanceId"`
-		InstanceName string    `json:"instanceName,omitempty"`
-		Code         string    `json:"code"`
-		Message      string    `json:"message"`
-	}
-	accepted := make([]acceptedItem, 0, len(outcomes))
-	rejected := make([]rejectedItem, 0)
-	for _, outcome := range outcomes {
-		if outcome.Err != nil {
-			code, message := batchActionError(outcome.Err)
-			rejected = append(rejected, rejectedItem{InstanceID: outcome.InstanceID,
-				InstanceName: outcome.InstanceName, Code: code, Message: message})
-			continue
-		}
-		if outcome.Task == nil {
-			rejected = append(rejected, rejectedItem{InstanceID: outcome.InstanceID,
-				InstanceName: outcome.InstanceName, Code: "internal_error", Message: "Internal server error"})
-			continue
-		}
-		accepted = append(accepted, acceptedItem{InstanceID: outcome.InstanceID,
-			InstanceName: outcome.InstanceName, Task: *outcome.Task})
-		_ = s.audit(r, actor, "instance."+action, "instance", &outcome.InstanceID,
-			outcome.InstanceName, &outcome.Task.ID, "success", "")
-	}
-	status := http.StatusOK
-	if len(accepted) > 0 {
-		status = http.StatusAccepted
-	}
-	httpx.JSON(w, status, map[string]any{
-		"action": action, "accepted": accepted, "rejected": rejected,
-	})
-}
-
-func batchActionError(err error) (string, string) {
-	switch {
-	case errors.Is(err, domain.ErrNotFound):
-		return "not_found", "Resource not found"
-	case errors.Is(err, domain.ErrConflict):
-		return "resource_conflict", err.Error()
-	case errors.Is(err, domain.ErrInvalid):
-		return "invalid_input", err.Error()
-	case errors.Is(err, domain.ErrForbidden):
-		return "forbidden", "Operation forbidden"
-	case errors.Is(err, domain.ErrUnauthorized):
-		return "unauthorized", "Authentication required"
-	case errors.Is(err, domain.ErrUnavailable):
-		return "resource_unavailable", err.Error()
-	default:
-		return "internal_error", "Internal server error"
-	}
 }
 
 func (s *Server) instanceConnection(w http.ResponseWriter, r *http.Request) {

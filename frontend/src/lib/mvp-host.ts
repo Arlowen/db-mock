@@ -16,16 +16,12 @@ export interface MVPHostValues {
 
 /**
  * Builds the MVP host request while preserving fields owned by the former
- * project, Docker-management, proxy, and policy UIs on existing hosts.
+ * project and policy UIs on existing hosts.
  */
 export function mvpHostPayload(values: MVPHostValues, existing?: Host) {
   return {
     ...values,
     projectId: existing?.projectId,
-    manageDocker: existing?.manageDocker ?? false,
-    proxyHttp: existing?.proxyHttp ?? '',
-    proxyHttps: existing?.proxyHttps ?? '',
-    proxyNoProxy: existing?.proxyNoProxy ?? '',
     maintenance: existing?.maintenance ?? false,
     autoRestartDefault: existing?.autoRestartDefault ?? true,
     labels: existing?.labels ?? {},

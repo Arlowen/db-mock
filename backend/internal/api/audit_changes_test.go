@@ -52,7 +52,7 @@ func TestHostAuditChangesNeverIncludeCredentialMaterial(t *testing.T) {
 			t.Fatalf("sensitive value %q leaked into audit changes: %s", secret, text)
 		}
 	}
-	for _, flag := range []string{"credentialChanged", "hostKeyChanged", "proxyConfigurationChanged"} {
+	for _, flag := range []string{"credentialChanged", "hostKeyChanged"} {
 		if changes[flag] != true {
 			t.Fatalf("expected %s flag, got %#v", flag, changes)
 		}

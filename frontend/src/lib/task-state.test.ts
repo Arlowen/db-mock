@@ -136,7 +136,7 @@ describe('task retry availability', () => {
   it('allows retry only for currently supported task kinds', () => {
     expect(canRetryTask({ ...task('core', 'failed', '2026-07-19T00:02:00Z'), kind: 'instance.restart' })).toBe(true)
     expect(canRetryTask({ ...task('cleanup', 'interrupted', '2026-07-19T00:02:00Z'), kind: 'instance.backup.delete' })).toBe(true)
-    for (const kind of ['instance.backup', 'instance.restore', 'instance.upgrade', 'instance.reconfigure']) {
+    for (const kind of ['instance.backup', 'instance.restore', 'instance.upgrade', 'instance.reconfigure', 'host.install_docker', 'host.upgrade_docker', 'host.configure_proxy']) {
       expect(canRetryTask({ ...task(kind, 'failed', '2026-07-19T00:02:00Z'), kind })).toBe(false)
     }
   })

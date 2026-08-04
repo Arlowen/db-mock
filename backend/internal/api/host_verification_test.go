@@ -20,7 +20,7 @@ func TestHostVerificationBindsConnectionSettingsAndScope(t *testing.T) {
 	hostID := uuid.New()
 	input := hostRequest{SSHAddress: "10.0.0.8", SSHPort: 22, SSHUser: "dbmock", AuthType: "private_key",
 		Credential: "private-key", Passphrase: "key-secret", DataRoot: "/opt/dbmock", PortStart: 20000, PortEnd: 40000}
-	probe := hostops.ProbeResult{HostKey: "SHA256:verified AAAA", PasswordlessSudo: true,
+	probe := hostops.ProbeResult{HostKey: "SHA256:verified AAAA",
 		DataRootWritable: true, PortProbeAvailable: true, FirstAvailablePort: 20001}
 	token, expiresAt, err := issueHostVerification(vault, input, &hostID, probe, now)
 	if err != nil {
@@ -33,7 +33,7 @@ func TestHostVerificationBindsConnectionSettingsAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.HostKey != probe.HostKey || receipt.FirstAvailablePort != probe.FirstAvailablePort || !receipt.PasswordlessSudo {
+	if receipt.HostKey != probe.HostKey || receipt.FirstAvailablePort != probe.FirstAvailablePort {
 		t.Fatalf("unexpected receipt: %#v", receipt)
 	}
 
@@ -78,18 +78,17 @@ func TestHostVerificationRejectsMissingHostPreflight(t *testing.T) {
 
 func TestHostVerificationRequiredForOperationalChanges(t *testing.T) {
 	existing := domain.Host{HostKey: "SHA256:known", SSHAddress: "host", SSHPort: 22, SSHUser: "user",
-		AuthType: "password", DataRoot: "/opt/dbmock", PortStart: 20000, PortEnd: 40000, ManageDocker: false}
+		AuthType: "password", DataRoot: "/opt/dbmock", PortStart: 20000, PortEnd: 40000}
 	input := hostRequest{SSHAddress: existing.SSHAddress, SSHPort: existing.SSHPort, SSHUser: existing.SSHUser,
 		AuthType: existing.AuthType, DataRoot: existing.DataRoot, PortStart: existing.PortStart, PortEnd: existing.PortEnd}
 	if hostVerificationRequired(existing, input) {
 		t.Fatal("metadata-only update should not require another SSH test")
 	}
 	for name, mutate := range map[string]func(*hostRequest){
-		"address":       func(value *hostRequest) { value.SSHAddress = "other" },
-		"root":          func(value *hostRequest) { value.DataRoot = "/srv/dbmock" },
-		"pool":          func(value *hostRequest) { value.PortStart++ },
-		"credential":    func(value *hostRequest) { value.Credential = "new-secret" },
-		"docker policy": func(value *hostRequest) { value.ManageDocker = true },
+		"address":    func(value *hostRequest) { value.SSHAddress = "other" },
+		"root":       func(value *hostRequest) { value.DataRoot = "/srv/dbmock" },
+		"pool":       func(value *hostRequest) { value.PortStart++ },
+		"credential": func(value *hostRequest) { value.Credential = "new-secret" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := input

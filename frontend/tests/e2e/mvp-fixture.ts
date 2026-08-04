@@ -64,7 +64,6 @@ export const host = {
   dataRoot: '/opt/dbmock',
   portStart: 20000,
   portEnd: 40000,
-  manageDocker: false,
   os: 'linux',
   distro: 'Ubuntu 24.04',
   architecture: 'amd64',
@@ -220,7 +219,6 @@ export async function installMvpApi(page: Page): Promise<MvpApiState> {
     architecture: 'amd64',
     dockerVersion: '27.5.1',
     composeVersion: '2.32.4',
-    passwordlessSudo: false,
     cpuCount: 8,
     memoryBytes: 16 * GiB,
     diskTotalBytes: 200 * GiB,
@@ -232,9 +230,9 @@ export async function installMvpApi(page: Page): Promise<MvpApiState> {
     verificationExpiresAt: '2026-08-04T09:00:00Z',
   } }))
   await page.route(`**/api/v1/hosts/${hostID}/actions/probe`, (route) => route.fulfill({ status: 202, json: { ...succeededTask, id: '33333333-3333-4333-8333-333333333336', kind: 'host.probe', resourceType: 'host', resourceId: hostID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } }))
-  await page.route('**/api/v1/instances/batch-actions/stop', async (route) => {
+  await page.route(`**/api/v1/instances/${instanceID}/actions/stop`, async (route) => {
     state.stopPayload = route.request().postDataJSON()
-    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: instanceID, instanceName: runningInstance.name, task: succeededTask }], rejected: [] } })
+    await route.fulfill({ status: 202, json: { ...succeededTask, id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', kind: 'instance.stop' } })
   })
   const deleteTask = { ...succeededTask, id: deleteTaskID, kind: 'instance.delete', status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined }
   const coreFailedTask = { ...succeededTask, id: coreFailedTaskID, kind: 'instance.restart', status: 'failed', progress: 70, stage: 'compose', message: 'Restart failed', errorCode: 'task_failed', errorMessage: 'Docker Compose restart failed', finishedAt: '2026-08-04T08:08:00Z' }

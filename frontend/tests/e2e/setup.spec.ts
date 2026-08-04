@@ -89,12 +89,14 @@ test.describe('DB Mock MVP workflow', () => {
     await expect(page.getByRole('heading', { name: '主机' })).toHaveCount(1)
     const hostLink = page.locator('.host-table-card .description-link', { hasText: 'Daily Docker Host' })
     await expect(hostLink).toBeVisible()
+    await expect(page.locator('.host-table-card .ant-spin-spinning')).toHaveCount(0)
     await expect(page.getByRole('columnheader', { name: '项目' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '重新检测 Daily Docker Host' })).toBeVisible()
     await expect(page.getByRole('button', { name: '编辑 Daily Docker Host' })).toBeVisible()
     await expect.poll(() => state.hostSupportingRequests).toBe(0)
     await expect.poll(() => state.removedFeatureRequests).toBe(0)
     await expectNoOverflow(page)
+    await page.waitForTimeout(300)
     await page.screenshot({ path: testInfo.outputPath('hosts-1440.png'), fullPage: true })
 
     await page.setViewportSize({ width: 1024, height: 768 })
@@ -138,10 +140,13 @@ test.describe('DB Mock MVP workflow', () => {
     await expect(hostEditor.getByText('Docker 与 Compose')).toBeVisible()
     const saveHostButton = hostEditor.getByRole('button', { name: /^保\s*存$/ })
     await expect(saveHostButton).toBeEnabled()
+    await page.waitForTimeout(300)
     await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1440.png'), fullPage: false })
 
     await page.setViewportSize({ width: 1024, height: 768 })
+    await hostEditor.locator('.ant-modal-body').evaluate((element) => { element.scrollTop = 0 })
     await expect.poll(() => hostEditor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.waitForTimeout(300)
     await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1024.png'), fullPage: false })
     await saveHostButton.click()
     await expect(hostEditor).toBeHidden()
@@ -156,10 +161,6 @@ test.describe('DB Mock MVP workflow', () => {
       dataRoot: '/opt/dbmock',
       portStart: 20000,
       portEnd: 40000,
-      manageDocker: false,
-      proxyHttp: '',
-      proxyHttps: '',
-      proxyNoProxy: '',
       maintenance: false,
       autoRestartDefault: true,
       labels: {},
@@ -253,9 +254,34 @@ test.describe('DB Mock MVP workflow', () => {
     await page.getByRole('button', { name: '运行操作 · Orders DB' }).click()
     await page.getByRole('menuitem', { name: '停止' }).click()
     const stopDialog = page.getByRole('dialog', { name: '停止 Orders DB？' })
+    await expect(stopDialog).toHaveCount(1)
     await expect(stopDialog.getByText('停止会中断现有数据库连接')).toBeVisible()
+    await expect(stopDialog.getByText('操作对象')).toBeVisible()
+    await expect(stopDialog.getByText('Orders DB · 运行中')).toBeVisible()
+    await expect(page.getByText(/批量|已选择/)).toHaveCount(0)
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expectNoOverflow(page)
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: testInfo.outputPath('instance-stop-confirm-1440.png'), fullPage: false })
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect.poll(() => stopDialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('instance-stop-confirm-1024.png'), fullPage: false })
     await stopDialog.getByRole('button', { name: '确认停止' }).click()
-    await expect.poll(() => state.stopPayload).toEqual({ instanceIds: [instanceID] })
+    await expect.poll(() => state.stopPayload).toEqual({})
+    await expect(stopDialog).toBeHidden()
+    await page.waitForTimeout(500)
+    const stopResult = page.locator('.instance-action-result')
+    await expect(stopResult.getByText('Orders DB：停止已完成')).toBeVisible()
+    await expect(stopResult.getByRole('button', { name: '查看任务' })).toBeVisible()
+    await expect(stopResult.getByRole('button', { name: '关闭提示' })).toBeVisible()
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('instance-stop-result-1024.png'), fullPage: true })
+
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('instance-stop-result-1440.png'), fullPage: true })
     expect(diagnostics.consoleErrors).toEqual([])
     expect(diagnostics.httpErrors).toEqual([])
   })

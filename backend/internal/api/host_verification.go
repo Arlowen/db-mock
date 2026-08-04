@@ -24,7 +24,6 @@ type hostVerificationReceipt struct {
 	HostID             string `json:"hostId,omitempty"`
 	InputSHA256        string `json:"inputSha256"`
 	HostKey            string `json:"hostKey"`
-	PasswordlessSudo   bool   `json:"passwordlessSudo"`
 	DataRootWritable   bool   `json:"dataRootWritable"`
 	PortProbeAvailable bool   `json:"portProbeAvailable"`
 	FirstAvailablePort int    `json:"firstAvailablePort"`
@@ -60,7 +59,7 @@ func issueHostVerification(vault *appcrypto.Vault, input hostRequest, hostID *uu
 	expiresAt := now.UTC().Add(hostVerificationTTL)
 	receipt := hostVerificationReceipt{
 		InputSHA256: hostVerificationDigest(input), HostKey: probe.HostKey,
-		PasswordlessSudo: probe.PasswordlessSudo, DataRootWritable: probe.DataRootWritable,
+		DataRootWritable:   probe.DataRootWritable,
 		PortProbeAvailable: probe.PortProbeAvailable, FirstAvailablePort: probe.FirstAvailablePort,
 		IssuedAt: now.UTC().Unix(), ExpiresAt: expiresAt.Unix(),
 	}
@@ -111,6 +110,5 @@ func hostVerificationRequired(existing domain.Host, input hostRequest) bool {
 	return existing.HostKey == "" || input.Credential != "" ||
 		strings.TrimSpace(input.SSHAddress) != existing.SSHAddress || input.SSHPort != existing.SSHPort ||
 		strings.TrimSpace(input.SSHUser) != existing.SSHUser || input.AuthType != existing.AuthType ||
-		input.DataRoot != existing.DataRoot || input.PortStart != existing.PortStart || input.PortEnd != existing.PortEnd ||
-		input.ManageDocker && !existing.ManageDocker
+		input.DataRoot != existing.DataRoot || input.PortStart != existing.PortStart || input.PortEnd != existing.PortEnd
 }

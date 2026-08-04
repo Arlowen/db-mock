@@ -45,7 +45,6 @@ func hostAuditChanges(before, after domain.Host, input hostRequest) map[string]a
 	addAuditTransition(changes, "dataRoot", before.DataRoot, after.DataRoot)
 	addAuditTransition(changes, "portStart", before.PortStart, after.PortStart)
 	addAuditTransition(changes, "portEnd", before.PortEnd, after.PortEnd)
-	addAuditTransition(changes, "manageDocker", before.ManageDocker, after.ManageDocker)
 	addAuditTransition(changes, "maintenance", before.Maintenance, after.Maintenance)
 	addAuditTransition(changes, "autoRestartDefault", before.AutoRestartDefault, after.AutoRestartDefault)
 	addAuditTransition(changes, "labels", auditJSON(before.Labels), auditJSON(after.Labels))
@@ -54,9 +53,6 @@ func hostAuditChanges(before, after domain.Host, input hostRequest) map[string]a
 	}
 	if input.HostKey != "" && input.HostKey != before.HostKey {
 		changes["hostKeyChanged"] = true
-	}
-	if before.ProxyHTTP != after.ProxyHTTP || before.ProxyHTTPS != after.ProxyHTTPS || before.ProxyNoProxy != after.ProxyNoProxy {
-		changes["proxyConfigurationChanged"] = true
 	}
 	return changes
 }

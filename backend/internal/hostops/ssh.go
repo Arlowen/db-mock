@@ -63,7 +63,6 @@ type ProbeResult struct {
 	Architecture       string  `json:"architecture"`
 	DockerVersion      string  `json:"dockerVersion"`
 	ComposeVersion     string  `json:"composeVersion"`
-	PasswordlessSudo   bool    `json:"passwordlessSudo"`
 	CPUCount           float64 `json:"cpuCount"`
 	MemoryBytes        int64   `json:"memoryBytes"`
 	DiskTotalBytes     int64   `json:"diskTotalBytes"`
@@ -214,8 +213,6 @@ distro=""
 if [ -r /etc/os-release ]; then . /etc/os-release; distro="${ID:-unknown}:${VERSION_ID:-unknown}"; fi
 docker_version="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
 compose_version="$(docker compose version --short 2>/dev/null || true)"
-passwordless_sudo=false
-if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then passwordless_sudo=true; fi
 docker_resources="$(docker info --format '{{.NCPU}}|{{.MemTotal}}' 2>/dev/null || true)"
 cpu="${docker_resources%%|*}"; memory="${docker_resources#*|}"
 if [ -z "$docker_resources" ] || [ "$docker_resources" = "$memory" ]; then
@@ -250,7 +247,7 @@ if [ "$port_probe_available" = true ]; then
   ')"
   [ -n "$first_available_port" ] || first_available_port=0
 fi
-printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\npasswordless_sudo=%s\ncpu=%s\nmemory=%s\ndisk=%s\ndata_root_writable=%s\nport_probe_available=%s\nfirst_available_port=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$passwordless_sudo" "$cpu" "$memory" "$disk" "$data_root_writable" "$port_probe_available" "$first_available_port"`
+printf 'os=%s\narch=%s\ndistro=%s\ndocker=%s\ncompose=%s\ncpu=%s\nmemory=%s\ndisk=%s\ndata_root_writable=%s\nport_probe_available=%s\nfirst_available_port=%s\n' "$os" "$arch" "$distro" "$docker_version" "$compose_version" "$cpu" "$memory" "$disk" "$data_root_writable" "$port_probe_available" "$first_available_port"`
 }
 
 func parseProbeResult(values map[string]string, captured string, portStart, portEnd int) (ProbeResult, error) {
@@ -261,7 +258,6 @@ func parseProbeResult(values map[string]string, captured string, portStart, port
 		Architecture:       normalizeArchitecture(values["arch"]),
 		DockerVersion:      values["docker"],
 		ComposeVersion:     values["compose"],
-		PasswordlessSudo:   values["passwordless_sudo"] == "true",
 		DataRootWritable:   values["data_root_writable"] == "true",
 		PortProbeAvailable: values["port_probe_available"] == "true",
 	}

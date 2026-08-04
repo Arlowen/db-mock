@@ -29,7 +29,7 @@ interface HostForm {
 
 interface HostProbeResult {
   hostKey: string; os: string; distro: string; architecture: string; dockerVersion: string; composeVersion: string;
-  passwordlessSudo: boolean; cpuCount: number; memoryBytes: number; diskTotalBytes: number; diskFreeBytes: number;
+  cpuCount: number; memoryBytes: number; diskTotalBytes: number; diskFreeBytes: number;
   dataRootWritable: boolean; portProbeAvailable: boolean; firstAvailablePort: number;
   verificationToken: string; verificationExpiresAt: string;
 }

@@ -39,13 +39,6 @@ type CreateRequest struct {
 	TemplateParameters map[string]any `json:"templateParameters"`
 }
 
-type BatchActionOutcome struct {
-	InstanceID   uuid.UUID
-	InstanceName string
-	Task         *domain.Task
-	Err          error
-}
-
 type CleanupReview struct {
 	InstanceID   uuid.UUID                   `json:"instanceId"`
 	InstanceName string                      `json:"instanceName"`
@@ -308,50 +301,6 @@ func (s *Service) action(ctx context.Context, userID uuid.UUID, instance domain.
 	return task, err
 }
 
-func (s *Service) BatchAction(ctx context.Context, userID uuid.UUID, action string, instanceIDs []uuid.UUID) ([]BatchActionOutcome, error) {
-	if action != "start" && action != "stop" && action != "restart" {
-		return nil, fmt.Errorf("%w: batch actions only support start, stop, or restart", domain.ErrInvalid)
-	}
-	if len(instanceIDs) == 0 || len(instanceIDs) > 100 {
-		return nil, fmt.Errorf("%w: select between 1 and 100 instances", domain.ErrInvalid)
-	}
-	seen := make(map[uuid.UUID]struct{}, len(instanceIDs))
-	for _, instanceID := range instanceIDs {
-		if instanceID == uuid.Nil {
-			return nil, fmt.Errorf("%w: instance IDs must be valid UUIDs", domain.ErrInvalid)
-		}
-		if _, duplicate := seen[instanceID]; duplicate {
-			return nil, fmt.Errorf("%w: instance IDs must be unique", domain.ErrInvalid)
-		}
-		seen[instanceID] = struct{}{}
-	}
-
-	outcomes := make([]BatchActionOutcome, 0, len(instanceIDs))
-	for _, instanceID := range instanceIDs {
-		outcome := BatchActionOutcome{InstanceID: instanceID}
-		instance, err := s.store.GetInstance(ctx, instanceID)
-		if err != nil {
-			outcome.Err = err
-			outcomes = append(outcomes, outcome)
-			continue
-		}
-		outcome.InstanceName = instance.Name
-		if err = validateBatchInstanceAction(instance.Status, action); err != nil {
-			outcome.Err = err
-			outcomes = append(outcomes, outcome)
-			continue
-		}
-		task, err := s.action(ctx, userID, instance, action)
-		if err != nil {
-			outcome.Err = err
-		} else {
-			outcome.Task = &task
-		}
-		outcomes = append(outcomes, outcome)
-	}
-	return outcomes, nil
-}
-
 func (s *Service) GetCleanupReview(ctx context.Context, instanceID uuid.UUID) (CleanupReview, error) {
 	instance, err := s.store.GetInstance(ctx, instanceID)
 	if err != nil {
@@ -387,16 +336,6 @@ func buildCleanupReview(instance domain.Instance, backups []domain.InstanceBacku
 	review.Blockers = domain.InstanceCleanupBlockers(instance.Status, review.BackupCount, review.ActiveTask != nil)
 	review.DeleteReady = len(review.Blockers) == 0
 	return review
-}
-
-func validateBatchInstanceAction(status, action string) error {
-	if action == "start" && status == "stopped" {
-		return nil
-	}
-	if (action == "stop" || action == "restart") && (status == "running" || status == "degraded") {
-		return nil
-	}
-	return fmt.Errorf("%w: instance action is not allowed for the current status", domain.ErrConflict)
 }
 
 func (s *Service) DeleteBackup(ctx context.Context, userID, instanceID, backupID uuid.UUID) (domain.InstanceBackup, domain.Task, error) {

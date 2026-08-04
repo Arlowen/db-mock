@@ -5,9 +5,6 @@ const cancellationPendingStatuses = new Set(['queued', 'running'])
 const failedStatuses = new Set(['failed', 'interrupted', 'canceled'])
 const retryableTaskKinds = new Set([
   'host.probe',
-  'host.install_docker',
-  'host.upgrade_docker',
-  'host.configure_proxy',
   'instance.create',
   'instance.start',
   'instance.stop',

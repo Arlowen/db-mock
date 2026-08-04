@@ -1,6 +1,22 @@
 package hostops
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/pika/db-mock/internal/domain"
+)
+
+func TestEnqueueRejectsRetiredDockerManagementBeforeStoreAccess(t *testing.T) {
+	service := &Service{}
+	for _, action := range []string{"install_docker", "upgrade_docker", "configure_proxy"} {
+		if _, err := service.Enqueue(context.Background(), uuid.New(), uuid.New(), action); !errors.Is(err, domain.ErrInvalid) {
+			t.Fatalf("retired action %s error = %v, want invalid", action, err)
+		}
+	}
+}
 
 func TestProbeStatusRequiresAUsableManagedRootAndPortInspector(t *testing.T) {
 	ready := ProbeResult{OS: "linux", Architecture: "amd64", DockerVersion: "27.5.1", ComposeVersion: "2.35.1",

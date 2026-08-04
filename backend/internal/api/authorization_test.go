@@ -68,6 +68,7 @@ func TestAuthenticatedRouteSurfaceExcludesNonMVPAPIs(t *testing.T) {
 		http.MethodGet + " /instances/{id}/backup-policy",
 		http.MethodPut + " /instances/{id}/backup-policy",
 		http.MethodPost + " /instances/{id}/backups/{backupId}/restore",
+		http.MethodPost + " /instances/batch-actions/{action}",
 	} {
 		if routes[retired] {
 			t.Fatalf("retired route is still registered: %s", retired)
@@ -94,6 +95,25 @@ func TestRetiredInstanceActionsAreRejectedBeforeStoreAccess(t *testing.T) {
 	}
 }
 
+func TestRetiredHostActionsAreRejectedBeforeStoreAccess(t *testing.T) {
+	for _, action := range []string{"install_docker", "upgrade_docker", "configure_proxy"} {
+		router := chi.NewRouter()
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				actor := auth.Actor{User: domain.User{Role: domain.RoleAdmin}}
+				next.ServeHTTP(w, r.WithContext(auth.WithActor(r.Context(), actor)))
+			})
+		})
+		(&Server{}).hostRoutes(router)
+		response := httptest.NewRecorder()
+		path := "/11111111-1111-4111-8111-111111111111/actions/" + action
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("retired action %s status = %d, want %d; body=%s", action, response.Code, http.StatusBadRequest, response.Body.String())
+		}
+	}
+}
+
 func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -103,8 +123,7 @@ func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 	}{
 		{name: "host probe", method: http.MethodPost, path: "/test", routes: (*Server).hostRoutes},
 		{name: "instance create", method: http.MethodPost, path: "/", routes: (*Server).instanceRoutes},
-		{name: "instance batch stop", method: http.MethodPost, path: "/batch-actions/stop", routes: (*Server).instanceRoutes},
-		{name: "instance batch restart", method: http.MethodPost, path: "/batch-actions/restart", routes: (*Server).instanceRoutes},
+		{name: "instance stop", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/actions/stop", routes: (*Server).instanceRoutes},
 		{name: "credential reveal", method: http.MethodGet, path: "/11111111-1111-4111-8111-111111111111/connection", routes: (*Server).instanceRoutes},
 		{name: "task cancel", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/cancel", routes: (*Server).taskRoutes},
 	}

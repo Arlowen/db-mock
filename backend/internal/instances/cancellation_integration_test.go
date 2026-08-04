@@ -17,6 +17,7 @@ import (
 	appcrypto "github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/db"
 	"github.com/pika/db-mock/internal/domain"
+	"github.com/pika/db-mock/internal/hostops"
 	"github.com/pika/db-mock/internal/store"
 	"github.com/pika/db-mock/internal/tasks"
 )
@@ -352,42 +353,36 @@ func TestStartupQuarantinesInterruptedUnsupportedInstanceTasks(t *testing.T) {
 	}
 }
 
-func TestBatchActionQueuesEligibleInstancesAndReportsPartialFailures(t *testing.T) {
+func TestStartupRetiresUnsupportedQueuedHostManagementTasks(t *testing.T) {
 	ctx, pool := openCancellationTest(t)
 	fixture := seedCancellationFixture(t, ctx, pool)
-	stoppedID := uuid.New()
-	if _, err := pool.Exec(ctx, `INSERT INTO instances(id,name,host_id,template_version_id,status,desired_state,
-		cpu,memory_bytes,reserved_disk_bytes,host_port,container_port,database_username,encrypted_password,
-		compose_project,remote_directory,configuration) VALUES($1,'stopped-batch-db',$2,$3,'stopped','stopped',
-		1,1073741824,10737418240,25433,5432,'postgres','sealed',$4,$5,$6)`, stoppedID, fixture.hostID,
-		fixture.versionID, "dbmock_"+strings.ReplaceAll(stoppedID.String(), "-", ""),
-		"/opt/dbmock/instances/"+stoppedID.String(), json.RawMessage(`{"extraEnvironment":{}}`)); err != nil {
-		t.Fatal(err)
-	}
-
 	target := store.New(pool)
-	manager := tasks.New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
-	service := NewService(target, nil, nil, manager)
-	missingID := uuid.New()
-	outcomes, err := service.BatchAction(ctx, fixture.userID, "stop",
-		[]uuid.UUID{fixture.instanceID, stoppedID, missingID})
+	legacy, err := target.CreateTask(ctx, store.TaskInput{Kind: "host.upgrade_docker", ResourceType: "host",
+		ResourceID: &fixture.hostID, RequestedBy: fixture.userID, HostID: &fixture.hostID,
+		Payload: hostops.HostTaskPayload{HostID: fixture.hostID}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(outcomes) != 3 || outcomes[0].Task == nil || outcomes[0].Err != nil ||
-		!errors.Is(outcomes[1].Err, domain.ErrConflict) || !errors.Is(outcomes[2].Err, domain.ErrNotFound) {
-		t.Fatalf("unexpected batch outcomes: %#v", outcomes)
+
+	manager := tasks.New(target, slog.New(slog.NewTextHandler(io.Discard, nil)), 1)
+	hostops.NewService(target, nil, manager)
+	workerContext, stopWorkers := context.WithCancel(ctx)
+	if err = manager.Start(workerContext); err != nil {
+		stopWorkers()
+		t.Fatal(err)
 	}
-	if outcomes[0].InstanceName != "cancel-db" || outcomes[0].Task.Kind != "instance.stop" ||
-		outcomes[0].Task.ResourceID == nil || *outcomes[0].Task.ResourceID != fixture.instanceID {
-		t.Fatalf("accepted batch outcome = %#v", outcomes[0])
+	stopWorkers()
+	manager.Wait()
+
+	retired, err := target.GetTask(ctx, legacy.ID)
+	if err != nil || retired.Status != "canceled" || retired.ErrorCode != "canceled" {
+		t.Fatalf("legacy host task was not retired safely: task=%#v err=%v", retired, err)
 	}
-	running, err := target.GetInstance(ctx, fixture.instanceID)
-	if err != nil || running.Status != "stopping" {
-		t.Fatalf("eligible instance was not reserved for stopping: instance=%#v err=%v", running, err)
+	if _, err = manager.RetryTask(ctx, legacy.ID, fixture.userID); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("retired host task retry error = %v, want conflict", err)
 	}
-	stopped, err := target.GetInstance(ctx, stoppedID)
-	if err != nil || stopped.Status != "stopped" || stopped.DesiredState != "stopped" {
-		t.Fatalf("ineligible instance changed: instance=%#v err=%v", stopped, err)
+	host, err := target.GetHost(ctx, fixture.hostID)
+	if err != nil || host.Status != "online" {
+		t.Fatalf("retiring an unstarted host task changed host state: host=%#v err=%v", host, err)
 	}
 }

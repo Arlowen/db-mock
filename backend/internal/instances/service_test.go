@@ -1,7 +1,6 @@
 package instances
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -58,55 +57,6 @@ func TestValidateInstanceAction(t *testing.T) {
 	for _, action := range []string{"upgrade", "reconfigure", "backup", "restore", "unknown"} {
 		if err := validateInstanceAction("running", action); !errors.Is(err, domain.ErrInvalid) {
 			t.Fatalf("expected retired action %q to be invalid, got %v", action, err)
-		}
-	}
-}
-
-func TestBatchActionRejectsUnsafeRequestShapes(t *testing.T) {
-	service := &Service{}
-	instanceID := uuid.New()
-	tests := []struct {
-		name        string
-		action      string
-		instanceIDs []uuid.UUID
-	}{
-		{name: "unsupported action", action: "delete", instanceIDs: []uuid.UUID{instanceID}},
-		{name: "empty selection", action: "start"},
-		{name: "duplicate IDs", action: "stop", instanceIDs: []uuid.UUID{instanceID, instanceID}},
-		{name: "nil ID", action: "start", instanceIDs: []uuid.UUID{uuid.Nil}},
-		{name: "too many IDs", action: "stop", instanceIDs: make([]uuid.UUID, 101)},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := service.BatchAction(context.Background(), uuid.New(), test.action, test.instanceIDs); !errors.Is(err, domain.ErrInvalid) {
-				t.Fatalf("BatchAction error = %v, want invalid input", err)
-			}
-		})
-	}
-}
-
-func TestValidateBatchInstanceActionKeepsFailedRecoveryIndividual(t *testing.T) {
-	for _, test := range []struct{ status, action string }{
-		{status: "stopped", action: "start"},
-		{status: "running", action: "stop"},
-		{status: "degraded", action: "stop"},
-		{status: "running", action: "restart"},
-		{status: "degraded", action: "restart"},
-	} {
-		if err := validateBatchInstanceAction(test.status, test.action); err != nil {
-			t.Fatalf("expected batch %s for %s to be valid, got %v", test.action, test.status, err)
-		}
-	}
-	for _, test := range []struct{ status, action string }{
-		{status: "failed", action: "start"},
-		{status: "running", action: "start"},
-		{status: "stopped", action: "stop"},
-		{status: "provisioning", action: "stop"},
-		{status: "stopped", action: "restart"},
-		{status: "restarting", action: "restart"},
-	} {
-		if err := validateBatchInstanceAction(test.status, test.action); !errors.Is(err, domain.ErrConflict) {
-			t.Fatalf("expected batch %s for %s to conflict, got %v", test.action, test.status, err)
 		}
 	}
 }

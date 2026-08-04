@@ -121,7 +121,6 @@ func TestProbeResultUsesFrontendJSONContract(t *testing.T) {
 	data, err := json.Marshal(ProbeResult{
 		HostKey:            "SHA256:example",
 		DockerVersion:      "27.5.1",
-		PasswordlessSudo:   true,
 		DataRootWritable:   true,
 		PortProbeAvailable: true,
 		FirstAvailablePort: 20001,
@@ -130,7 +129,7 @@ func TestProbeResultUsesFrontendJSONContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := string(data)
-	for _, expected := range []string{`"hostKey":"SHA256:example"`, `"dockerVersion":"27.5.1"`, `"passwordlessSudo":true`, `"dataRootWritable":true`, `"portProbeAvailable":true`, `"firstAvailablePort":20001`} {
+	for _, expected := range []string{`"hostKey":"SHA256:example"`, `"dockerVersion":"27.5.1"`, `"dataRootWritable":true`, `"portProbeAvailable":true`, `"firstAvailablePort":20001`} {
 		if !strings.Contains(value, expected) {
 			t.Fatalf("expected %s in %s", expected, value)
 		}

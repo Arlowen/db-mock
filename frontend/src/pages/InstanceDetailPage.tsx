@@ -568,9 +568,9 @@ export function InstanceDetailPage() {
       okButtonProps={{ danger: lifecycleConfirmAction === 'stop', disabled: !lifecycleConfirmationCanSubmit || (!!actioning && actioning !== lifecycleConfirmAction) }}
       destroyOnHidden
     >
-      <div className="instance-bulk-confirm">
+      <div className="instance-action-confirm">
         <Alert type={lifecycleConfirmAction === 'stop' || lifecycleConfirmAction === 'restart' ? 'warning' : 'info'} showIcon message={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmMessage' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmMessage' : 'instanceStartConfirmMessage') : ''} description={lifecycleConfirmAction ? t(lifecycleConfirmAction === 'stop' ? 'instanceStopConfirmImpact' : lifecycleConfirmAction === 'restart' ? 'instanceRestartConfirmImpact' : 'instanceStartConfirmImpact') : ''} />
-        <div><Typography.Text strong>{t('instanceActionTarget')}</Typography.Text><Space size={[6, 6]} wrap className="instance-bulk-name-list"><Tag>{item.name} · {translateCode(t, item.status)}</Tag></Space></div>
+        <div><Typography.Text strong>{t('instanceActionTarget')}</Typography.Text><div className="instance-action-target"><Tag>{item.name} · {translateCode(t, item.status)}</Tag></div></div>
         {lifecycleRequestFailure && lifecycleRequestFailure.action === lifecycleConfirmAction && <Alert type="error" showIcon message={t('instanceActionRequestFailed', { action: t(lifecycleRequestFailure.action) })} description={<div className="instance-action-request-description"><div><Typography.Text type="secondary">{t('failureCause')}</Typography.Text><Typography.Text>{lifecycleRequestFailure.message}</Typography.Text></div><div><Typography.Text type="secondary">{t('failureImpact')}</Typography.Text><Typography.Text>{t('instanceActionRequestImpact')}</Typography.Text></div><div><Typography.Text type="secondary">{t('recoveryAdvice')}</Typography.Text><Typography.Text>{t(instanceLifecycleRequestRecoveryKey(lifecycleRequestFailure.code))}</Typography.Text></div></div>} />}
       </div>
     </Modal>

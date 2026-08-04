@@ -17,13 +17,14 @@ import { frequentTemplateVersions } from '../lib/frequent-template-versions'
 import { hostCanAccept, hostDeploymentReadiness, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
 import { canRetryInstanceCreateRequest, instanceCreateRecoveryKey, type InstanceCreateRequestFailure } from '../lib/instance-create-recovery'
 import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from '../lib/instance-handoff'
-import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
+import { instanceListActions, type InstanceLifecycleAction } from '../lib/instance-actions'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { mvpDatabaseTemplates, mvpInstanceCreatePayload, mvpTemplateImageReferences } from '../lib/mvp-instance-create'
 import { permissionsFor } from '../lib/permissions'
 import { restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask } from '../lib/task-recovery'
+import { canRetryTask } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { templateAuthentication } from '../lib/template-authentication'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
@@ -31,17 +32,7 @@ import type { DatabaseTemplate, Host, Instance, InstanceBackup, Task, TemplatePa
 import { bytes } from '../lib/types'
 
 interface CreateValues { name: string; templateVersionId: string; hostId?: string; cpu: number; memoryGiB: number; diskGiB: number; templateParameters?: Record<string, TemplateParameterValue> }
-
-function batchActionErrorMessage(item: InstanceBatchRejected): string {
-  const status = item.code === 'not_found' ? 404
-    : item.code === 'resource_conflict' ? 409
-      : item.code === 'forbidden' ? 403
-        : item.code === 'unauthorized' ? 401
-          : item.code === 'resource_unavailable' ? 503
-            : item.code === 'invalid_input' ? 400
-              : 500
-  return errorMessage(new ApiError(status, item.code, item.message))
-}
+interface InstanceActionResult { action: InstanceLifecycleAction; instanceId: string; instanceName: string; task: Task }
 
 function connectionHandoffText(
   item: Instance,
@@ -81,16 +72,15 @@ function connectionHandoffText(
 }
 
 export function InstancesPage() {
-  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const initializedTemplateVersionID = useRef(''); const suppressRequestedCreateRef = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [hostFilter, setHostFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
-  const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
-  const [bulkAction, setBulkAction] = useState<InstanceBatchAction>()
+  const { t, i18n } = useTranslation(); const { modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const initializedTemplateVersionID = useRef(''); const suppressRequestedCreateRef = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [hostFilter, setHostFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const [lifecycleAction, setLifecycleAction] = useState<InstanceLifecycleAction>()
   const [rowActionInstance, setRowActionInstance] = useState<Instance>()
-  const [bulkSubmitting, setBulkSubmitting] = useState(false)
-  const [bulkRequestError, setBulkRequestError] = useState('')
-  const [bulkResult, setBulkResult] = useState<InstanceBatchActionResult>()
-  const [bulkTracking, setBulkTracking] = useState(false)
-  const [bulkTrackingError, setBulkTrackingError] = useState('')
-  const [bulkRetryingTaskID, setBulkRetryingTaskID] = useState('')
+  const [actionSubmitting, setActionSubmitting] = useState(false)
+  const [actionRequestError, setActionRequestError] = useState('')
+  const [actionResult, setActionResult] = useState<InstanceActionResult>()
+  const [actionTracking, setActionTracking] = useState(false)
+  const [actionTrackingError, setActionTrackingError] = useState('')
+  const [actionRetryingTaskID, setActionRetryingTaskID] = useState('')
   const [handoffItem, setHandoffItem] = useState<Instance>()
   const [handoffLoading, setHandoffLoading] = useState(false)
   const [handoffError, setHandoffError] = useState('')
@@ -131,10 +121,6 @@ export function InstancesPage() {
   }, [requestedHostID, requestedTemplateID])
   const addRequiredHost = useCallback(() => navigate(`/hosts?create=1&returnTo=${encodeURIComponent(createIntent())}`), [createIntent, navigate])
   useEffect(() => { void load() }, [load])
-  useEffect(() => {
-    const available = new Set(items.map((item) => item.id))
-    setSelectedInstanceIDs((current) => current.filter((id) => available.has(id)))
-  }, [items])
   useEffect(() => {
     if (!createRequested) { suppressRequestedCreateRef.current = false; return }
     if (suppressRequestedCreateRef.current || drawer || loading || loadError || !creationDataReady) return
@@ -307,110 +293,71 @@ export function InstancesPage() {
       }
     } finally { setCreating(false) }
   }
-  const selectedInstances = useMemo(() => {
-    const selected = new Set(selectedInstanceIDs)
-    return items.filter((item) => selected.has(item.id))
-  }, [items, selectedInstanceIDs])
-  const startBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'start'), [selectedInstances])
-  const stopBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'stop'), [selectedInstances])
-  const restartBatchPlan = useMemo(() => instanceBatchActionPlan(selectedInstances, 'restart'), [selectedInstances])
-  const rowActionPlan = useMemo(() => rowActionInstance && bulkAction ? instanceBatchActionPlan([rowActionInstance], bulkAction) : undefined, [bulkAction, rowActionInstance])
-  const activeBatchPlan = rowActionPlan || (bulkAction === 'start' ? startBatchPlan : bulkAction === 'restart' ? restartBatchPlan : stopBatchPlan)
-  const openBatchAction = (action: InstanceBatchAction) => {
-    setBulkRequestError('')
-    setRowActionInstance(undefined)
-    setBulkAction(action)
-  }
-  const openRowAction = (item: Instance, action: InstanceBatchAction) => {
-    setBulkRequestError('')
+  const openRowAction = (item: Instance, action: InstanceLifecycleAction) => {
+    setActionRequestError('')
     setRowActionInstance(item)
-    setBulkAction(action)
+    setLifecycleAction(action)
   }
-  const submitBatchAction = async (action: InstanceBatchAction, instanceIDs: string[], skipped: Instance[], keepConfirmationOpen: boolean) => {
-    const source = rowActionInstance ? 'row' : 'selection'
+  const submitLifecycleAction = async () => {
+    if (!lifecycleAction || !rowActionInstance) return
     try {
-      setBulkSubmitting(true)
-      setBulkRequestError('')
-      setBulkTrackingError('')
-      const result = await api<InstanceBatchActionResponse>(`/instances/batch-actions/${action}`, {
+      setActionSubmitting(true)
+      setActionRequestError('')
+      setActionTrackingError('')
+      const task = await api<Task>(`/instances/${rowActionInstance.id}/actions/${lifecycleAction}`, {
         method: 'POST',
-        body: { instanceIds: instanceIDs },
+        body: {},
       })
-      result.accepted.forEach((item) => notifyTask(item.task))
-      setBulkResult((current) => {
-        if (keepConfirmationOpen || !current) return { ...result, skipped, source, contextName: rowActionInstance?.name }
-        const retried = new Set(instanceIDs)
-        return {
-          action: result.action,
-          accepted: [...current.accepted, ...result.accepted],
-          rejected: [...current.rejected.filter((item) => !retried.has(item.instanceId)), ...result.rejected],
-          skipped: current.skipped,
-        }
-      })
-      setBulkAction(undefined)
+      notifyTask(task)
+      setActionResult({ action: lifecycleAction, instanceId: rowActionInstance.id, instanceName: rowActionInstance.name, task })
+      setLifecycleAction(undefined)
       setRowActionInstance(undefined)
-      if (source === 'selection') setSelectedInstanceIDs([])
       setLoading(true)
       await load()
     } catch (error) {
-      if (keepConfirmationOpen) setBulkRequestError(errorMessage(error))
-      else message.error(errorMessage(error))
+      setActionRequestError(errorMessage(error))
     } finally {
-      setBulkSubmitting(false)
+      setActionSubmitting(false)
     }
   }
-  const bulkTaskGroups = useMemo(() => instanceBatchTaskGroups(bulkResult?.accepted || []), [bulkResult?.accepted])
-  const trackedBatchTaskIDs = useMemo(() => (bulkResult?.accepted || []).map((item) => item.task.id).join(','), [bulkResult?.accepted])
-  const refreshTrackedBatchTasks = useCallback(async (showLoading = true) => {
-    if (!trackedBatchTaskIDs) return
+  const trackedActionTaskID = actionResult?.task.id
+  const actionTaskActive = !!actionResult && ['queued', 'running', 'retrying'].includes(actionResult.task.status)
+  const refreshTrackedAction = useCallback(async (showLoading = true) => {
+    if (!trackedActionTaskID) return
     try {
-      if (showLoading) setBulkTracking(true)
-      const response = await api<{ items: Task[] }>(`/tasks?ids=${encodeURIComponent(trackedBatchTaskIDs)}`)
-      const tasksByID = new Map(response.items.map((task) => [task.id, task]))
-      setBulkResult((current) => current ? {
-        ...current,
-        accepted: current.accepted.map((item) => tasksByID.has(item.task.id) ? { ...item, task: tasksByID.get(item.task.id)! } : item),
-      } : current)
-      setBulkTrackingError('')
-      if (response.items.length > 0 && response.items.every((task) => ['succeeded', 'failed', 'canceled', 'interrupted'].includes(task.status))) {
+      if (showLoading) setActionTracking(true)
+      const task = await api<Task>(`/tasks/${trackedActionTaskID}`)
+      setActionResult((current) => current ? { ...current, task } : current)
+      setActionTrackingError('')
+      if (['succeeded', 'failed', 'canceled', 'interrupted'].includes(task.status)) {
         await load()
       }
     } catch (error) {
-      setBulkTrackingError(errorMessage(error))
+      setActionTrackingError(errorMessage(error))
     } finally {
-      if (showLoading) setBulkTracking(false)
+      if (showLoading) setActionTracking(false)
     }
-  }, [load, trackedBatchTaskIDs])
+  }, [load, trackedActionTaskID])
   useEffect(() => {
-    if (!trackedBatchTaskIDs || bulkTaskGroups.active.length === 0) return
-    void refreshTrackedBatchTasks(false)
-    const timer = window.setInterval(() => void refreshTrackedBatchTasks(false), 3000)
+    if (!trackedActionTaskID || !actionTaskActive) return
+    void refreshTrackedAction(false)
+    const timer = window.setInterval(() => void refreshTrackedAction(false), 3000)
     return () => window.clearInterval(timer)
-  }, [bulkTaskGroups.active.length, refreshTrackedBatchTasks, trackedBatchTaskIDs])
-  const retryBatchTask = async (item: InstanceBatchAccepted) => {
+  }, [actionTaskActive, refreshTrackedAction, trackedActionTaskID])
+  const retryActionTask = async () => {
+    if (!actionResult) return
     try {
-      setBulkRetryingTaskID(item.task.id)
-      setBulkTrackingError('')
-      const task = await api<Task>(`/tasks/${item.task.id}/retry`, { method: 'POST', body: {} })
+      setActionRetryingTaskID(actionResult.task.id)
+      setActionTrackingError('')
+      const task = await api<Task>(`/tasks/${actionResult.task.id}/retry`, { method: 'POST', body: {} })
       notifyTask(task)
-      setBulkResult((current) => current ? {
-        ...current,
-        accepted: current.accepted.map((accepted) => accepted.task.id === item.task.id ? { ...accepted, task } : accepted),
-      } : current)
+      setActionResult((current) => current ? { ...current, task } : current)
       await load()
     } catch (error) {
-      setBulkTrackingError(errorMessage(error))
+      setActionTrackingError(errorMessage(error))
     } finally {
-      setBulkRetryingTaskID('')
+      setActionRetryingTaskID('')
     }
-  }
-  const retryableRejected = bulkResult?.rejected.filter((item) => ['internal_error', 'resource_unavailable'].includes(item.code)) || []
-  const clearSelection = () => {
-    setSelectedInstanceIDs([])
-    setBulkAction(undefined)
-    setRowActionInstance(undefined)
-    setBulkRequestError('')
-    setBulkTrackingError('')
   }
   const openConnectionHandoff = (item: Instance) => {
     handoffRequestID.current += 1
@@ -467,12 +414,12 @@ export function InstancesPage() {
             icon: action === 'start' ? <PlayCircleOutlined /> : action === 'stop' ? <PauseCircleOutlined /> : <ReloadOutlined />,
             danger: action === 'stop',
           })),
-          onClick: ({ key }) => openRowAction(item, key as InstanceBatchAction),
+          onClick: ({ key }) => openRowAction(item, key as InstanceLifecycleAction),
         }}
       >
         <Button
           type="text"
-          disabled={bulkSubmitting}
+          disabled={actionSubmitting}
           aria-label={t('instanceLifecycleActionsForInstance', { name: item.name })}
           title={t('instanceLifecycleActionsForInstance', { name: item.name })}
           icon={<ControlOutlined />}
@@ -526,11 +473,6 @@ export function InstancesPage() {
   const filteredItems = useMemo(() => items.filter((item) => (!hostFilter || item.hostId === hostFilter) && (!statusFilter || item.status === statusFilter) && `${item.name} ${item.templateName} ${item.hostName}`.toLowerCase().includes(search.toLowerCase())), [items, hostFilter, statusFilter, search])
   const hasFilters = !!(search || hostFilter || statusFilter)
   const showFilters = items.length > 0 || hasFilters
-  useEffect(() => {
-    setSelectedInstanceIDs([])
-    setBulkAction(undefined)
-    setBulkRequestError('')
-  }, [hostFilter, search, statusFilter])
   const resetPage = () => setPage(1)
   const clearFilters = () => {
     setSearch('')
@@ -542,83 +484,41 @@ export function InstancesPage() {
   const emptyActionLabel = hasFilters ? t('clearFilters') : canOperate ? creationDataReady ? hasOnlineHost ? t('createInstance') : t('addHost') : t('retry') : undefined
   const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : creationDataReady ? t('instancesEmptyDescription') : t('instanceCreationDataUnavailable')
   const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && creationDataReady && (items.length > 0 || hasFilters) && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
-  const bulkToolbar = canOperate && selectedInstances.length > 0 && <Card size="small" className="instance-bulk-toolbar">
-    <div className="instance-bulk-toolbar-copy">
-      <Typography.Text strong>{t('batchSelectionCount', { count: selectedInstances.length })}</Typography.Text>
-      <Typography.Text type="secondary">{t('batchSelectionSummary', { start: startBatchPlan.eligible.length, stop: stopBatchPlan.eligible.length, restart: restartBatchPlan.eligible.length })}</Typography.Text>
-    </div>
-    <Space wrap className="instance-bulk-toolbar-actions">
-      <Button type="primary" icon={<PlayCircleOutlined />} disabled={startBatchPlan.eligible.length === 0 || bulkSubmitting} onClick={() => openBatchAction('start')}>{t('batchStartCount', { count: startBatchPlan.eligible.length })}</Button>
-      <Button danger icon={<PauseCircleOutlined />} disabled={stopBatchPlan.eligible.length === 0 || bulkSubmitting} onClick={() => openBatchAction('stop')}>{t('batchStopCount', { count: stopBatchPlan.eligible.length })}</Button>
-      <Button icon={<ReloadOutlined />} disabled={restartBatchPlan.eligible.length === 0 || bulkSubmitting} onClick={() => openBatchAction('restart')}>{t('batchRestartCount', { count: restartBatchPlan.eligible.length })}</Button>
-      <Button disabled={bulkSubmitting} onClick={clearSelection}>{t('clearSelection')}</Button>
-    </Space>
-  </Card>
-  const trackedBatchTasks = [...bulkTaskGroups.failed, ...bulkTaskGroups.active, ...bulkTaskGroups.succeeded]
-  const singleResultName = bulkResult?.contextName || bulkResult?.accepted[0]?.instanceName || bulkResult?.rejected[0]?.instanceName || t('database')
-  const bulkResultType = bulkTaskGroups.failed.length > 0 || (bulkResult?.rejected.length && !bulkResult.accepted.length)
-    ? 'error'
-    : bulkResult?.rejected.length || bulkTaskGroups.active.length > 0
-      ? 'warning'
-      : 'success'
-  const bulkResultAlert = bulkResult && <Alert
-    className="instance-bulk-result"
-    type={bulkResultType}
+  const actionFailed = !!actionResult && ['failed', 'canceled', 'interrupted'].includes(actionResult.task.status)
+  const actionRecoveryPath = actionFailed && actionResult && taskFailureGuidance(actionResult.task).inspectHost
+    ? taskHostRecoveryPathForTask(actionResult.task)
+    : undefined
+  const actionHostName = actionResult ? hosts.find((host) => host.id === actionResult.task.hostId)?.name : undefined
+  const actionResultAlert = actionResult && <Alert
+    className="instance-action-result"
+    type={actionFailed ? 'error' : actionTaskActive ? 'warning' : 'success'}
     showIcon
-    message={bulkResult.source === 'row'
-      ? bulkTaskGroups.failed.length > 0
-        ? t('instanceActionNeedsAttentionTitle', { action: t(bulkResult.action), name: singleResultName })
-        : bulkTaskGroups.active.length > 0
-          ? t('instanceActionInProgressTitle', { action: t(bulkResult.action), name: singleResultName })
-          : bulkResult.accepted.length > 0
-            ? t('instanceActionCompletedTitle', { action: t(bulkResult.action), name: singleResultName })
-            : t('instanceActionNotQueuedTitle', { action: t(bulkResult.action), name: singleResultName })
-      : bulkTaskGroups.failed.length > 0
-        ? t('batchActionNeedsAttentionTitle', { count: bulkTaskGroups.failed.length })
-      : bulkTaskGroups.active.length > 0
-        ? t('batchActionInProgressTitle', { action: t(bulkResult.action), count: bulkTaskGroups.active.length })
-        : bulkResult.accepted.length > 0
-          ? t('batchActionCompletedTitle', { action: t(bulkResult.action), count: bulkTaskGroups.succeeded.length })
-          : t('batchActionFailedTitle', { count: bulkResult.rejected.length })}
-    description={<div className="instance-bulk-result-details">
-      {bulkResult.accepted.length > 0 && <Typography.Text className="instance-bulk-progress-summary">{bulkResult.source === 'row' ? t('instanceActionProgressHint') : t('batchProgressSummary', { active: bulkTaskGroups.active.length, succeeded: bulkTaskGroups.succeeded.length, failed: bulkTaskGroups.failed.length })}</Typography.Text>}
-      {bulkResult.skipped.length > 0 && <Typography.Text type="secondary">{t('batchSkippedSummary', { count: bulkResult.skipped.length })}</Typography.Text>}
-      {bulkResult.rejected.length > 0 && <ul>{bulkResult.rejected.slice(0, 5).map((item) => <li key={item.instanceId}><strong>{item.instanceName || item.instanceId.slice(0, 8)}</strong>: {batchActionErrorMessage(item)}</li>)}</ul>}
-      {bulkResult.rejected.length > 5 && <Typography.Text type="secondary">{t('batchMoreFailures', { count: bulkResult.rejected.length - 5 })}</Typography.Text>}
-      {bulkTrackingError && <Alert type="warning" showIcon message={t('batchTrackingFailed')} description={bulkTrackingError} />}
-      {trackedBatchTasks.length > 0 && <div className="instance-bulk-task-list">
-        {trackedBatchTasks.slice(0, 6).map((item) => {
-          const failed = ['failed', 'canceled', 'interrupted'].includes(item.task.status)
-          const guidance = failed ? taskFailureGuidance(item.task) : undefined
-          const hostRecoveryPath = guidance?.inspectHost ? taskHostRecoveryPathForTask(item.task) : undefined
-          const hostName = hosts.find((host) => host.id === item.task.hostId)?.name
-          return <div key={item.task.id} className={`instance-bulk-task-item${failed ? ' is-failed' : ''}`}>
-            <div className="instance-bulk-task-header">
-              <div>
-                <Typography.Text strong>{item.instanceName || item.instanceId.slice(0, 8)}</Typography.Text>
-                <Space size={6} wrap>
-                  <StatusTag value={item.task.status} />
-                  {item.task.stage !== item.task.status && <Typography.Text type="secondary">{translateCode(t, item.task.stage, 'taskStage')}</Typography.Text>}
-                </Space>
-              </div>
-              <Space size={6} wrap className="instance-bulk-task-actions">
-                {hostRecoveryPath && <Button size="small" type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(hostRecoveryPath)}>{t('inspectFailedHost')}</Button>}
-                {failed && !hostRecoveryPath && <Button size="small" type="primary" icon={<ReloadOutlined />} loading={bulkRetryingTaskID === item.task.id} disabled={!!bulkRetryingTaskID && bulkRetryingTaskID !== item.task.id} onClick={() => void retryBatchTask(item)}>{t('retryTask')}</Button>}
-                <Button size="small" onClick={() => navigate(`/tasks?task=${item.task.id}`)}>{t('viewTask')}</Button>
-              </Space>
-            </div>
-            {!failed && <Progress percent={item.task.progress} status={item.task.status === 'succeeded' ? 'success' : 'active'} size="small" />}
-            {failed && <TaskFailureGuidance task={item.task} hostName={hostName} />}
+    message={t(actionFailed ? 'instanceActionNeedsAttentionTitle' : actionTaskActive ? 'instanceActionInProgressTitle' : 'instanceActionCompletedTitle', { action: t(actionResult.action), name: actionResult.instanceName })}
+    description={<div className="instance-action-result-details">
+      <Typography.Text>{t('instanceActionProgressHint')}</Typography.Text>
+      {actionTrackingError && <Alert type="warning" showIcon message={t('instanceActionTrackingFailed')} description={actionTrackingError} />}
+      <div className={`instance-action-task${actionFailed ? ' is-failed' : ''}`}>
+        <div className="instance-action-task-header">
+          <div>
+            <Typography.Text strong>{actionResult.instanceName}</Typography.Text>
+            <Space size={6} wrap>
+              <StatusTag value={actionResult.task.status} />
+              {actionResult.task.stage !== actionResult.task.status && <Typography.Text type="secondary">{translateCode(t, actionResult.task.stage, 'taskStage')}</Typography.Text>}
+            </Space>
           </div>
-        })}
-        {trackedBatchTasks.length > 6 && <Typography.Text type="secondary">{t('batchMoreTrackedTasks', { count: trackedBatchTasks.length - 6 })}</Typography.Text>}
-      </div>}
+          <Space size={6} wrap className="instance-action-task-actions">
+            {actionRecoveryPath && <Button size="small" type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(actionRecoveryPath)}>{t('inspectFailedHost')}</Button>}
+            {actionFailed && !actionRecoveryPath && canRetryTask(actionResult.task) && <Button size="small" type="primary" icon={<ReloadOutlined />} loading={actionRetryingTaskID === actionResult.task.id} onClick={() => void retryActionTask()}>{t('retryTask')}</Button>}
+            <Button size="small" onClick={() => navigate(`/tasks?task=${actionResult.task.id}`)}>{t('viewTask')}</Button>
+          </Space>
+        </div>
+        {!actionFailed && <Progress percent={actionResult.task.progress} status={actionResult.task.status === 'succeeded' ? 'success' : 'active'} size="small" />}
+        {actionFailed && <TaskFailureGuidance task={actionResult.task} hostName={actionHostName} />}
+      </div>
     </div>}
     action={<Space wrap>
-      {retryableRejected.length > 0 && <Button size="small" loading={bulkSubmitting} onClick={() => void submitBatchAction(bulkResult.action, retryableRejected.map((item) => item.instanceId), [], false)}>{t('retryUnqueuedCount', { count: retryableRejected.length })}</Button>}
-      {bulkResult.accepted.length > 0 && <Button size="small" icon={<ReloadOutlined />} loading={bulkTracking} onClick={() => void refreshTrackedBatchTasks()}>{t('refreshBatchProgress')}</Button>}
-      <Button size="small" onClick={() => navigate('/tasks')}>{t('viewBatchTasks')}</Button>
-      <Button size="small" type="text" onClick={() => { setBulkResult(undefined); setBulkTrackingError('') }}>{t('dismiss')}</Button>
+      <Button size="small" icon={<ReloadOutlined />} loading={actionTracking} onClick={() => void refreshTrackedAction()}>{t('refreshStatus')}</Button>
+      <Button size="small" type="text" onClick={() => { setActionResult(undefined); setActionTrackingError('') }}>{t('dismiss')}</Button>
     </Space>}
   />
   const createSteps = [{ title: t('databaseAndName') }, { title: t('resourcesAndHost') }, { title: t('confirm') }]
@@ -633,7 +533,7 @@ export function InstancesPage() {
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('instanceListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {showFilters && <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
-    {bulkResultAlert}
+    {actionResultAlert}
     {(items.length > 0 || !loadError) && <Card className="instance-table-card" extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 860 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
     <Modal
       className="instance-handoff-modal"
@@ -697,41 +597,26 @@ export function InstancesPage() {
       </div>
     </Modal>
     <Modal
-      title={bulkAction ? rowActionInstance
-        ? t(bulkAction === 'stop' ? 'instanceStopConfirmTitle' : bulkAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: rowActionInstance.name })
-        : t(bulkAction === 'stop' ? 'batchStopConfirmTitle' : bulkAction === 'restart' ? 'batchRestartConfirmTitle' : 'batchStartConfirmTitle', { count: activeBatchPlan.eligible.length }) : ''}
-      open={!!bulkAction}
-      onCancel={() => { if (!bulkSubmitting) { setBulkAction(undefined); setRowActionInstance(undefined); setBulkRequestError('') } }}
-      onOk={() => bulkAction && void submitBatchAction(bulkAction, activeBatchPlan.eligible.map((item) => item.id), activeBatchPlan.skipped, true)}
-      okText={bulkAction ? rowActionInstance
-        ? t(bulkAction === 'stop' ? 'confirmInstanceStop' : bulkAction === 'restart' ? 'confirmInstanceRestart' : 'confirmInstanceStart')
-        : t(bulkAction === 'stop' ? 'confirmBatchStop' : bulkAction === 'restart' ? 'confirmBatchRestart' : 'confirmBatchStart', { count: activeBatchPlan.eligible.length }) : t('confirm')}
+      title={lifecycleAction && rowActionInstance ? t(lifecycleAction === 'stop' ? 'instanceStopConfirmTitle' : lifecycleAction === 'restart' ? 'instanceRestartConfirmTitle' : 'instanceStartConfirmTitle', { name: rowActionInstance.name }) : ''}
+      open={!!lifecycleAction && !!rowActionInstance}
+      onCancel={() => { if (!actionSubmitting) { setLifecycleAction(undefined); setRowActionInstance(undefined); setActionRequestError('') } }}
+      onOk={() => void submitLifecycleAction()}
+      okText={lifecycleAction ? t(lifecycleAction === 'stop' ? 'confirmInstanceStop' : lifecycleAction === 'restart' ? 'confirmInstanceRestart' : 'confirmInstanceStart') : t('confirm')}
       cancelText={t('cancel')}
-      confirmLoading={bulkSubmitting}
-      closable={!bulkSubmitting}
-      maskClosable={!bulkSubmitting}
-      okButtonProps={{ danger: bulkAction === 'stop', disabled: !bulkAction || activeBatchPlan.eligible.length === 0 }}
+      confirmLoading={actionSubmitting}
+      closable={!actionSubmitting}
+      maskClosable={!actionSubmitting}
+      okButtonProps={{ danger: lifecycleAction === 'stop', disabled: !lifecycleAction || !rowActionInstance }}
     >
-      <div className="instance-bulk-confirm">
+      <div className="instance-action-confirm">
         <Alert
-          type={bulkAction === 'stop' || bulkAction === 'restart' ? 'warning' : 'info'}
+          type={lifecycleAction === 'stop' || lifecycleAction === 'restart' ? 'warning' : 'info'}
           showIcon
-          message={rowActionInstance
-            ? bulkAction === 'stop' ? t('instanceStopConfirmMessage') : bulkAction === 'restart' ? t('instanceRestartConfirmMessage') : t('instanceStartConfirmMessage')
-            : bulkAction === 'stop' ? t('batchStopConfirmMessage') : bulkAction === 'restart' ? t('batchRestartConfirmMessage') : t('batchStartConfirmMessage')}
-          description={rowActionInstance
-            ? t(bulkAction === 'stop' ? 'instanceStopConfirmImpact' : bulkAction === 'restart' ? 'instanceRestartConfirmImpact' : 'instanceStartConfirmImpact')
-            : t('batchConfirmImpact', { eligible: activeBatchPlan.eligible.length, skipped: activeBatchPlan.skipped.length })}
+          message={lifecycleAction === 'stop' ? t('instanceStopConfirmMessage') : lifecycleAction === 'restart' ? t('instanceRestartConfirmMessage') : t('instanceStartConfirmMessage')}
+          description={t(lifecycleAction === 'stop' ? 'instanceStopConfirmImpact' : lifecycleAction === 'restart' ? 'instanceRestartConfirmImpact' : 'instanceStartConfirmImpact')}
         />
-        <div>
-          <Typography.Text strong>{t(rowActionInstance ? 'instanceActionTarget' : 'batchWillQueue')}</Typography.Text>
-          <Space size={[6, 6]} wrap className="instance-bulk-name-list">
-            {activeBatchPlan.eligible.slice(0, 8).map((item) => <Tag key={item.id}>{item.name}{rowActionInstance ? <> · {translateCode(t, item.status)}</> : null}</Tag>)}
-            {activeBatchPlan.eligible.length > 8 && <Tag>{t('batchMoreInstances', { count: activeBatchPlan.eligible.length - 8 })}</Tag>}
-          </Space>
-        </div>
-        {activeBatchPlan.skipped.length > 0 && <Alert type="info" showIcon message={t('batchSkippedTitle', { count: activeBatchPlan.skipped.length })} description={t('batchSkippedConfirmHint')} />}
-        {bulkRequestError && <Alert type="error" showIcon message={rowActionInstance ? t('instanceActionRequestFailed', { action: bulkAction ? t(bulkAction) : '' }) : t('batchRequestFailed')} description={<div className="instance-action-request-error"><Typography.Text>{bulkRequestError}</Typography.Text>{rowActionInstance && <Typography.Text type="secondary">{t('instanceActionRequestFailedHint')}</Typography.Text>}</div>} />}
+        {rowActionInstance && <div><Typography.Text strong>{t('instanceActionTarget')}</Typography.Text><div className="instance-action-target"><Tag>{rowActionInstance.name} · {translateCode(t, rowActionInstance.status)}</Tag></div></div>}
+        {actionRequestError && <Alert type="error" showIcon message={t('instanceActionRequestFailed', { action: lifecycleAction ? t(lifecycleAction) : '' })} description={<div className="instance-action-request-error"><Typography.Text>{actionRequestError}</Typography.Text><Typography.Text type="secondary">{t('instanceActionRequestFailedHint')}</Typography.Text></div>} />}
       </div>
     </Modal>
     <Drawer title={t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateFailure(undefined); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 1 && resourceRequestReady && capacityCandidates.length === 0) || (step === 2 && !!createFailure && !createRetryAllowed)} onClick={step === 2 ? () => void create() : () => void next()}>{step === 2 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
