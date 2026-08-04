@@ -1,571 +1,298 @@
 import { expect, test } from '@playwright/test'
+import {
+  authenticate,
+  createdInstanceID,
+  deleteTaskID,
+  expectNoOverflow,
+  GiB,
+  installMvpApi,
+  instanceID,
+  observeRuntime,
+  templateVersionID,
+} from './mvp-fixture'
 
-const GiB = 1024 ** 3
+test.describe('DB Mock MVP workflow', () => {
+  test('initializes, shows four work entries, and redirects retired routes', async ({ page }, testInfo) => {
+    const diagnostics = observeRuntime(page)
+    await installMvpApi(page)
+    await authenticate(page, diagnostics)
 
-const templateVersionID = '22222222-2222-4222-8222-222222222222'
-const hostID = '33333333-3333-4333-8333-333333333333'
-const createdHostID = '33333333-3333-4333-8333-333333333334'
-const instanceID = '44444444-4444-4444-8444-444444444444'
-const createdInstanceID = '55555555-5555-4555-8555-555555555555'
-const deleteTaskID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-const backupID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-const backupDeleteTaskID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    await expect(page.getByRole('menuitem')).toHaveCount(4)
+    await expect(page.getByRole('menuitem', { name: /工作台/ })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /主机/ })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /数据库/ })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /任务中心/ })).toBeVisible()
 
-const standardTemplate = {
-  id: '11111111-1111-4111-8111-111111111111',
-  slug: 'postgresql',
-  name: 'PostgreSQL',
-  nameZh: 'PostgreSQL',
-  description: 'Advanced open source relational database',
-  category: 'relational',
-  tier: 'standard',
-  builtin: true,
-  icon: 'PG',
-  riskReport: [],
-  versions: [{
-    id: templateVersionID,
-    templateId: '11111111-1111-4111-8111-111111111111',
-    version: '17',
-    imageReference: 'postgres:17',
-    architectures: ['amd64', 'arm64'],
-    minCpu: 1,
-    minMemoryBytes: GiB,
-    minDiskBytes: 10 * GiB,
-    defaultPort: 5432,
-    manifest: {
-      username: 'dbmock',
-      database: 'app',
-      authentication: 'password',
-      imageReferences: ['postgres:17'],
-      resourceProfiles: [{ name: 'small', labelZh: '日常测试', cpu: 1, memoryBytes: GiB, diskBytes: 10 * GiB }],
-    },
-    riskReport: [],
-    selectable: true,
-    deploymentCount: 4,
-    lastDeployedAt: '2026-08-04T08:00:00Z',
-    createdAt: '2026-08-01T00:00:00Z',
-  }],
-}
-
-const hiddenTemplates = [
-  { ...standardTemplate, id: '66666666-6666-4666-8666-666666666666', slug: 'tidb', name: 'TiDB', nameZh: 'TiDB', tier: 'experimental', versions: [{ ...standardTemplate.versions[0], id: '66666666-6666-4666-8666-666666666667', templateId: '66666666-6666-4666-8666-666666666666', version: '8.5' }] },
-  { ...standardTemplate, id: '77777777-7777-4777-8777-777777777777', slug: 'custom-db', name: 'Team Custom DB', nameZh: '团队自定义数据库', tier: 'custom', builtin: false, versions: [{ ...standardTemplate.versions[0], id: '77777777-7777-4777-8777-777777777778', templateId: '77777777-7777-4777-8777-777777777777', version: '1.0' }] },
-]
-
-const host = {
-  id: hostID,
-  name: 'Daily Docker Host',
-  sshAddress: '10.0.0.8',
-  sshPort: 22,
-  sshUser: 'dbmock',
-  authType: 'password',
-  connectionAddress: '10.0.0.8',
-  dataRoot: '/opt/dbmock',
-  portStart: 20000,
-  portEnd: 40000,
-  manageDocker: false,
-  os: 'linux',
-  distro: 'Ubuntu 24.04',
-  architecture: 'amd64',
-  dockerVersion: '27.5.1',
-  composeVersion: '2.32.4',
-  cpuCount: 8,
-  memoryBytes: 16 * GiB,
-  diskTotalBytes: 200 * GiB,
-  diskFreeBytes: 160 * GiB,
-  dataRootWritable: true,
-  portProbeAvailable: true,
-  availablePort: 25432,
-  status: 'online',
-  maintenance: false,
-  autoRestartDefault: true,
-  lastSeenAt: '2026-08-04T08:10:00Z',
-  lastCheckedAt: '2026-08-04T08:10:00Z',
-  consecutiveFailures: 0,
-  labels: {},
-  createdAt: '2026-08-01T00:00:00Z',
-  updatedAt: '2026-08-04T08:00:00Z',
-}
-
-const runningInstance = {
-  id: instanceID,
-  name: 'Orders DB',
-  hostId: hostID,
-  templateVersionId: templateVersionID,
-  environment: 'development',
-  labels: {},
-  status: 'running',
-  desiredState: 'running',
-  autoRestart: true,
-  restartFailures: 0,
-  cpu: 1,
-  memoryBytes: GiB,
-  reservedDiskBytes: 10 * GiB,
-  hostPort: 25432,
-  containerPort: 5432,
-  bindAddress: '0.0.0.0',
-  databaseUsername: 'dbmock',
-  databaseName: 'app',
-  configuration: { templateParameters: {} },
-  templateSlug: 'postgresql',
-  templateName: 'PostgreSQL',
-  templateVersion: '17',
-  hostName: host.name,
-  connectionAddress: host.connectionAddress,
-  createdAt: '2026-08-04T08:00:00Z',
-  updatedAt: '2026-08-04T08:05:00Z',
-  lastHealthyAt: '2026-08-04T08:05:00Z',
-}
-
-const succeededTask = {
-  id: '88888888-8888-4888-8888-888888888888',
-  kind: 'instance.stop',
-  status: 'succeeded',
-  resourceType: 'instance',
-  resourceId: instanceID,
-  hostId: hostID,
-  progress: 100,
-  stage: 'succeeded',
-  message: 'Stopped',
-  payload: {},
-  result: {},
-  cancelable: false,
-  cancelAsked: false,
-  attempts: 1,
-  createdAt: '2026-08-04T08:00:00Z',
-  finishedAt: '2026-08-04T08:01:00Z',
-}
-
-test('keeps database deployment on the three-step MVP path', async ({ page, context }, testInfo) => {
-  test.setTimeout(120_000)
-  const consoleErrors: string[] = []
-  const httpErrors: string[] = []
-  page.on('console', (entry) => { if (entry.type() === 'error') consoleErrors.push(entry.text()) })
-  page.on('response', (response) => { if (response.status() >= 400) httpErrors.push(`${response.status()} ${response.url()}`) })
-
-  await page.goto('/')
-  await page.locator('#username').fill('e2e-admin')
-  await page.locator('#password').fill('e2e-password')
-  const initializeButton = page.getByRole('button', { name: '初始化 DB Mock' })
-  if (await initializeButton.count()) await initializeButton.click()
-  else await page.getByRole('button', { name: /^登\s*录$/ }).click()
-  await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
-  consoleErrors.length = 0
-  httpErrors.length = 0
-  await expect(page.getByRole('menuitem')).toHaveCount(4)
-  await expect(page.getByRole('menuitem', { name: /工作台/ })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: /主机/ })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: /数据库/ })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: /任务中心/ })).toBeVisible()
-
-  let instances = [runningInstance]
-  let hosts = [host]
-  let hostCreatePayload: Record<string, unknown> | undefined
-  let hostSupportingRequests = 0
-  let createPayload: Record<string, unknown> | undefined
-  let stopPayload: Record<string, unknown> | undefined
-  let deletePayload: Record<string, unknown> | undefined
-  let backupDeletePayload: Record<string, unknown> | undefined
-  let managedBackups = [{
-    id: backupID,
-    instanceId: instanceID,
-    hostId: hostID,
-    templateVersionId: templateVersionID,
-    templateVersion: '17',
-    name: 'nightly-before-release',
-    creationType: 'manual',
-    status: 'ready',
-    sizeBytes: 32 * 1024 ** 2,
-    createdBy: 'e2e-admin',
-    createdByUsername: 'e2e-admin',
-    createdAt: '2026-08-04T07:00:00Z',
-    updatedAt: '2026-08-04T07:02:00Z',
-  }]
-  await page.route('**/api/v1/templates', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [standardTemplate, ...hiddenTemplates] } }) })
-  await page.route('**/api/v1/hosts', async (route) => {
-    if (route.request().method() === 'POST') {
-      hostCreatePayload = route.request().postDataJSON()
-      const createdHost = { ...host, id: createdHostID, name: String(hostCreatePayload?.name), sshAddress: String(hostCreatePayload?.sshAddress), connectionAddress: String(hostCreatePayload?.connectionAddress || hostCreatePayload?.sshAddress), status: 'pending' }
-      hosts = [...hosts, createdHost]
-      await route.fulfill({ status: 202, json: { host: createdHost, task: { ...succeededTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host.probe', resourceType: 'host', resourceId: createdHostID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } } })
-      return
+    for (const legacyPath of ['/projects/team-a', '/catalog', '/images?tab=registries']) {
+      await page.goto(legacyPath)
+      await expect(page).toHaveURL(/\/instances$/)
+      await expect(page.getByRole('heading', { name: '数据库' })).toBeVisible()
     }
-    await route.fulfill({ json: { items: hosts } })
-  })
-  await page.route('**/api/v1/projects', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [] } }) })
-  await page.route('**/api/v1/images', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [] } }) })
-  await page.route('**/api/v1/registries', (route) => route.fulfill({ json: { items: [] } }))
-  await page.route('**/api/v1/dashboard', (route) => route.fulfill({ json: {
-    hosts: { online: hosts.length },
-    instances: { running: instances.length },
-    activeTasks: 0,
-    openAlerts: 0,
-    users: 1,
-    projects: 0,
-    attentionItems: [],
-    lifecycleInstances: [],
-  } }))
-  await page.route('**/api/v1/instances', async (route) => {
-    if (route.request().method() === 'POST') {
-      createPayload = route.request().postDataJSON()
-      const created = { ...runningInstance, id: createdInstanceID, name: String(createPayload?.name), status: 'provisioning', desiredState: 'running' }
-      instances = [...instances, created]
-      await route.fulfill({ status: 202, json: { instance: created, task: { ...succeededTask, id: '99999999-9999-4999-8999-999999999999', kind: 'instance.create', resourceId: createdInstanceID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } } })
-      return
+    for (const legacyPath of ['/alerts?tab=webhooks', '/users', '/audit', '/settings/uploads']) {
+      await page.goto(legacyPath)
+      await expect(page).toHaveURL(/\/dashboard$/)
+      await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
     }
-    await route.fulfill({ json: { items: instances } })
-  })
-  await page.route(`**/api/v1/instances?hostId=${hostID}`, (route) => route.fulfill({ json: { items: [runningInstance] } }))
-  await page.route(`**/api/v1/tasks?resourceType=host&resourceId=${hostID}`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route('**/api/v1/hosts/test', (route) => route.fulfill({ json: {
-    hostKey: 'SHA256:e2e-host-fingerprint ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest',
-    os: 'linux',
-    distro: 'Ubuntu 24.04',
-    architecture: 'amd64',
-    dockerVersion: '27.5.1',
-    composeVersion: '2.32.4',
-    passwordlessSudo: false,
-    cpuCount: 8,
-    memoryBytes: 16 * GiB,
-    diskTotalBytes: 200 * GiB,
-    diskFreeBytes: 160 * GiB,
-    dataRootWritable: true,
-    portProbeAvailable: true,
-    firstAvailablePort: 25433,
-    verificationToken: 'e2e-host-verification-token',
-    verificationExpiresAt: '2026-08-04T09:00:00Z',
-  } }))
-  await page.route(`**/api/v1/hosts/${hostID}/actions/probe`, (route) => route.fulfill({ status: 202, json: { ...succeededTask, id: '33333333-3333-4333-8333-333333333336', kind: 'host.probe', resourceType: 'host', resourceId: hostID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } }))
-  await page.route('**/api/v1/instances/batch-actions/stop', async (route) => {
-    stopPayload = route.request().postDataJSON()
-    await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: instanceID, instanceName: runningInstance.name, task: succeededTask }], rejected: [] } })
-  })
-  const deleteTask = { ...succeededTask, id: deleteTaskID, kind: 'instance.delete', status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined }
-  await page.route('**/api/v1/tasks', (route) => route.fulfill({ json: { items: [deleteTask] } }))
-  await page.route(`**/api/v1/tasks/${deleteTaskID}`, (route) => route.fulfill({ json: deleteTask }))
-  await page.route(`**/api/v1/tasks/${deleteTaskID}/logs`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${instanceID}`, (route) => route.fulfill({ json: runningInstance }))
-  await page.route(`**/api/v1/instances/${instanceID}/connection`, (route) => route.fulfill({ json: { address: host.connectionAddress, port: 25432, username: 'dbmock', password: 'generated-secret', database: 'app', authentication: 'password', uri: 'postgresql://dbmock:generated-secret@10.0.0.8:25432/app', jdbc: 'jdbc:postgresql://10.0.0.8:25432/app' } }))
-  await page.route(`**/api/v1/instances/${instanceID}/logs**`, (route) => route.fulfill({ contentType: 'text/plain', body: '2026-08-04T08:05:00Z database ready\n2026-08-04T08:05:02Z accepting connections\n' }))
-  await page.route(`**/api/v1/instances/${instanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${instanceID}/backups`, (route) => route.fulfill({ json: { items: managedBackups } }))
-  await page.route(`**/api/v1/instances/${instanceID}/cleanup-review`, (route) => route.fulfill({ json: { instanceId: instanceID, instanceName: runningInstance.name, status: 'running', purpose: '', owner: '', backupCount: managedBackups.length, deleteReady: managedBackups.length === 0, blockers: managedBackups.length ? ['backups_present'] : [] } }))
-  await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
-    backupDeletePayload = route.request().postDataJSON()
-    const deletedBackup = { ...managedBackups[0], status: 'deleting' }
-    managedBackups = []
-    await route.fulfill({ status: 202, json: { backup: deletedBackup, task: { ...deleteTask, id: backupDeleteTaskID, kind: 'instance.backup.delete', resourceType: 'backup', resourceId: backupID } } })
-  })
-  await page.route(`**/api/v1/instances/${instanceID}/actions/delete`, async (route) => {
-    deletePayload = route.request().postDataJSON()
-    await route.fulfill({ status: 202, json: deleteTask })
-  })
-  await page.route(`**/api/v1/instances/${createdInstanceID}`, (route) => route.fulfill({ json: instances.find((item) => item.id === createdInstanceID) }))
-  await page.route(`**/api/v1/instances/${createdInstanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${createdInstanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${createdInstanceID}/backup-policy`, (route) => route.fulfill({ json: { policy: null } }))
-
-  for (const legacyPath of ['/projects/team-a', '/catalog', '/images?tab=registries']) {
-    await page.goto(legacyPath)
-    await expect(page).toHaveURL(/\/instances$/)
-    await expect(page.getByRole('heading', { name: '数据库' })).toBeVisible()
-  }
-  for (const legacyPath of ['/alerts?tab=webhooks', '/users', '/audit', '/settings/uploads']) {
-    await page.goto(legacyPath)
+    await page.goto('/removed-feature')
     await expect(page).toHaveURL(/\/dashboard$/)
-    await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
-  }
-  await page.goto('/removed-feature')
-  await expect(page).toHaveURL(/\/dashboard$/)
-  await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
 
-  hostSupportingRequests = 0
-  await page.goto('/hosts')
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await expect(page.getByRole('heading', { name: '主机' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '主机' })).toHaveCount(1)
-  const hostLink = page.locator('.host-table-card .description-link', { hasText: 'Daily Docker Host' })
-  await expect(hostLink).toBeVisible()
-  await expect(page.getByRole('columnheader', { name: '项目' })).toHaveCount(0)
-  await expect(page.getByLabel('项目')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '更多操作' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '重新检测 Daily Docker Host' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '编辑 Daily Docker Host' })).toBeVisible()
-  await expect.poll(() => hostSupportingRequests).toBe(0)
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('hosts-1440.png'), fullPage: true })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expect(page.getByRole('heading', { name: '工作台' })).toHaveCount(1)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('dashboard-1440.png'), fullPage: true })
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('dashboard-1024.png'), fullPage: true })
 
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.waitForTimeout(400)
-  await expect(page.getByRole('button', { name: '接入主机' })).toBeVisible()
-  await expect(page.getByRole('columnheader', { name: '调度容量' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '重新检测 Daily Docker Host' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '编辑 Daily Docker Host' })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('hosts-1024.png'), fullPage: true })
-
-  await hostLink.click()
-  const hostDrawer = page.locator('.host-detail-drawer')
-  await expect(hostDrawer).toBeVisible()
-  await page.waitForTimeout(500)
-  await expect(hostDrawer.getByText('当前主机状态')).toBeVisible()
-  await expect(hostDrawer.getByText('托管数据库')).toBeVisible()
-  await expect(hostDrawer.getByText('主机配置')).toBeVisible()
-  await expect(hostDrawer.getByText('项目', { exact: true })).toHaveCount(0)
-  await expect(hostDrawer.getByText('主机策略', { exact: true })).toHaveCount(0)
-  await expect(hostDrawer.getByText('标签', { exact: true })).toHaveCount(0)
-  await expect(hostDrawer.getByRole('button', { name: '更多操作' })).toHaveCount(0)
-  await expect(hostDrawer.getByRole('button', { name: '删除' })).toBeDisabled()
-  await expect(hostDrawer.getByRole('button', { name: '删除' })).toHaveAttribute('title', '必须先删除该主机上的托管实例。')
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('host-detail-1024.png'), fullPage: false })
-  await hostDrawer.getByRole('button', { name: '关闭' }).click()
-
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.getByRole('button', { name: '接入主机' }).click()
-  const hostEditor = page.getByRole('dialog', { name: '接入主机' })
-  await expect(hostEditor).toBeVisible()
-  await expect(hostEditor.getByText('SSH 连接')).toBeVisible()
-  await expect(hostEditor.getByText('数据库部署位置')).toBeVisible()
-  for (const removedHostSetting of ['项目', '高级设置', '代理', '主机策略', '允许安装或升级 Docker', '维护模式']) {
-    await expect(hostEditor.getByText(removedHostSetting, { exact: true })).toHaveCount(0)
-  }
-  await hostEditor.getByLabel('名称').fill('Staging Docker Host')
-  await hostEditor.getByLabel('SSH 地址').fill('10.0.0.9')
-  await hostEditor.getByLabel('SSH 用户').fill('dbmock')
-  await hostEditor.getByLabel('认证方式').click()
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: '密码' }).click()
-  await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0)
-  await hostEditor.getByLabel('密码').fill('synthetic-e2e-password')
-  await hostEditor.getByRole('button', { name: '测试连接' }).click()
-  await expect(hostEditor.getByText('连接验证通过')).toBeVisible()
-  await expect(hostEditor.getByText('Docker 与 Compose')).toBeVisible()
-  await expect(hostEditor.getByText('免密 sudo')).toHaveCount(0)
-  const saveHostButton = hostEditor.getByRole('button', { name: /^保\s*存$/ })
-  await expect(saveHostButton).toBeEnabled()
-  await expect(page.locator('.ant-message-notice')).toHaveCount(0, { timeout: 5_000 })
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1440.png'), fullPage: false })
-
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.waitForTimeout(400)
-  await expect.poll(() => hostEditor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1024.png'), fullPage: false })
-  await saveHostButton.click()
-  await expect(hostEditor).toBeHidden()
-  await expect.poll(() => hostCreatePayload).toEqual({
-    name: 'Staging Docker Host',
-    sshAddress: '10.0.0.9',
-    sshPort: 22,
-    sshUser: 'dbmock',
-    authType: 'password',
-    credential: 'synthetic-e2e-password',
-    connectionAddress: '',
-    dataRoot: '/opt/dbmock',
-    portStart: 20000,
-    portEnd: 40000,
-    manageDocker: false,
-    proxyHttp: '',
-    proxyHttps: '',
-    proxyNoProxy: '',
-    maintenance: false,
-    autoRestartDefault: true,
-    labels: {},
-    verificationToken: 'e2e-host-verification-token',
+    await page.goto('/tasks')
+    await expect(page.getByRole('heading', { name: '任务中心' })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: '删除数据库实例' })).toBeVisible()
+    await expectNoOverflow(page)
+    expect(diagnostics.consoleErrors).toEqual([])
+    expect(diagnostics.httpErrors).toEqual([])
   })
-  const hostNotificationClose = page.locator('.ant-notification-notice-close')
-  if (await hostNotificationClose.isVisible()) await hostNotificationClose.click()
 
-  await page.goto('/instances')
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await expect(page.getByRole('heading', { name: '数据库' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '数据库' })).toHaveCount(1)
-  await expect(page.getByRole('button', { name: 'Orders DB', exact: true })).toBeVisible()
-  await expect(page.locator('.instance-table-card .ant-spin-spinning')).toHaveCount(0)
-  await page.waitForTimeout(500)
-  await expect(page.getByRole('columnheader', { name: '环境' })).toHaveCount(0)
-  await expect(page.getByRole('columnheader', { name: '生命周期' })).toHaveCount(0)
-  await expect(page.getByLabel('项目')).toHaveCount(0)
-  await expect(page.getByLabel('环境')).toHaveCount(0)
-  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '复制部署' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('instances-1440.png'), fullPage: true })
+  test('connects, inspects, and protects a Docker host', async ({ page }, testInfo) => {
+    const diagnostics = observeRuntime(page)
+    const state = await installMvpApi(page)
+    await authenticate(page, diagnostics)
+    state.hostSupportingRequests = 0
 
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.waitForTimeout(500)
-  await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('instances-1024.png'), fullPage: true })
+    await page.goto('/hosts')
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expect(page.getByRole('heading', { name: '主机' })).toHaveCount(1)
+    const hostLink = page.locator('.host-table-card .description-link', { hasText: 'Daily Docker Host' })
+    await expect(hostLink).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: '项目' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '重新检测 Daily Docker Host' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '编辑 Daily Docker Host' })).toBeVisible()
+    await expect.poll(() => state.hostSupportingRequests).toBe(0)
+    await expect.poll(() => state.removedFeatureRequests).toBe(0)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('hosts-1440.png'), fullPage: true })
 
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.getByRole('button', { name: '复制连接交付' }).click()
-  const handoff = page.getByRole('dialog', { name: '快速交付 · Orders DB' })
-  await expect(handoff).toBeVisible()
-  await expect(handoff.getByText('PostgreSQL 17')).toBeVisible()
-  await expect(handoff.getByText('项目', { exact: true })).toHaveCount(0)
-  await expect(handoff.getByText('环境', { exact: true })).toHaveCount(0)
-  await expect(handoff.getByText('负责人', { exact: true })).toHaveCount(0)
-  await handoff.getByRole('button', { name: '显示并复制完整摘要' }).click()
-  await expect(handoff.getByText('连接交付摘要已复制')).toBeVisible()
-  const copied = await page.evaluate(() => navigator.clipboard.readText())
-  expect(copied).toContain('PostgreSQL 17')
-  expect(copied).toContain('postgresql://dbmock:generated-secret@10.0.0.8:25432/app')
-  expect(copied).not.toContain('项目:')
-  expect(copied).not.toContain('环境:')
-  await handoff.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect(page.getByRole('button', { name: '接入主机' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: '调度容量' })).toHaveCount(0)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('hosts-1024.png'), fullPage: true })
 
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.getByRole('button', { name: 'Orders DB', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Orders DB' })).toBeVisible()
-  await expect(page.getByRole('tab')).toHaveCount(3)
-  await expect(page.getByRole('tab', { name: '概览' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '连接信息' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '日志' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '监控' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: '备份' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '编辑' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '更多操作' })).toHaveCount(0)
-  for (const removedDetail of ['项目', '环境', '用途', '负责人', '预计到期']) {
-    await expect(page.getByText(removedDetail, { exact: true })).toHaveCount(0)
-  }
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('database-overview-1440.png'), fullPage: true })
+    await hostLink.click()
+    const hostDrawer = page.locator('.host-detail-drawer')
+    await expect(hostDrawer).toBeVisible()
+    await expect(hostDrawer.getByText('当前主机状态')).toBeVisible()
+    await expect(hostDrawer.getByText('托管数据库')).toBeVisible()
+    await expect(hostDrawer.getByText('主机配置')).toBeVisible()
+    await expect(hostDrawer.getByText('项目', { exact: true })).toHaveCount(0)
+    await expect(hostDrawer.getByText('主机策略', { exact: true })).toHaveCount(0)
+    await expect(hostDrawer.getByRole('button', { name: '删除' })).toBeDisabled()
+    await expect(hostDrawer.getByRole('button', { name: '删除' })).toHaveAttribute('title', '必须先删除该主机上的托管实例。')
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('host-detail-1024.png'), fullPage: false })
+    await hostDrawer.getByRole('button', { name: '关闭' }).click()
 
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.getByRole('tab', { name: '连接信息' }).click()
-  await page.getByRole('button', { name: '显示连接信息' }).click()
-  await expect(page.getByText('postgresql://dbmock:generated-secret@10.0.0.8:25432/app')).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('database-connection-1024.png'), fullPage: true })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.getByRole('button', { name: '接入主机' }).click()
+    const hostEditor = page.getByRole('dialog', { name: '接入主机' })
+    await expect(hostEditor).toBeVisible()
+    await expect(hostEditor.getByText('SSH 连接')).toBeVisible()
+    await expect(hostEditor.getByText('数据库部署位置')).toBeVisible()
+    for (const removedHostSetting of ['项目', '高级设置', '代理', '主机策略', '允许安装或升级 Docker', '维护模式']) {
+      await expect(hostEditor.getByText(removedHostSetting, { exact: true })).toHaveCount(0)
+    }
+    await hostEditor.getByLabel('名称').fill('Staging Docker Host')
+    await hostEditor.getByLabel('SSH 地址').fill('10.0.0.9')
+    await hostEditor.getByLabel('SSH 用户').fill('dbmock')
+    await hostEditor.getByLabel('认证方式').click()
+    await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: '密码' }).click()
+    await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0)
+    await hostEditor.getByLabel('密码').fill('synthetic-e2e-password')
+    await hostEditor.getByRole('button', { name: '测试连接' }).click()
+    await expect(hostEditor.getByText('连接验证通过')).toBeVisible()
+    await expect(hostEditor.getByText('Docker 与 Compose')).toBeVisible()
+    const saveHostButton = hostEditor.getByRole('button', { name: /^保\s*存$/ })
+    await expect(saveHostButton).toBeEnabled()
+    await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1440.png'), fullPage: false })
 
-  await page.getByRole('tab', { name: '日志' }).click()
-  await expect(page.getByText('accepting connections', { exact: false })).toBeVisible()
-  await page.waitForTimeout(400)
-  await expect.poll(() => page.locator('.instance-detail-actions .ant-btn').evaluateAll((buttons) => buttons.every((button) => {
-    const box = button.getBoundingClientRect()
-    return box.left >= 0 && box.right <= window.innerWidth
-  }))).toBe(true)
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('database-logs-1024.png'), fullPage: true })
-
-  await page.getByRole('tab', { name: '概览' }).click()
-  await page.locator('.instance-detail-actions').getByRole('button', { name: /删除/ }).click()
-  const deleteDialog = page.getByRole('dialog', { name: '删除数据库 · Orders DB' })
-  await expect(deleteDialog).toBeVisible()
-  await expect(deleteDialog.getByText('先处理阻止删除的托管备份')).toBeVisible()
-  await expect(deleteDialog.getByText('nightly-before-release')).toBeVisible()
-  await page.waitForTimeout(500)
-  await page.screenshot({ path: testInfo.outputPath('database-delete-blocked-1024.png'), fullPage: false })
-  await deleteDialog.getByRole('button', { name: '删除备份' }).click()
-  const backupDeleteDialog = page.getByRole('dialog', { name: '删除备份 · nightly-before-release' })
-  await expect(backupDeleteDialog).toBeVisible()
-  const confirmBackupDelete = backupDeleteDialog.getByRole('button', { name: '删除备份' })
-  await expect(confirmBackupDelete).toBeDisabled()
-  await page.waitForTimeout(500)
-  await page.screenshot({ path: testInfo.outputPath('database-backup-delete-1024.png'), fullPage: false })
-  await backupDeleteDialog.getByLabel('输入备份名确认删除').fill('nightly-before-release')
-  await confirmBackupDelete.click()
-  await expect.poll(() => backupDeletePayload).toEqual({ confirmName: 'nightly-before-release' })
-  await expect(deleteDialog.getByText('将永久删除数据库及其数据')).toBeVisible()
-  const backupNotificationClose = page.locator('.ant-notification-notice-close')
-  if (await backupNotificationClose.isVisible()) await backupNotificationClose.click()
-  await expect(backupNotificationClose).toHaveCount(0)
-  await expect(page.locator('.ant-message-notice')).toHaveCount(0, { timeout: 5_000 })
-  await page.waitForTimeout(400)
-  const confirmDelete = deleteDialog.getByRole('button', { name: '确认永久删除' })
-  await expect(confirmDelete).toBeDisabled()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('database-delete-1024.png'), fullPage: false })
-  await deleteDialog.getByLabel('输入实例名称 Orders DB 确认删除').fill('orders-db')
-  await expect(confirmDelete).toBeDisabled()
-  await deleteDialog.getByLabel('输入实例名称 Orders DB 确认删除').fill('Orders DB')
-  await confirmDelete.click()
-  await expect.poll(() => deletePayload).toEqual({ confirmName: 'Orders DB' })
-  await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${deleteTaskID}$`))
-  await page.goto('/instances')
-  await expect(page.getByRole('button', { name: 'Orders DB', exact: true })).toBeVisible()
-
-  await page.getByRole('button', { name: '运行操作 · Orders DB' }).click()
-  await page.getByRole('menuitem', { name: '停止' }).click()
-  const stopDialog = page.getByRole('dialog', { name: '停止 Orders DB？' })
-  await expect(stopDialog.getByText('停止会中断现有数据库连接')).toBeVisible()
-  await stopDialog.getByRole('button', { name: '确认停止' }).click()
-  await expect.poll(() => stopPayload).toEqual({ instanceIds: [instanceID] })
-  const notificationClose = page.locator('.ant-notification-notice-close')
-  if (await notificationClose.isVisible()) await notificationClose.click()
-  await page.getByRole('button', { name: '关闭提示' }).click()
-  await expect(page.getByRole('button', { name: '关闭提示' })).toHaveCount(0)
-
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.getByRole('button', { name: '创建数据库' }).click()
-  const drawer = page.getByRole('dialog', { name: '创建数据库' })
-  await expect(drawer).toBeVisible()
-  await expect(drawer.getByText('数据库与名称')).toBeVisible()
-  await expect(drawer.getByText('资源与主机')).toBeVisible()
-  await expect(drawer.getByText('确认', { exact: true })).toBeVisible()
-  await expect(drawer.locator('.ant-steps-item')).toHaveCount(3)
-  await expect(drawer.locator('.ant-steps-item-process')).toContainText('数据库与名称')
-  await page.waitForTimeout(500)
-
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1440.png'), fullPage: true })
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.waitForTimeout(500)
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1024.png'), fullPage: true })
-
-  const templateSelect = drawer.getByRole('combobox', { name: '模板 / 版本' })
-  await templateSelect.click()
-  await expect(page.getByText('PostgreSQL 17', { exact: true }).last()).toBeVisible()
-  await expect(page.getByText('TiDB 8.5', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('Team Custom DB 1.0', { exact: true })).toHaveCount(0)
-  await page.getByText('PostgreSQL 17', { exact: true }).last().click()
-  await drawer.getByLabel('部署名称').fill('orders_test')
-  await drawer.getByRole('button', { name: '下一步' }).click()
-
-  await expect(drawer.locator('.ant-steps-item-process')).toContainText('资源与主机')
-  await expect(drawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^1(?:\.0+)?$/)
-  await expect(drawer.getByRole('spinbutton', { name: '内存 GiB' })).toHaveValue(/^1(?:\.0+)?$/)
-  await expect(drawer.getByRole('spinbutton', { name: '磁盘 GiB' })).toHaveValue(/^10(?:\.0+)?$/)
-  await expect(drawer.getByText('将从公开仓库拉取内置模板镜像')).toBeVisible()
-  for (const removedLabel of ['项目', '环境', '用途', '负责人', '预计到期时间', '监听地址', '镜像来源', '自动重启', '额外环境变量（JSON）']) {
-    await expect(drawer.getByLabel(removedLabel, { exact: true })).toHaveCount(0)
-  }
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('create-database-step-2-1024.png'), fullPage: true })
-  await drawer.getByRole('button', { name: '下一步' }).click()
-
-  await expect(drawer.locator('.ant-steps-item-process')).toContainText('确认')
-  await expect(drawer.getByText('orders_test')).toBeVisible()
-  await expect(drawer.getByText('创建时自动生成，可在连接信息中查看')).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('create-database-confirm-1024.png'), fullPage: true })
-  await drawer.getByRole('button', { name: /^创\s*建$/ }).click()
-  await expect.poll(() => createPayload).toEqual({
-    name: 'orders_test',
-    templateVersionId: templateVersionID,
-    hostId: null,
-    cpu: 1,
-    memoryBytes: GiB,
-    diskBytes: 10 * GiB,
-    templateParameters: {},
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect.poll(() => hostEditor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1024.png'), fullPage: false })
+    await saveHostButton.click()
+    await expect(hostEditor).toBeHidden()
+    await expect.poll(() => state.hostCreatePayload).toEqual({
+      name: 'Staging Docker Host',
+      sshAddress: '10.0.0.9',
+      sshPort: 22,
+      sshUser: 'dbmock',
+      authType: 'password',
+      credential: 'synthetic-e2e-password',
+      connectionAddress: '',
+      dataRoot: '/opt/dbmock',
+      portStart: 20000,
+      portEnd: 40000,
+      manageDocker: false,
+      proxyHttp: '',
+      proxyHttps: '',
+      proxyNoProxy: '',
+      maintenance: false,
+      autoRestartDefault: true,
+      labels: {},
+      verificationToken: 'e2e-host-verification-token',
+    })
+    expect(diagnostics.consoleErrors).toEqual([])
+    expect(diagnostics.httpErrors).toEqual([])
   })
-  await expect(page).toHaveURL(new RegExp(`/instances/${createdInstanceID}$`))
-  await expect(page.getByRole('heading', { name: 'orders_test' })).toBeVisible()
-  await expect(page.getByRole('tab')).toHaveCount(3)
-  await expect(page.getByRole('tab', { name: '概览' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '连接信息' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '日志' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: '监控' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: '备份' })).toHaveCount(0)
-  const createdNotificationClose = page.locator('.ant-notification-notice-close')
-  if (await createdNotificationClose.isVisible()) await createdNotificationClose.click()
-  await expect(createdNotificationClose).toHaveCount(0)
-  await page.waitForTimeout(500)
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: testInfo.outputPath('created-database-detail-1024.png'), fullPage: true })
-  expect(consoleErrors).toEqual([])
-  expect(httpErrors).toEqual([])
+
+  test('delivers connection details, lifecycle controls, logs, and safe deletion', async ({ page, context }, testInfo) => {
+    const diagnostics = observeRuntime(page)
+    const state = await installMvpApi(page)
+    await authenticate(page, diagnostics)
+
+    await page.goto('/instances')
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expect(page.getByRole('heading', { name: '数据库' })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Orders DB', exact: true })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: '环境' })).toHaveCount(0)
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '复制部署' })).toHaveCount(0)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('instances-1440.png'), fullPage: true })
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('instances-1024.png'), fullPage: true })
+
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.getByRole('button', { name: '复制连接交付' }).click()
+    const handoff = page.getByRole('dialog', { name: '快速交付 · Orders DB' })
+    await expect(handoff).toBeVisible()
+    await handoff.getByRole('button', { name: '显示并复制完整摘要' }).click()
+    await expect(handoff.getByText('连接交付摘要已复制')).toBeVisible()
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    expect(copied).toContain('PostgreSQL 17')
+    expect(copied).toContain('postgresql://dbmock:generated-secret@10.0.0.8:25432/app')
+    expect(copied).not.toContain('项目:')
+    await handoff.getByRole('button', { name: '关闭', exact: true }).click()
+
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.getByRole('button', { name: 'Orders DB', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Orders DB' })).toHaveCount(1)
+    await expect(page.getByRole('tab')).toHaveCount(3)
+    await expect(page.getByRole('tab', { name: '概览' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: '连接信息' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: '日志' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: '监控' })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: '备份' })).toHaveCount(0)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('database-overview-1440.png'), fullPage: true })
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await page.getByRole('tab', { name: '连接信息' }).click()
+    await page.getByRole('button', { name: '显示连接信息' }).click()
+    await expect(page.getByText('postgresql://dbmock:generated-secret@10.0.0.8:25432/app')).toBeVisible()
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('database-connection-1024.png'), fullPage: true })
+
+    await page.getByRole('tab', { name: '日志' }).click()
+    await expect(page.getByText('accepting connections', { exact: false })).toBeVisible()
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('database-logs-1024.png'), fullPage: true })
+
+    await page.getByRole('tab', { name: '概览' }).click()
+    await page.locator('.instance-detail-actions').getByRole('button', { name: /删除/ }).click()
+    const deleteDialog = page.getByRole('dialog', { name: '删除数据库 · Orders DB' })
+    await expect(deleteDialog).toBeVisible()
+    await expect(deleteDialog.getByText('先处理阻止删除的托管备份')).toBeVisible()
+    await expect(deleteDialog.getByText('nightly-before-release')).toBeVisible()
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: testInfo.outputPath('database-delete-blocked-1024.png'), fullPage: false })
+    await deleteDialog.getByRole('button', { name: '删除备份' }).click()
+    const backupDeleteDialog = page.getByRole('dialog', { name: '删除备份 · nightly-before-release' })
+    await backupDeleteDialog.getByLabel('输入备份名确认删除').fill('nightly-before-release')
+    await backupDeleteDialog.getByRole('button', { name: '删除备份' }).click()
+    await expect.poll(() => state.backupDeletePayload).toEqual({ confirmName: 'nightly-before-release' })
+    await expect(deleteDialog.getByText('将永久删除数据库及其数据')).toBeVisible()
+    const notificationClose = page.locator('.ant-notification-notice-close')
+    if (await notificationClose.isVisible()) await notificationClose.click()
+    const confirmDelete = deleteDialog.getByRole('button', { name: '确认永久删除' })
+    await deleteDialog.getByLabel('输入实例名称 Orders DB 确认删除').fill('orders-db')
+    await expect(confirmDelete).toBeDisabled()
+    await deleteDialog.getByLabel('输入实例名称 Orders DB 确认删除').fill('Orders DB')
+    await confirmDelete.click()
+    await expect.poll(() => state.deletePayload).toEqual({ confirmName: 'Orders DB' })
+    await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${deleteTaskID}$`))
+
+    await page.goto('/instances')
+    await page.getByRole('button', { name: '运行操作 · Orders DB' }).click()
+    await page.getByRole('menuitem', { name: '停止' }).click()
+    const stopDialog = page.getByRole('dialog', { name: '停止 Orders DB？' })
+    await expect(stopDialog.getByText('停止会中断现有数据库连接')).toBeVisible()
+    await stopDialog.getByRole('button', { name: '确认停止' }).click()
+    await expect.poll(() => state.stopPayload).toEqual({ instanceIds: [instanceID] })
+    expect(diagnostics.consoleErrors).toEqual([])
+    expect(diagnostics.httpErrors).toEqual([])
+  })
+
+  test('creates a database through the three-step minimum form', async ({ page }, testInfo) => {
+    const diagnostics = observeRuntime(page)
+    const state = await installMvpApi(page)
+    await authenticate(page, diagnostics)
+    await page.goto('/instances')
+
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.getByRole('button', { name: '创建数据库' }).click()
+    const drawer = page.getByRole('dialog', { name: '创建数据库' })
+    await expect(drawer.locator('.ant-steps-item')).toHaveCount(3)
+    await expect(drawer.locator('.ant-steps-item-process')).toContainText('数据库与名称')
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1440.png'), fullPage: true })
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('create-database-step-1-1024.png'), fullPage: true })
+    const templateSelect = drawer.getByRole('combobox', { name: '模板 / 版本' })
+    await templateSelect.click()
+    await expect(page.getByText('PostgreSQL 17', { exact: true }).last()).toBeVisible()
+    await expect(page.getByText('TiDB 8.5', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Team Custom DB 1.0', { exact: true })).toHaveCount(0)
+    await page.getByText('PostgreSQL 17', { exact: true }).last().click()
+    await drawer.getByLabel('部署名称').fill('orders_test')
+    await drawer.getByRole('button', { name: '下一步' }).click()
+
+    await expect(drawer.locator('.ant-steps-item-process')).toContainText('资源与主机')
+    await expect(drawer.getByRole('spinbutton', { name: 'CPU' })).toHaveValue(/^1(?:\.0+)?$/)
+    await expect(drawer.getByRole('spinbutton', { name: '内存 GiB' })).toHaveValue(/^1(?:\.0+)?$/)
+    await expect(drawer.getByRole('spinbutton', { name: '磁盘 GiB' })).toHaveValue(/^10(?:\.0+)?$/)
+    await expect(drawer.getByText('将从公开仓库拉取内置模板镜像')).toBeVisible()
+    for (const removedLabel of ['项目', '环境', '用途', '负责人', '预计到期时间', '监听地址', '镜像来源', '自动重启', '额外环境变量（JSON）']) {
+      await expect(drawer.getByLabel(removedLabel, { exact: true })).toHaveCount(0)
+    }
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('create-database-step-2-1024.png'), fullPage: true })
+    await drawer.getByRole('button', { name: '下一步' }).click()
+
+    await expect(drawer.locator('.ant-steps-item-process')).toContainText('确认')
+    await expect(drawer.getByText('orders_test')).toBeVisible()
+    await expect(drawer.getByText('创建时自动生成，可在连接信息中查看')).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('create-database-confirm-1024.png'), fullPage: true })
+    await drawer.getByRole('button', { name: /^创\s*建$/ }).click()
+    await expect.poll(() => state.createPayload).toEqual({
+      name: 'orders_test',
+      templateVersionId: templateVersionID,
+      hostId: null,
+      cpu: 1,
+      memoryBytes: GiB,
+      diskBytes: 10 * GiB,
+      templateParameters: {},
+    })
+    await expect.poll(() => state.removedFeatureRequests).toBe(0)
+    await expect(page).toHaveURL(new RegExp(`/instances/${createdInstanceID}$`))
+    await expect(page.getByRole('heading', { name: 'orders_test' })).toHaveCount(1)
+    await expect(page.getByRole('tab')).toHaveCount(3)
+    await expectNoOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath('created-database-detail-1024.png'), fullPage: true })
+    expect(diagnostics.consoleErrors).toEqual([])
+    expect(diagnostics.httpErrors).toEqual([])
+  })
 })

@@ -1,4 +1,4 @@
-import type { DatabaseTemplate, TemplateParameterValue } from './types'
+import type { DatabaseTemplate, TemplateParameterValue, TemplateVersion } from './types'
 
 export interface MvpInstanceCreateValues {
   name: string
@@ -12,6 +12,13 @@ export interface MvpInstanceCreateValues {
 
 export function mvpDatabaseTemplates(templates: DatabaseTemplate[]) {
   return templates.filter((template) => template.builtin && template.tier === 'standard')
+}
+
+export function mvpTemplateImageReferences(version: Pick<TemplateVersion, 'imageReference' | 'manifest'>): string[] {
+  const declared = Array.isArray(version.manifest?.imageReferences)
+    ? version.manifest.imageReferences.filter((item): item is string => typeof item === 'string' && !!item.trim()).map((item) => item.trim())
+    : []
+  return [...new Set([version.imageReference.trim(), ...declared].filter(Boolean))]
 }
 
 export function mvpInstanceCreatePayload(values: MvpInstanceCreateValues) {

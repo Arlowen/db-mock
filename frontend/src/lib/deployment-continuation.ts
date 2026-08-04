@@ -1,5 +1,4 @@
-import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture } from './image-source'
-import type { DatabaseTemplate, Host, ImageArtifact, Instance, TemplateVersion } from './types'
+import type { DatabaseTemplate, Host, TemplateVersion } from './types'
 
 const continuationOrigin = 'https://dbmock.invalid'
 
@@ -12,7 +11,6 @@ export type DeploymentContinuationRequirement =
     templateName: string
     templateNameZh: string
     templateVersion: string
-    imageName?: string
   }
 
 export function safeCreateReturnPath(value: string | null | undefined): string {
@@ -20,7 +18,12 @@ export function safeCreateReturnPath(value: string | null | undefined): string {
   try {
     const parsed = new URL(value, continuationOrigin)
     if (parsed.origin !== continuationOrigin || parsed.pathname !== '/instances' || parsed.searchParams.get('create') !== '1') return ''
-    return `${parsed.pathname}?${parsed.searchParams.toString()}`
+    const safe = new URLSearchParams({ create: '1' })
+    const template = parsed.searchParams.get('template')?.trim()
+    const host = parsed.searchParams.get('host')?.trim()
+    if (template) safe.set('template', template)
+    if (host) safe.set('host', host)
+    return `${parsed.pathname}?${safe.toString()}`
   } catch {
     return ''
   }
@@ -51,35 +54,18 @@ function findTemplateVersion(templates: DatabaseTemplate[], versionID: string): 
 export function deploymentContinuationRequirement(
   value: string | null | undefined,
   templates: DatabaseTemplate[],
-  instances: Instance[],
-  images: ImageArtifact[],
 ): DeploymentContinuationRequirement {
   const safePath = safeCreateReturnPath(value)
   if (!safePath) return { status: 'unresolved', architectures: [] }
 
   const parsed = new URL(safePath, continuationOrigin)
-  const copyID = parsed.searchParams.get('copy')?.trim()
   const templateVersionID = parsed.searchParams.get('template')?.trim()
-  if (!copyID && !templateVersionID) return { status: 'unconstrained', architectures: [] }
+  if (!templateVersionID) return { status: 'unconstrained', architectures: [] }
 
-  const source = copyID ? instances.find((instance) => instance.id === copyID) : undefined
-  if (copyID && !source) return { status: 'unresolved', architectures: [] }
-
-  const match = findTemplateVersion(templates, source?.templateVersionId || templateVersionID || '')
+  const match = findTemplateVersion(templates, templateVersionID)
   if (!match) return { status: 'unresolved', architectures: [] }
 
-  let architectures = normalizedArchitectures(match.version.architectures)
-  const imageID = !copyID ? parsed.searchParams.get('image')?.trim() : ''
-  const image = imageID ? images.find((candidate) => candidate.id === imageID) : undefined
-  const imageAvailable = !!image &&
-    image.status === 'ready' &&
-    imageArtifactMatchesTemplate(image.imageRefs, match.version) &&
-    imageArtifactSupportsAnyArchitecture(image.architectures, architectures)
-  if (imageAvailable) {
-    const imageArchitectures = new Set(normalizedArchitectures(image.architectures))
-    architectures = architectures.filter((architecture) => imageArchitectures.has(architecture))
-  }
-
+  const architectures = normalizedArchitectures(match.version.architectures)
   if (architectures.length === 0) return { status: 'unresolved', architectures: [] }
   return {
     status: 'resolved',
@@ -87,7 +73,6 @@ export function deploymentContinuationRequirement(
     templateName: match.template.name,
     templateNameZh: match.template.nameZh,
     templateVersion: match.version.version,
-    imageName: imageAvailable ? image.name : undefined,
   }
 }
 

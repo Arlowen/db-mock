@@ -18,7 +18,7 @@ import { hostTaskRecoveryPhase, taskRecoveryConfirmationPath, taskRecoveryHostID
 import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { useTaskRetryRequest } from '../lib/use-task-retry-request'
-import type { DatabaseTemplate, Host, ImageArtifact, Instance, Task } from '../lib/types'
+import type { DatabaseTemplate, Host, Instance, Task } from '../lib/types'
 import { bytes } from '../lib/types'
 
 interface HostForm {
@@ -54,7 +54,7 @@ function percent(used: number, limit: number): number {
 }
 
 export function HostsPage() {
-  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const [items, setItems] = useState<Host[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [hostContextState, setHostContextState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle'); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleteNeedsRefresh, setDeleteNeedsRefresh] = useState(false); const [deleteRefreshing, setDeleteRefreshing] = useState(false); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
+  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const [items, setItems] = useState<Host[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [hostContextState, setHostContextState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle'); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleteNeedsRefresh, setDeleteNeedsRefresh] = useState(false); const [deleteRefreshing, setDeleteRefreshing] = useState(false); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const taskRetry = useTaskRetryRequest()
   const screens = Grid.useBreakpoint()
@@ -78,16 +78,14 @@ export function HostsPage() {
       const hosts = await api<{ items: Host[] }>('/hosts')
       setItems(hosts.items)
       setLoadError('')
-      const [instanceList, templateList, imageList] = await Promise.allSettled([
+      const [instanceList, templateList] = await Promise.allSettled([
         api<{ items: Instance[] }>('/instances'),
         returnTo ? api<{ items: DatabaseTemplate[] }>('/templates') : Promise.resolve({ items: [] }),
-        returnTo ? api<{ items: ImageArtifact[] }>('/images') : Promise.resolve({ items: [] }),
       ])
       if (instanceList.status === 'fulfilled') setInstances(instanceList.value.items)
       if (templateList.status === 'fulfilled') setTemplates(templateList.value.items)
-      if (imageList.status === 'fulfilled') setImages(imageList.value.items)
-      setContinuationDataReady(instanceList.status === 'fulfilled' && (!returnTo || (templateList.status === 'fulfilled' && imageList.status === 'fulfilled')))
-      const failed = [instanceList, templateList, imageList].find((result) => result.status === 'rejected')
+      setContinuationDataReady(instanceList.status === 'fulfilled' && (!returnTo || templateList.status === 'fulfilled'))
+      const failed = [instanceList, templateList].find((result) => result.status === 'rejected')
       setSupportingDataError(failed?.status === 'rejected' ? errorMessage(failed.reason) : '')
       return hosts.items
     } catch (error) { setLoadError(errorMessage(error)); return undefined } finally { setLoading(false) }
@@ -320,8 +318,8 @@ export function HostsPage() {
   const relatedInstances = detail ? instances.filter((instance) => instance.hostId === detail.id) : []
   const schedulableHosts = items.filter((item) => item.status === 'online' && !item.maintenance)
   const continuationRequirement = useMemo(
-    () => deploymentContinuationRequirement(returnTo, templates, instances, images),
-    [images, instances, returnTo, templates],
+    () => deploymentContinuationRequirement(returnTo, templates),
+    [returnTo, templates],
   )
   const continuationContextReady = !!returnTo && !loading && !loadError && continuationDataReady
   const compatibleReadyHosts = continuationContextReady

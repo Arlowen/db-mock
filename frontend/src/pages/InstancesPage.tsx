@@ -1,6 +1,5 @@
 import { CheckCircleOutlined, CloudServerOutlined, ControlOutlined, CopyOutlined, ExportOutlined, LeftOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tag, Typography } from 'antd'
-import dayjs, { type Dayjs } from 'dayjs'
 import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -16,34 +15,22 @@ import { connectionHandoffSummary } from '../lib/connection-handoff'
 import { deploymentReturnPathForHost } from '../lib/deployment-continuation'
 import { frequentTemplateVersions } from '../lib/frequent-template-versions'
 import { hostCanAccept, hostDeploymentReadiness, hostHeadroomScore, remainingAfterDeployment, reservationForHost } from '../lib/host-capacity'
-import { imageArtifactMatchesTemplate, imageArtifactSupportsAnyArchitecture, imageSourceSelectionReady, registryMatchesTemplate, templateImageReferences } from '../lib/image-source'
-import { deploymentCopyDraft } from '../lib/instance-copy'
-import { instanceTemplateDraftAction } from '../lib/instance-create-draft'
 import { canRetryInstanceCreateRequest, instanceCreateRecoveryKey, type InstanceCreateRequestFailure } from '../lib/instance-create-recovery'
 import { instanceHandoffAvailability, instanceHandoffRestoreVerification } from '../lib/instance-handoff'
 import { instanceBatchActionPlan, instanceBatchTaskGroups, instanceListActions, type InstanceBatchAccepted, type InstanceBatchAction, type InstanceBatchActionResponse, type InstanceBatchActionResult, type InstanceBatchRejected } from '../lib/instance-actions'
 import { formatDateTime, translateCode } from '../lib/localization'
-import { mvpDatabaseTemplates, mvpInstanceCreatePayload } from '../lib/mvp-instance-create'
+import { mvpDatabaseTemplates, mvpInstanceCreatePayload, mvpTemplateImageReferences } from '../lib/mvp-instance-create'
 import { permissionsFor } from '../lib/permissions'
-import { projectDeploymentProfileMatches, projectDeploymentProfileValues, projectDeploymentValues } from '../lib/project-deployment-defaults'
 import { restoreVerification } from '../lib/restore-verification'
 import { taskFailureGuidance } from '../lib/task-failure'
 import { taskHostRecoveryPathForTask } from '../lib/task-recovery'
 import { useTaskNotification } from '../lib/task-notification'
 import { templateAuthentication } from '../lib/template-authentication'
 import { displayTemplateParameterValue, localizedTemplateText, templateParameterDefaults, templateParameters, templateResourceProfiles } from '../lib/template-options'
-import type { DatabaseTemplate, Host, ImageArtifact, Instance, InstanceBackup, Project, Registry, Task, TemplateParameter, TemplateParameterValue } from '../lib/types'
+import type { DatabaseTemplate, Host, Instance, InstanceBackup, Task, TemplateParameter, TemplateParameterValue } from '../lib/types'
 import { bytes } from '../lib/types'
 
-type ImageSource = 'public' | 'registry' | 'offline'
-
-interface CreateValues { name: string; projectId?: string; environment: string; purpose?: string; owner: string; expiresAt?: Dayjs; templateVersionId: string; hostId?: string; cpu: number; memoryGiB: number; diskGiB: number; hostPort?: number; bindAddress: string; username?: string; password?: string; databaseName?: string; autoRestart: boolean; imageSource: ImageSource; imageArtifactId?: string; registryId?: string; labels?: string; extraEnvironment?: string; templateParameters?: Record<string, TemplateParameterValue> }
-
-function selectableTemplateVersion(templates: DatabaseTemplate[], versionID?: string) {
-  if (!versionID) return undefined
-  return templates.flatMap((template) => template.versions).find((version) => version.id === versionID && version.selectable !== false)
-}
-
+interface CreateValues { name: string; templateVersionId: string; hostId?: string; cpu: number; memoryGiB: number; diskGiB: number; templateParameters?: Record<string, TemplateParameterValue> }
 
 function batchActionErrorMessage(item: InstanceBatchRejected): string {
   const status = item.code === 'not_found' ? 404
@@ -94,7 +81,7 @@ function connectionHandoffText(
 }
 
 export function InstancesPage() {
-  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [registries, setRegistries] = useState<Registry[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingSources, setRefreshingSources] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const [copySource, setCopySource] = useState<Instance>(); const copyPrefillApplied = useRef(false); const initializedTemplateVersionID = useRef(''); const suppressRequestedCreateRef = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [projectFilter, setProjectFilter] = useState(() => params.get('project') || ''); const [hostFilter, setHostFilter] = useState(''); const [environmentFilter, setEnvironmentFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
+  const { t, i18n } = useTranslation(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const [items, setItems] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [hosts, setHosts] = useState<Host[]>([]); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [creationDataReady, setCreationDataReady] = useState(false); const [creating, setCreating] = useState(false); const [refreshingCreateContext, setRefreshingCreateContext] = useState(false); const [createDraftDirty, setCreateDraftDirty] = useState(false); const [createFailure, setCreateFailure] = useState<InstanceCreateRequestFailure>(); const initializedTemplateVersionID = useRef(''); const suppressRequestedCreateRef = useRef(false); const [drawer, setDrawer] = useState(false); const [step, setStep] = useState(0); const [search, setSearch] = useState(''); const [hostFilter, setHostFilter] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [form] = Form.useForm<CreateValues>()
   const [selectedInstanceIDs, setSelectedInstanceIDs] = useState<string[]>([])
   const [bulkAction, setBulkAction] = useState<InstanceBatchAction>()
   const [rowActionInstance, setRowActionInstance] = useState<Instance>()
@@ -111,8 +98,6 @@ export function InstancesPage() {
   const handoffRequestID = useRef(0)
   const { user } = useAuth(); const { canOperate, canReadCredentials } = permissionsFor(user!)
   const { timezone } = useSystemSettings()
-  const lifecycleDefaults = useMemo(() => ({ owner: user?.displayName?.trim() || user?.username || '', expiresAt: dayjs().add(7, 'day').endOf('day') }), [user?.displayName, user?.username])
-  const [appliedProjectDefaultsID, setAppliedProjectDefaultsID] = useState('')
   const screens = Grid.useBreakpoint()
   const compactLayout = screens.md === false
   const load = useCallback(async () => {
@@ -130,131 +115,58 @@ export function InstancesPage() {
     setCreationDataReady(templateResponse.status === 'fulfilled' && hostResponse.status === 'fulfilled')
     setLoading(false)
   }, [])
-  const refreshImageSources = async () => {
-    try {
-      setRefreshingSources(true)
-      const [imageResponse, registryResponse] = await Promise.allSettled([
-        api<{ items: ImageArtifact[] }>('/images'),
-        api<{ items: Registry[] }>('/registries'),
-      ])
-      if (imageResponse.status === 'fulfilled') setImages(imageResponse.value.items)
-      if (registryResponse.status === 'fulfilled') setRegistries(registryResponse.value.items)
-      const failure = [imageResponse, registryResponse].find((result) => result.status === 'rejected')
-      if (failure?.status === 'rejected') {
-        message.error(errorMessage(failure.reason))
-        return
-      }
-      message.success(t('imageSourcesRefreshed'))
-    } finally {
-      setRefreshingSources(false)
-    }
-  }
   const mvpTemplates = useMemo(() => mvpDatabaseTemplates(templates), [templates])
   const hasOnlineHost = hosts.some((host) => host.status === 'online' && !host.maintenance)
   const createRequested = params.get('create') === '1'
-  const requestedCopyID = params.get('copy')
   const requestedTemplateID = params.get('template')
-  const requestedImageID = params.get('image')
   const requestedHostID = params.get('host')
-  const requestedProjectFilter = params.get('project') || ''
-  const requestedProject = projects.find((project) => project.id === requestedProjectFilter)
-  const requestedProjectProfile = useMemo(() => projectDeploymentProfileValues(requestedProject), [requestedProject])
-  const requestedProjectVersion = selectableTemplateVersion(mvpTemplates, requestedProjectProfile?.templateVersionId)
-  const requestedProjectProfileAvailable = !!requestedProjectProfile && !!requestedProjectVersion
-  const requestedCopySource = requestedCopyID ? items.find((item) => item.id === requestedCopyID) : undefined
-  const requestedCopyTemplateAvailable = !!requestedCopySource && mvpTemplates.some((template) => template.versions.some((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false))
-  const requestedCopySourceUnavailable = !!requestedCopyID && !requestedCopySource
-  const requestedCopyTemplateUnavailable = !!requestedCopySource && !requestedCopyTemplateAvailable
   const requestedTemplateAvailable = !!requestedTemplateID && mvpTemplates.some((template) => template.versions.some((version) => version.id === requestedTemplateID && version.selectable !== false))
   const requestedVersion = mvpTemplates.flatMap((template) => template.versions).find((version) => version.id === requestedTemplateID && version.selectable !== false)
-  const requestedCopyVersion = requestedCopySource ? mvpTemplates.flatMap((template) => template.versions).find((version) => version.id === requestedCopySource.templateVersionId && version.selectable !== false) : undefined
-  const requestedCreationVersion = requestedCopyTemplateAvailable ? requestedCopyVersion : requestedVersion || requestedProjectVersion
-  const requestedImage = images.find((image) => image.id === requestedImageID)
-  const requestedImageAvailable = !!requestedVersion && !!requestedImage && requestedImage.status === 'ready' && imageArtifactMatchesTemplate(requestedImage.imageRefs, requestedVersion) && imageArtifactSupportsAnyArchitecture(requestedImage.architectures, requestedVersion.architectures)
-  const requestedCompatibleHosts = hosts.filter((host) => host.status === 'online' && !host.maintenance && (!requestedCreationVersion || requestedCreationVersion.architectures.includes(host.architecture || '')) && (!requestedImageAvailable || imageArtifactSupportsAnyArchitecture(requestedImage.architectures, [host.architecture || ''])))
-  const requestedImageHostAvailable = requestedImageAvailable && requestedCompatibleHosts.length > 0
+  const requestedCompatibleHosts = hosts.filter((host) => host.status === 'online' && !host.maintenance && (!requestedVersion || requestedVersion.architectures.includes(host.architecture || '')))
   const requestedHost = requestedHostID ? hosts.find((host) => host.id === requestedHostID) : undefined
   const requestedHostReady = !!requestedHost && requestedCompatibleHosts.some((host) => host.id === requestedHost.id)
   const createIntent = useCallback(() => {
-    const path = `/instances?create=1${requestedCopyID ? `&copy=${encodeURIComponent(requestedCopyID)}` : requestedTemplateID ? `&template=${encodeURIComponent(requestedTemplateID)}` : ''}${!requestedCopyID && requestedImageID ? `&image=${encodeURIComponent(requestedImageID)}` : ''}${requestedProjectFilter ? `&project=${encodeURIComponent(requestedProjectFilter)}` : ''}`
+    const path = `/instances?create=1${requestedTemplateID ? `&template=${encodeURIComponent(requestedTemplateID)}` : ''}`
     return deploymentReturnPathForHost(path, requestedHostID)
-  }, [requestedCopyID, requestedHostID, requestedImageID, requestedProjectFilter, requestedTemplateID])
+  }, [requestedHostID, requestedTemplateID])
   const addRequiredHost = useCallback(() => navigate(`/hosts?create=1&returnTo=${encodeURIComponent(createIntent())}`), [createIntent, navigate])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
     const available = new Set(items.map((item) => item.id))
     setSelectedInstanceIDs((current) => current.filter((id) => available.has(id)))
   }, [items])
-  useEffect(() => { if (!drawer) setProjectFilter(requestedProjectFilter) }, [drawer, requestedProjectFilter])
   useEffect(() => {
     if (!createRequested) { suppressRequestedCreateRef.current = false; return }
     if (suppressRequestedCreateRef.current || drawer || loading || loadError || !creationDataReady) return
     if (!canOperate) { setParams({}, { replace: true }); return }
-    if (!requestedCopySourceUnavailable && !requestedCopyTemplateUnavailable && (requestedCreationVersion ? requestedCompatibleHosts.length === 0 : !hasOnlineHost)) { addRequiredHost(); return }
-    if (requestedImageAvailable && !requestedImageHostAvailable) { addRequiredHost(); return }
-    const source = requestedCopyTemplateAvailable ? requestedCopySource : undefined
-    copyPrefillApplied.current = false
+    if (requestedVersion ? requestedCompatibleHosts.length === 0 : !hasOnlineHost) { addRequiredHost(); return }
     initializedTemplateVersionID.current = ''
-    setCopySource(source)
     setStep(0)
     setCreateFailure(undefined)
     setCreateDraftDirty(false)
     form.resetFields()
-    form.setFieldsValue(source
-      ? { ...deploymentCopyDraft(source, projects.map((project) => project.id)), ...lifecycleDefaults, hostId: requestedHostReady ? requestedHostID || undefined : undefined }
-      : {
-          bindAddress: '0.0.0.0',
-          autoRestart: true,
-          imageSource: requestedImageAvailable ? 'offline' : 'public',
-          imageArtifactId: requestedImageAvailable ? requestedImageID || undefined : undefined,
-          templateVersionId: requestedTemplateAvailable
-            ? requestedTemplateID || undefined
-            : requestedProjectProfileAvailable
-              ? requestedProjectProfile.templateVersionId
-              : undefined,
-          projectId: requestedProjectFilter || undefined,
-          ...lifecycleDefaults,
-          ...projectDeploymentValues(requestedProject),
-          ...(requestedProjectProfileAvailable ? requestedProjectProfile : {}),
-          hostId: requestedHostReady ? requestedHostID || undefined : undefined,
-        })
-    setAppliedProjectDefaultsID(source ? '' : requestedProject?.id || '')
+    form.setFieldsValue({
+      templateVersionId: requestedTemplateAvailable ? requestedTemplateID || undefined : undefined,
+      hostId: requestedHostReady ? requestedHostID || undefined : undefined,
+    })
     setDrawer(true)
-  }, [addRequiredHost, canOperate, createRequested, creationDataReady, drawer, form, hasOnlineHost, lifecycleDefaults, loadError, loading, projects, requestedCompatibleHosts.length, requestedCopySource, requestedCopySourceUnavailable, requestedCopyTemplateAvailable, requestedCopyTemplateUnavailable, requestedCreationVersion, requestedHostID, requestedHostReady, requestedImageAvailable, requestedImageHostAvailable, requestedImageID, requestedProject, requestedProjectFilter, requestedProjectProfile, requestedProjectProfileAvailable, requestedTemplateAvailable, requestedTemplateID, setParams])
+  }, [addRequiredHost, canOperate, createRequested, creationDataReady, drawer, form, hasOnlineHost, loadError, loading, requestedCompatibleHosts.length, requestedHostID, requestedHostReady, requestedTemplateAvailable, requestedTemplateID, requestedVersion, setParams])
   const selectedVersionID = Form.useWatch('templateVersionId', { form, preserve: true })
   const requestedName = Form.useWatch('name', { form, preserve: true })
-  const selectedProjectID = Form.useWatch('projectId', { form, preserve: true })
   const selectedHostID = Form.useWatch('hostId', { form, preserve: true })
-  const selectedRegistryID = Form.useWatch('registryId', { form, preserve: true })
-  const selectedImageArtifactID = Form.useWatch('imageArtifactId', { form, preserve: true })
-  const imageSource = Form.useWatch('imageSource', { form, preserve: true }) || 'public'
   const requestedCPU = Form.useWatch('cpu', { form, preserve: true })
   const requestedMemoryGiB = Form.useWatch('memoryGiB', { form, preserve: true })
   const requestedDiskGiB = Form.useWatch('diskGiB', { form, preserve: true })
-  const requestedHostPort = Form.useWatch('hostPort', { form, preserve: true })
   const submittedTemplateParameters = Form.useWatch('templateParameters', { form, preserve: true })
   const selected = useMemo(() => { for (const item of mvpTemplates) for (const version of item.versions) if (version.id === selectedVersionID && version.selectable !== false) return { template: item, version }; return undefined }, [mvpTemplates, selectedVersionID])
   const selectedAuthentication = selected ? templateAuthentication(selected.template, selected.version) : 'password'
   const frequentVersions = useMemo(() => frequentTemplateVersions(mvpTemplates), [mvpTemplates])
-  const selectedProject = projects.find((project) => project.id === selectedProjectID)
-  const selectedProjectProfile = useMemo(() => projectDeploymentProfileValues(selectedProject), [selectedProject])
-  const selectedProjectProfileAvailable = !!selectedProjectProfile && !!selectableTemplateVersion(templates, selectedProjectProfile.templateVersionId)
-  const selectedProjectProfileSelected = !copySource && selectedProjectProfileAvailable && selectedProjectProfile.templateVersionId === selectedVersionID
-  const selectedProjectProfileApplied = selectedProjectProfileSelected && projectDeploymentProfileMatches(selectedProjectProfile, {
-    templateVersionId: selectedVersionID,
-    cpu: requestedCPU,
-    memoryGiB: requestedMemoryGiB,
-    diskGiB: requestedDiskGiB,
-  })
   const selectedTemplateParameters = useMemo(() => templateParameters(selected?.version), [selected])
   const selectedResourceProfiles = useMemo(() => templateResourceProfiles(selected?.version), [selected])
   const templateCompatibleHosts = useMemo(() => hosts.filter((host) => host.status === 'online' && !host.maintenance && (!selected || selected.version.architectures.includes(host.architecture || ''))), [hosts, selected])
   const selectedHost = templateCompatibleHosts.find((host) => host.id === selectedHostID)
-  const eligibleImageArchitectures = useMemo(() => selectedHost ? [selectedHost.architecture || ''] : templateCompatibleHosts.map((host) => host.architecture || ''), [selectedHost, templateCompatibleHosts])
-  const compatibleImages = useMemo(() => images.filter((item) => item.status === 'ready' && !!selected && imageArtifactMatchesTemplate(item.imageRefs, selected.version) && imageArtifactSupportsAnyArchitecture(item.architectures, eligibleImageArchitectures)), [eligibleImageArchitectures, images, selected])
-  const selectedImage = compatibleImages.find((item) => item.id === selectedImageArtifactID)
-  const compatibleHosts = useMemo(() => imageSource === 'offline' && selectedImage ? templateCompatibleHosts.filter((host) => imageArtifactSupportsAnyArchitecture(selectedImage.architectures, [host.architecture || ''])) : templateCompatibleHosts, [imageSource, selectedImage, templateCompatibleHosts])
-  const resourceRequest = useMemo(() => ({ cpu: requestedCPU || 0, memory: Math.round((requestedMemoryGiB || 0) * 1024 ** 3), disk: Math.round((requestedDiskGiB || 0) * 1024 ** 3), port: requestedHostPort || undefined }), [requestedCPU, requestedDiskGiB, requestedHostPort, requestedMemoryGiB])
+  const compatibleHosts = templateCompatibleHosts
+  const resourceRequest = useMemo(() => ({ cpu: requestedCPU || 0, memory: Math.round((requestedMemoryGiB || 0) * 1024 ** 3), disk: Math.round((requestedDiskGiB || 0) * 1024 ** 3), port: undefined }), [requestedCPU, requestedDiskGiB, requestedMemoryGiB])
   const resourceRequestReady = resourceRequest.cpu > 0 && resourceRequest.memory > 0 && resourceRequest.disk > 0
   const resourceHostScope = useMemo(() => selectedHost ? [selectedHost] : compatibleHosts, [compatibleHosts, selectedHost])
   const capacityCandidates = useMemo(() => resourceRequestReady ? resourceHostScope.filter((host) => hostCanAccept(host, reservationForHost(items, host.id), resourceRequest)) : resourceHostScope, [items, resourceHostScope, resourceRequest, resourceRequestReady])
@@ -266,13 +178,10 @@ export function InstancesPage() {
     const detail = !readiness
       ? t('hostOptionAwaitingResources')
       : readiness.fits
-        ? t(requestedHostPort ? 'hostOptionRemainingWithPort' : 'hostOptionRemaining', { cpu: readiness.remaining.cpu.toFixed(readiness.remaining.cpu % 1 ? 1 : 0), memory: bytes(readiness.remaining.memory), disk: bytes(readiness.remaining.disk), port: requestedHostPort })
+        ? t('hostOptionRemaining', { cpu: readiness.remaining.cpu.toFixed(readiness.remaining.cpu % 1 ? 1 : 0), memory: bytes(readiness.remaining.memory), disk: bytes(readiness.remaining.disk) })
         : t('hostOptionUnavailable', { issues, cpu: readiness.available.cpu.toFixed(readiness.available.cpu % 1 ? 1 : 0), memory: bytes(readiness.available.memory), disk: bytes(readiness.available.disk) })
     return { value: host.id, label: `${host.name} · ${detail}`, searchText: `${host.name} ${host.architecture}`, disabled: !!readiness && !readiness.fits, host, readiness, detail }
   })
-  const compatibleRegistries = useMemo(() => registries.filter((registry) => !!selected && registryMatchesTemplate(registry.url, selected.version)), [registries, selected])
-  const selectedRegistry = compatibleRegistries.find((registry) => registry.id === selectedRegistryID)
-  const imageSourceReady = imageSourceSelectionReady(imageSource, selectedRegistryID, selectedImageArtifactID)
   const refreshCreateContext = async (failure = createFailure) => {
     if (!failure) return
     const values = form.getFieldsValue(true) as CreateValues
@@ -303,13 +212,7 @@ export function InstancesPage() {
       setRefreshingCreateContext(false)
     }
   }
-  const selectedProjectReady = !selectedProjectID || !!selectedProject
   const selectedHostReady = !selectedHostID || !!selectedHost
-  const selectedImageSourceReady = imageSource === 'offline'
-    ? !!selectedImage
-    : imageSource === 'registry'
-      ? !!selectedRegistry && !['offline', 'degraded'].includes(selectedRegistry.status)
-      : true
   const createDraftReady = creationDataReady &&
     !!selected &&
     !!requestedName?.trim() &&
@@ -327,77 +230,37 @@ export function InstancesPage() {
       : 2
   useEffect(() => {
     if (!selected) return
-    const action = instanceTemplateDraftAction({
-      initializedTemplateVersionId: initializedTemplateVersionID.current,
-      selectedTemplateVersionId: selected.version.id,
-      copySourceTemplateVersionId: copySource?.templateVersionId,
-      copyPrefillApplied: copyPrefillApplied.current,
-    })
-    if (action === 'preserve' || action === 'wait') return
+    if (initializedTemplateVersionID.current === selected.version.id) return
     initializedTemplateVersionID.current = selected.version.id
-    if (action === 'copy' && copySource) {
-      copyPrefillApplied.current = true
-      const draft = deploymentCopyDraft(copySource, projects.map((project) => project.id))
-      form.setFieldsValue({ ...draft, username: selectedAuthentication === 'none' ? '' : draft.username, password: undefined })
-      return
-    }
     const manifest = selected.version.manifest
     const profile = selectedResourceProfiles[0]
     form.setFieldsValue({
       cpu: profile?.cpu ?? selected.version.minCpu,
       memoryGiB: (profile?.memoryBytes ?? selected.version.minMemoryBytes) / 1024 ** 3,
       diskGiB: (profile?.diskBytes ?? selected.version.minDiskBytes) / 1024 ** 3,
-      username: selectedAuthentication === 'none' ? '' : manifest.username,
-      password: undefined,
-      databaseName: manifest.database,
       templateParameters: templateParameterDefaults(selectedTemplateParameters),
     })
-  }, [copySource, form, projects, selected, selectedAuthentication, selectedProjectProfile, selectedProjectProfileSelected, selectedResourceProfiles, selectedTemplateParameters])
+  }, [form, selected, selectedResourceProfiles, selectedTemplateParameters])
   useEffect(() => {
     if (!selected) return
     if (selectedHostID && !templateCompatibleHosts.some((host) => host.id === selectedHostID)) form.setFieldValue('hostId', undefined)
-    const imageArtifactID = form.getFieldValue('imageArtifactId')
-    if (imageArtifactID && !compatibleImages.some((item) => item.id === imageArtifactID)) form.setFieldValue('imageArtifactId', undefined)
-    const registryID = form.getFieldValue('registryId')
-    if (registryID && !compatibleRegistries.some((registry) => registry.id === registryID)) form.setFieldValue('registryId', undefined)
-  }, [compatibleImages, compatibleRegistries, form, selected, selectedHostID, templateCompatibleHosts])
+  }, [form, selected, selectedHostID, templateCompatibleHosts])
   const activeResourceProfile = selectedResourceProfiles.find((profile) => profile.cpu === requestedCPU && profile.memoryBytes === Math.round((requestedMemoryGiB || 0) * 1024 ** 3) && profile.diskBytes === Math.round((requestedDiskGiB || 0) * 1024 ** 3))
-  const applyProjectDefaults = (projectID?: string) => {
-    const project = projects.find((candidate) => candidate.id === projectID)
-    form.setFieldsValue(projectDeploymentValues(project))
-    setAppliedProjectDefaultsID(project?.id || '')
-  }
-  const applyProjectDeploymentProfile = (projectID?: string) => {
-    const project = projects.find((candidate) => candidate.id === projectID)
-    const profile = projectDeploymentProfileValues(project)
-    if (!profile || !selectableTemplateVersion(templates, profile.templateVersionId)) return
-    setCopySource(undefined)
-    copyPrefillApplied.current = false
-    form.setFieldsValue(profile)
-    setCreateDraftDirty(true)
-  }
   const chooseTemplateVersion = (value: string) => {
     form.setFieldValue('templateVersionId', value)
     setCreateDraftDirty(true)
-    if (copySource && value !== copySource.templateVersionId) {
-      setCopySource(undefined)
-      applyProjectDefaults(selectedProjectID)
-    }
   }
   const openCreate = () => {
     if (!hasOnlineHost) { addRequiredHost(); return }
-    copyPrefillApplied.current = false
     initializedTemplateVersionID.current = ''
-    setCopySource(undefined)
     setDrawer(true)
     setStep(0)
     setCreateFailure(undefined)
     setCreateDraftDirty(false)
-    setAppliedProjectDefaultsID('')
     form.resetFields()
     form.setFieldsValue({})
   }
-  const finishCloseCreate = () => { suppressRequestedCreateRef.current = true; setDrawer(false); setParams({}, { replace: true }); setCopySource(undefined); setAppliedProjectDefaultsID(''); copyPrefillApplied.current = false; initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
+  const finishCloseCreate = () => { suppressRequestedCreateRef.current = true; setDrawer(false); setParams({}, { replace: true }); initializedTemplateVersionID.current = ''; setStep(0); setCreateFailure(undefined); setCreateDraftDirty(false); form.resetFields() }
   const closeCreate = () => {
     if (creating) return
     if (!createDraftDirty) { finishCloseCreate(); return }
@@ -659,7 +522,7 @@ export function InstancesPage() {
     },
   ]
   const columns = compactLayout ? mobileColumns : desktopColumns
-  const versionOptions = mvpTemplates.flatMap((item) => item.versions.filter((version) => version.selectable !== false).map((version) => ({ value: version.id, searchText: `${item.name} ${item.nameZh} ${version.version} ${templateImageReferences(version).join(' ')}`, label: `${item.name} ${version.version}`, template: item, version })))
+  const versionOptions = mvpTemplates.flatMap((item) => item.versions.filter((version) => version.selectable !== false).map((version) => ({ value: version.id, searchText: `${item.name} ${item.nameZh} ${version.version} ${mvpTemplateImageReferences(version).join(' ')}`, label: `${item.name} ${version.version}`, template: item, version })))
   const filteredItems = useMemo(() => items.filter((item) => (!hostFilter || item.hostId === hostFilter) && (!statusFilter || item.status === statusFilter) && `${item.name} ${item.templateName} ${item.hostName}`.toLowerCase().includes(search.toLowerCase())), [items, hostFilter, statusFilter, search])
   const hasFilters = !!(search || hostFilter || statusFilter)
   const showFilters = items.length > 0 || hasFilters
@@ -901,7 +764,7 @@ export function InstancesPage() {
           </div>
         </section>}
         <Form.Item name="templateVersionId" label={`${t('template')} / ${t('version')}`} rules={[{ required: true }]}><Select showSearch optionFilterProp="searchText" options={versionOptions} size="large" onChange={chooseTemplateVersion} optionRender={(option) => <Space><DatabaseIcon slug={option.data.template.slug} name={option.data.template.name} size="small" /><span>{option.label}</span></Space>} labelRender={({ value, label }) => { const option = versionOptions.find((item) => item.value === value); return option ? <Space><DatabaseIcon slug={option.template.slug} name={option.template.name} size="small" /><span>{option.label}</span></Space> : label }} /></Form.Item>
-        {selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{templateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}
+        {selected && <Card><Space align="start"><DatabaseIcon slug={selected.template.slug} name={selected.template.name} /><div><Typography.Title level={4}>{selected.template.name}</Typography.Title><Typography.Paragraph type="secondary">{t(`templateDescription_${selected.template.slug}`, { defaultValue: selected.template.description })}</Typography.Paragraph><Space wrap><StatusTag value={selected.template.tier} />{selected.version.architectures.map((a) => <Tag key={a}>{a}</Tag>)}{mvpTemplateImageReferences(selected.version).map((reference) => <Tag key={reference}>{reference}</Tag>)}</Space></div></Space></Card>}
         {selected && compatibleHosts.length === 0 && <Alert className="wizard-readiness-alert" type="warning" showIcon message={t('noCompatibleHosts')} description={t('noCompatibleHostsHint', { architectures: selected.version.architectures.join(' / ') })} action={<Button size="small" onClick={addRequiredHost}>{t('addHost')}</Button>} />}
         <Form.Item name="name" label={t('databaseNameLabel')} extra={t('databaseNameHint')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input size="large" maxLength={120} placeholder={t('databaseNamePlaceholder')} /></Form.Item>
       </>}
@@ -923,9 +786,9 @@ export function InstancesPage() {
             </div>}
           />
         </Form.Item>
-        {resourceRequestReady && <Alert className="wizard-capacity-alert" type={capacityCandidates.length ? 'success' : 'warning'} showIcon message={capacityCandidates.length ? selectedHost ? t('selectedHostCapacityReady', { name: selectedHost.name }) : t('automaticHostCapacityReady', { fit: capacityCandidates.length, total: resourceHostScope.length }) : t('hostCapacityUnavailable')} description={capacityRemaining && capacityPreviewHost ? t(requestedHostPort ? 'hostCapacityPreviewWithPort' : 'hostCapacityPreview', { name: capacityPreviewHost.name, cpu: capacityRemaining.cpu.toFixed(capacityRemaining.cpu % 1 ? 1 : 0), memory: bytes(capacityRemaining.memory), disk: bytes(capacityRemaining.disk), port: requestedHostPort }) : t('hostCapacityUnavailableHint')} />}
+        {resourceRequestReady && <Alert className="wizard-capacity-alert" type={capacityCandidates.length ? 'success' : 'warning'} showIcon message={capacityCandidates.length ? selectedHost ? t('selectedHostCapacityReady', { name: selectedHost.name }) : t('automaticHostCapacityReady', { fit: capacityCandidates.length, total: resourceHostScope.length }) : t('hostCapacityUnavailable')} description={capacityRemaining && capacityPreviewHost ? t('hostCapacityPreview', { name: capacityPreviewHost.name, cpu: capacityRemaining.cpu.toFixed(capacityRemaining.cpu % 1 ? 1 : 0), memory: bytes(capacityRemaining.memory), disk: bytes(capacityRemaining.disk) }) : t('hostCapacityUnavailableHint')} />}
         {selectedTemplateParameters.length > 0 && <Card size="small" title={t('templateParameters')}><Typography.Paragraph type="secondary">{t('templateParametersHint')}</Typography.Paragraph>{selectedTemplateParameters.map((parameter) => <Form.Item key={parameter.key} name={['templateParameters', parameter.key]} label={localizedTemplateText(parameter.label, parameter.labelZh, i18n.language)} extra={localizedTemplateText(parameter.description, parameter.descriptionZh, i18n.language)} valuePropName={parameter.type === 'boolean' ? 'checked' : 'value'} rules={[parameterRequiredRule(parameter)]}>{parameterInput(parameter)}</Form.Item>)}</Card>}
-        <Alert className="wizard-public-image-note" type="info" showIcon message={t('mvpPublicImageTitle')} description={selected ? templateImageReferences(selected.version).join(' · ') : undefined} />
+        <Alert className="wizard-public-image-note" type="info" showIcon message={t('mvpPublicImageTitle')} description={selected ? mvpTemplateImageReferences(selected.version).join(' · ') : undefined} />
       </>}
       {step === 2 && <div className="create-review">
         <div className="create-review-header">

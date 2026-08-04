@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mvpDatabaseTemplates, mvpInstanceCreatePayload } from './mvp-instance-create'
+import { mvpDatabaseTemplates, mvpInstanceCreatePayload, mvpTemplateImageReferences } from './mvp-instance-create'
 import type { DatabaseTemplate } from './types'
 
 function template(id: string, tier: DatabaseTemplate['tier'], builtin = true): DatabaseTemplate {
@@ -19,6 +19,13 @@ function template(id: string, tier: DatabaseTemplate['tier'], builtin = true): D
 }
 
 describe('MVP database creation', () => {
+  it('deduplicates the public image references declared by a standard template', () => {
+    expect(mvpTemplateImageReferences({
+      imageReference: 'postgres:17',
+      manifest: { imageReferences: ['postgres:17', 'helper:1', 'helper:1'] },
+    })).toEqual(['postgres:17', 'helper:1'])
+  })
+
   it('offers only built-in standard database templates', () => {
     expect(mvpDatabaseTemplates([
       template('postgresql', 'standard'),
