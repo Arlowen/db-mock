@@ -4,6 +4,7 @@ const GiB = 1024 ** 3
 
 const templateVersionID = '22222222-2222-4222-8222-222222222222'
 const hostID = '33333333-3333-4333-8333-333333333333'
+const createdHostID = '33333333-3333-4333-8333-333333333334'
 const instanceID = '44444444-4444-4444-8444-444444444444'
 const createdInstanceID = '55555555-5555-4555-8555-555555555555'
 const deleteTaskID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -63,7 +64,11 @@ const host = {
   portStart: 20000,
   portEnd: 40000,
   manageDocker: false,
+  os: 'linux',
+  distro: 'Ubuntu 24.04',
   architecture: 'amd64',
+  dockerVersion: '27.5.1',
+  composeVersion: '2.32.4',
   cpuCount: 8,
   memoryBytes: 16 * GiB,
   diskTotalBytes: 200 * GiB,
@@ -74,6 +79,8 @@ const host = {
   status: 'online',
   maintenance: false,
   autoRestartDefault: true,
+  lastSeenAt: '2026-08-04T08:10:00Z',
+  lastCheckedAt: '2026-08-04T08:10:00Z',
   consecutiveFailures: 0,
   labels: {},
   createdAt: '2026-08-01T00:00:00Z',
@@ -139,8 +146,12 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   await page.goto('/')
   await page.locator('#username').fill('e2e-admin')
   await page.locator('#password').fill('e2e-password')
-  await page.getByRole('button', { name: '初始化 DB Mock' }).click()
+  const initializeButton = page.getByRole('button', { name: '初始化 DB Mock' })
+  if (await initializeButton.count()) await initializeButton.click()
+  else await page.getByRole('button', { name: /^登\s*录$/ }).click()
   await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
+  consoleErrors.length = 0
+  httpErrors.length = 0
   await expect(page.getByRole('menuitem')).toHaveCount(4)
   await expect(page.getByRole('menuitem', { name: /工作台/ })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /主机/ })).toBeVisible()
@@ -148,6 +159,9 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   await expect(page.getByRole('menuitem', { name: /任务中心/ })).toBeVisible()
 
   let instances = [runningInstance]
+  let hosts = [host]
+  let hostCreatePayload: Record<string, unknown> | undefined
+  let hostSupportingRequests = 0
   let createPayload: Record<string, unknown> | undefined
   let stopPayload: Record<string, unknown> | undefined
   let deletePayload: Record<string, unknown> | undefined
@@ -167,10 +181,19 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
     createdAt: '2026-08-04T07:00:00Z',
     updatedAt: '2026-08-04T07:02:00Z',
   }]
-  await page.route('**/api/v1/templates', (route) => route.fulfill({ json: { items: [standardTemplate, ...hiddenTemplates] } }))
-  await page.route('**/api/v1/hosts', (route) => route.fulfill({ json: { items: [host] } }))
-  await page.route('**/api/v1/projects', (route) => route.fulfill({ json: { items: [] } }))
-  await page.route('**/api/v1/images', (route) => route.fulfill({ json: { items: [] } }))
+  await page.route('**/api/v1/templates', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [standardTemplate, ...hiddenTemplates] } }) })
+  await page.route('**/api/v1/hosts', async (route) => {
+    if (route.request().method() === 'POST') {
+      hostCreatePayload = route.request().postDataJSON()
+      const createdHost = { ...host, id: createdHostID, name: String(hostCreatePayload?.name), sshAddress: String(hostCreatePayload?.sshAddress), connectionAddress: String(hostCreatePayload?.connectionAddress || hostCreatePayload?.sshAddress), status: 'pending' }
+      hosts = [...hosts, createdHost]
+      await route.fulfill({ status: 202, json: { host: createdHost, task: { ...succeededTask, id: '33333333-3333-4333-8333-333333333335', kind: 'host.probe', resourceType: 'host', resourceId: createdHostID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } } })
+      return
+    }
+    await route.fulfill({ json: { items: hosts } })
+  })
+  await page.route('**/api/v1/projects', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [] } }) })
+  await page.route('**/api/v1/images', (route) => { hostSupportingRequests += 1; return route.fulfill({ json: { items: [] } }) })
   await page.route('**/api/v1/registries', (route) => route.fulfill({ json: { items: [] } }))
   await page.route('**/api/v1/instances', async (route) => {
     if (route.request().method() === 'POST') {
@@ -182,6 +205,27 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
     }
     await route.fulfill({ json: { items: instances } })
   })
+  await page.route(`**/api/v1/instances?hostId=${hostID}`, (route) => route.fulfill({ json: { items: [runningInstance] } }))
+  await page.route(`**/api/v1/tasks?resourceType=host&resourceId=${hostID}`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route('**/api/v1/hosts/test', (route) => route.fulfill({ json: {
+    hostKey: 'SHA256:e2e-host-fingerprint ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest',
+    os: 'linux',
+    distro: 'Ubuntu 24.04',
+    architecture: 'amd64',
+    dockerVersion: '27.5.1',
+    composeVersion: '2.32.4',
+    passwordlessSudo: false,
+    cpuCount: 8,
+    memoryBytes: 16 * GiB,
+    diskTotalBytes: 200 * GiB,
+    diskFreeBytes: 160 * GiB,
+    dataRootWritable: true,
+    portProbeAvailable: true,
+    firstAvailablePort: 25433,
+    verificationToken: 'e2e-host-verification-token',
+    verificationExpiresAt: '2026-08-04T09:00:00Z',
+  } }))
+  await page.route(`**/api/v1/hosts/${hostID}/actions/probe`, (route) => route.fulfill({ status: 202, json: { ...succeededTask, id: '33333333-3333-4333-8333-333333333336', kind: 'host.probe', resourceType: 'host', resourceId: hostID, status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined } }))
   await page.route('**/api/v1/instances/batch-actions/stop', async (route) => {
     stopPayload = route.request().postDataJSON()
     await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: instanceID, instanceName: runningInstance.name, task: succeededTask }], rejected: [] } })
@@ -210,6 +254,102 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   await page.route(`**/api/v1/instances/${createdInstanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/backup-policy`, (route) => route.fulfill({ json: { policy: null } }))
+
+  await page.goto('/hosts')
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await expect(page.getByRole('heading', { name: '主机' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '主机' })).toHaveCount(1)
+  const hostLink = page.locator('.host-table-card .description-link', { hasText: 'Daily Docker Host' })
+  await expect(hostLink).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '项目' })).toHaveCount(0)
+  await expect(page.getByLabel('项目')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '更多操作' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '重新检测 Daily Docker Host' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '编辑 Daily Docker Host' })).toBeVisible()
+  await expect.poll(() => hostSupportingRequests).toBe(0)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('hosts-1440.png'), fullPage: true })
+
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.waitForTimeout(400)
+  await expect(page.getByRole('button', { name: '接入主机' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '调度容量' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '重新检测 Daily Docker Host' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '编辑 Daily Docker Host' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('hosts-1024.png'), fullPage: true })
+
+  await hostLink.click()
+  const hostDrawer = page.locator('.host-detail-drawer')
+  await expect(hostDrawer).toBeVisible()
+  await page.waitForTimeout(500)
+  await expect(hostDrawer.getByText('当前主机状态')).toBeVisible()
+  await expect(hostDrawer.getByText('托管数据库')).toBeVisible()
+  await expect(hostDrawer.getByText('主机配置')).toBeVisible()
+  await expect(hostDrawer.getByText('项目', { exact: true })).toHaveCount(0)
+  await expect(hostDrawer.getByText('主机策略', { exact: true })).toHaveCount(0)
+  await expect(hostDrawer.getByText('标签', { exact: true })).toHaveCount(0)
+  await expect(hostDrawer.getByRole('button', { name: '更多操作' })).toHaveCount(0)
+  await expect(hostDrawer.getByRole('button', { name: '删除' })).toBeDisabled()
+  await expect(hostDrawer.getByRole('button', { name: '删除' })).toHaveAttribute('title', '必须先删除该主机上的托管实例。')
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('host-detail-1024.png'), fullPage: false })
+  await hostDrawer.getByRole('button', { name: '关闭' }).click()
+
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: '接入主机' }).click()
+  const hostEditor = page.getByRole('dialog', { name: '接入主机' })
+  await expect(hostEditor).toBeVisible()
+  await expect(hostEditor.getByText('SSH 连接')).toBeVisible()
+  await expect(hostEditor.getByText('数据库部署位置')).toBeVisible()
+  for (const removedHostSetting of ['项目', '高级设置', '代理', '主机策略', '允许安装或升级 Docker', '维护模式']) {
+    await expect(hostEditor.getByText(removedHostSetting, { exact: true })).toHaveCount(0)
+  }
+  await hostEditor.getByLabel('名称').fill('Staging Docker Host')
+  await hostEditor.getByLabel('SSH 地址').fill('10.0.0.9')
+  await hostEditor.getByLabel('SSH 用户').fill('dbmock')
+  await hostEditor.getByLabel('认证方式').click()
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: '密码' }).click()
+  await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0)
+  await hostEditor.getByLabel('密码').fill('synthetic-e2e-password')
+  await hostEditor.getByRole('button', { name: '测试连接' }).click()
+  await expect(hostEditor.getByText('连接验证通过')).toBeVisible()
+  await expect(hostEditor.getByText('Docker 与 Compose')).toBeVisible()
+  await expect(hostEditor.getByText('免密 sudo')).toHaveCount(0)
+  const saveHostButton = hostEditor.getByRole('button', { name: /^保\s*存$/ })
+  await expect(saveHostButton).toBeEnabled()
+  await expect(page.locator('.ant-message-notice')).toHaveCount(0, { timeout: 5_000 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1440.png'), fullPage: false })
+
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.waitForTimeout(400)
+  await expect.poll(() => hostEditor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('host-editor-verified-1024.png'), fullPage: false })
+  await saveHostButton.click()
+  await expect(hostEditor).toBeHidden()
+  await expect.poll(() => hostCreatePayload).toEqual({
+    name: 'Staging Docker Host',
+    sshAddress: '10.0.0.9',
+    sshPort: 22,
+    sshUser: 'dbmock',
+    authType: 'password',
+    credential: 'synthetic-e2e-password',
+    connectionAddress: '',
+    dataRoot: '/opt/dbmock',
+    portStart: 20000,
+    portEnd: 40000,
+    manageDocker: false,
+    proxyHttp: '',
+    proxyHttps: '',
+    proxyNoProxy: '',
+    maintenance: false,
+    autoRestartDefault: true,
+    labels: {},
+    verificationToken: 'e2e-host-verification-token',
+  })
+  const hostNotificationClose = page.locator('.ant-notification-notice-close')
+  if (await hostNotificationClose.isVisible()) await hostNotificationClose.click()
 
   await page.goto('/instances')
   await page.setViewportSize({ width: 1440, height: 1000 })

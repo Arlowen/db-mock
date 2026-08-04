@@ -1,5 +1,5 @@
-import { ArrowRightOutlined, CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, MoreOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Card, Collapse, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Select, Space, Steps, Switch, Table, Tag, Typography } from 'antd'
+import { ArrowRightOutlined, CloudServerOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, RedoOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons'
+import { Alert, App, Button, Card, Descriptions, Drawer, Form, Grid, Input, InputNumber, Modal, Progress, Select, Space, Steps, Table, Tag, Typography } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -10,21 +10,21 @@ import { useSystemSettings } from '../contexts/SystemSettingsContext'
 import { api, errorMessage } from '../lib/api'
 import { deploymentContinuationRequirement, deploymentReturnPathForHost, hostMeetsDeploymentRequirement, safeCreateReturnPath } from '../lib/deployment-continuation'
 import { reservationForHost } from '../lib/host-capacity'
-import { dockerManagementReady, hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
+import { hostConnectionReady, hostPortPoolInvalid } from '../lib/host-verification'
+import { mvpHostPayload } from '../lib/mvp-host'
 import { formatDateTime, translateCode } from '../lib/localization'
 import { permissionsFor } from '../lib/permissions'
 import { hostTaskRecoveryPhase, taskRecoveryConfirmationPath, taskRecoveryHostID, taskRecoveryInstanceID, taskRecoveryResourcePath } from '../lib/task-recovery'
 import { selectRecoveryTasks } from '../lib/task-state'
 import { useTaskNotification } from '../lib/task-notification'
 import { useTaskRetryRequest } from '../lib/use-task-retry-request'
-import type { DatabaseTemplate, Host, ImageArtifact, Instance, Project, Task } from '../lib/types'
+import type { DatabaseTemplate, Host, ImageArtifact, Instance, Task } from '../lib/types'
 import { bytes } from '../lib/types'
 
 interface HostForm {
-  name: string; projectId?: string; sshAddress: string; sshPort: number; sshUser: string; authType: string;
-  credential?: string; passphrase?: string; hostKey?: string; connectionAddress?: string; dataRoot: string;
-  portStart: number; portEnd: number; manageDocker: boolean; maintenance: boolean; autoRestartDefault: boolean;
-  proxyHttp?: string; proxyHttps?: string; proxyNoProxy?: string;
+  name: string; sshAddress: string; sshPort: number; sshUser: string; authType: string;
+  credential?: string; passphrase?: string; connectionAddress?: string; dataRoot: string;
+  portStart: number; portEnd: number;
 }
 
 interface HostProbeResult {
@@ -34,10 +34,8 @@ interface HostProbeResult {
   verificationToken: string; verificationExpiresAt: string;
 }
 
-type VerificationReason = '' | 'connection' | 'docker_policy'
-
 const verificationFields = new Set(['sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'dataRoot', 'portStart', 'portEnd'])
-const hostDraftFields: Array<keyof HostForm> = ['name', 'projectId', 'sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'connectionAddress', 'dataRoot', 'portStart', 'portEnd', 'manageDocker', 'maintenance', 'autoRestartDefault', 'proxyHttp', 'proxyHttps', 'proxyNoProxy']
+const hostDraftFields: Array<keyof HostForm> = ['name', 'sshAddress', 'sshPort', 'sshUser', 'authType', 'credential', 'passphrase', 'connectionAddress', 'dataRoot', 'portStart', 'portEnd']
 const hostStatuses = ['pending', 'online', 'offline', 'degraded', 'needs_docker', 'unsupported']
 
 function sameHostField(values: HostForm, baseline: HostForm, key: keyof HostForm) {
@@ -56,17 +54,15 @@ function percent(used: number, limit: number): number {
 }
 
 export function HostsPage() {
-  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const projectFilter = params.get('project') || ''; const [items, setItems] = useState<Host[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [verificationReason, setVerificationReason] = useState<VerificationReason>(''); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
+  const { t, i18n } = useTranslation(); const { timezone } = useSystemSettings(); const { message, modal } = App.useApp(); const navigate = useNavigate(); const notifyTask = useTaskNotification(); const [params, setParams] = useSearchParams(); const hostID = params.get('host'); const recoveryTaskID = params.get('recoveryTask'); const returnTo = safeCreateReturnPath(params.get('returnTo')); const [items, setItems] = useState<Host[]>([]); const [instances, setInstances] = useState<Instance[]>([]); const [templates, setTemplates] = useState<DatabaseTemplate[]>([]); const [images, setImages] = useState<ImageArtifact[]>([]); const [hostTasks, setHostTasks] = useState<Task[]>([]); const [loadError, setLoadError] = useState(''); const [supportingDataError, setSupportingDataError] = useState(''); const [continuationDataReady, setContinuationDataReady] = useState(false); const [detailError, setDetailError] = useState(''); const [hostContextState, setHostContextState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle'); const [verificationError, setVerificationError] = useState(''); const [saveError, setSaveError] = useState(''); const [open, setOpen] = useState(false); const [detail, setDetail] = useState<Host | null>(null); const [editing, setEditing] = useState<Host | null>(null); const [editorDirty, setEditorDirty] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [actioning, setActioning] = useState(''); const [fingerprint, setFingerprint] = useState(''); const [verificationToken, setVerificationToken] = useState(''); const [probe, setProbe] = useState<HostProbeResult | null>(null); const [verificationDirty, setVerificationDirty] = useState(false); const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [deleteTarget, setDeleteTarget] = useState<Host | null>(null); const [deleteConfirm, setDeleteConfirm] = useState(''); const [deleteError, setDeleteError] = useState(''); const [deleteNeedsRefresh, setDeleteNeedsRefresh] = useState(false); const [deleteRefreshing, setDeleteRefreshing] = useState(false); const [deleting, setDeleting] = useState(false); const [recoveryTask, setRecoveryTask] = useState<Task>(); const [recoveryTaskLoading, setRecoveryTaskLoading] = useState(false); const [recoveryTaskError, setRecoveryTaskError] = useState(''); const verificationSection = useRef<HTMLDivElement>(null); const hostBaseline = useRef<HostForm | null>(null); const [form] = Form.useForm<HostForm>()
   const { user } = useAuth(); const { canOperate } = permissionsFor(user!)
   const taskRetry = useTaskRetryRequest()
   const screens = Grid.useBreakpoint()
   const hostConnectionValues = Form.useWatch([], { form, preserve: true })
-  const manageDocker = Form.useWatch('manageDocker', form)
   const verificationRequired = !editing || verificationDirty
   const verificationReady = (!verificationRequired && !probe) || (!!fingerprint && !!verificationToken)
   const portPoolInvalid = hostPortPoolInvalid(hostConnectionValues)
   const connectionTestReady = hostConnectionReady(hostConnectionValues, !editing || verificationDirty)
-  const dockerPolicyReady = dockerManagementReady(manageDocker, probe?.passwordlessSudo, editing?.manageDocker, verificationDirty)
   useEffect(() => {
     if (!probe && !verificationDirty && !verificationError) return
     const revealVerification = () => verificationSection.current?.scrollIntoView({ block: 'nearest' })
@@ -76,62 +72,53 @@ export function HostsPage() {
       window.cancelAnimationFrame(frame)
       window.clearTimeout(timer)
     }
-  }, [manageDocker, probe, verificationDirty, verificationError])
-  const load = useCallback(async () => {
+  }, [probe, verificationDirty, verificationError])
+  const load = useCallback(async (): Promise<Host[] | undefined> => {
     try {
       const hosts = await api<{ items: Host[] }>('/hosts')
       setItems(hosts.items)
       setLoadError('')
-      const [projectList, instanceList, templateList, imageList] = await Promise.allSettled([
-        api<{ items: Project[] }>('/projects'),
+      const [instanceList, templateList, imageList] = await Promise.allSettled([
         api<{ items: Instance[] }>('/instances'),
-        api<{ items: DatabaseTemplate[] }>('/templates'),
-        api<{ items: ImageArtifact[] }>('/images'),
+        returnTo ? api<{ items: DatabaseTemplate[] }>('/templates') : Promise.resolve({ items: [] }),
+        returnTo ? api<{ items: ImageArtifact[] }>('/images') : Promise.resolve({ items: [] }),
       ])
-      if (projectList.status === 'fulfilled') setProjects(projectList.value.items)
       if (instanceList.status === 'fulfilled') setInstances(instanceList.value.items)
       if (templateList.status === 'fulfilled') setTemplates(templateList.value.items)
       if (imageList.status === 'fulfilled') setImages(imageList.value.items)
-      setContinuationDataReady(instanceList.status === 'fulfilled' && templateList.status === 'fulfilled' && imageList.status === 'fulfilled')
-      const failed = [projectList, instanceList, templateList, imageList].find((result) => result.status === 'rejected')
+      setContinuationDataReady(instanceList.status === 'fulfilled' && (!returnTo || (templateList.status === 'fulfilled' && imageList.status === 'fulfilled')))
+      const failed = [instanceList, templateList, imageList].find((result) => result.status === 'rejected')
       setSupportingDataError(failed?.status === 'rejected' ? errorMessage(failed.reason) : '')
-    } catch (error) { setLoadError(errorMessage(error)) } finally { setLoading(false) }
-  }, [])
+      return hosts.items
+    } catch (error) { setLoadError(errorMessage(error)); return undefined } finally { setLoading(false) }
+  }, [returnTo])
   useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 15000); return () => clearInterval(timer) }, [load])
   useEffect(() => { if (!hostID || open) return; const linked = items.find((item) => item.id === hostID); if (linked) setDetail(linked) }, [hostID, items, open])
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase()
     return items.filter((item) => {
-      if (projectFilter && item.projectId !== projectFilter) return false
       if (statusFilter && item.status !== statusFilter) return false
       if (!needle) return true
       return `${item.name} ${item.sshAddress} ${item.sshUser} ${item.connectionAddress}`.toLocaleLowerCase().includes(needle)
     })
-  }, [items, projectFilter, search, statusFilter])
-  const setProjectFilter = (value: string) => {
-    const next = new URLSearchParams(params)
-    if (value) next.set('project', value)
-    else next.delete('project')
-    next.delete('host')
-    next.delete('recoveryTask')
-    setParams(next, { replace: true })
-    setDetail(null)
-  }
-  const hasHostFilters = !!(projectFilter || statusFilter || search.trim())
+  }, [items, search, statusFilter])
+  const hasHostFilters = !!(statusFilter || search.trim())
   const clearHostFilters = () => {
     setSearch('')
     setStatusFilter('')
-    setProjectFilter('')
   }
-  const loadHostContext = useCallback(async (id: string) => {
+  const loadHostContext = useCallback(async (id: string, foreground = false): Promise<boolean> => {
+    if (foreground) setHostContextState('loading')
     try {
       const [instanceList, taskList] = await Promise.all([api<{ items: Instance[] }>(`/instances?hostId=${encodeURIComponent(id)}`), api<{ items: Task[] }>(`/tasks?resourceType=host&resourceId=${encodeURIComponent(id)}`)])
       setInstances((current) => [...current.filter((instance) => instance.hostId !== id), ...instanceList.items])
       setHostTasks(taskList.items)
       setDetailError('')
-    } catch (error) { setDetailError(errorMessage(error)) }
+      setHostContextState('ready')
+      return true
+    } catch (error) { setDetailError(errorMessage(error)); setHostContextState('error'); return false }
   }, [])
-  useEffect(() => { if (!detail?.id) { setHostTasks([]); setDetailError(''); return }; void loadHostContext(detail.id); const timer = window.setInterval(() => void loadHostContext(detail.id), 5000); return () => clearInterval(timer) }, [detail?.id, loadHostContext])
+  useEffect(() => { if (!detail?.id) { setHostTasks([]); setDetailError(''); setHostContextState('idle'); return }; void loadHostContext(detail.id, true); const timer = window.setInterval(() => void loadHostContext(detail.id), 5000); return () => clearInterval(timer) }, [detail?.id, loadHostContext])
   const loadRecoveryTask = useCallback(async (id: string, foreground = false) => {
     if (foreground) setRecoveryTaskLoading(true)
     try {
@@ -157,8 +144,8 @@ export function HostsPage() {
   }, [loadRecoveryTask, recoveryTaskID])
   const show = (item?: Host) => {
     const values = (item
-      ? { ...item, credential: '', passphrase: '' }
-      : { name: '', projectId: projectFilter || undefined, sshAddress: '', sshPort: 22, sshUser: '', authType: 'private_key', credential: '', passphrase: '', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000, manageDocker: false, maintenance: false, autoRestartDefault: true }) as HostForm
+      ? { name: item.name, sshAddress: item.sshAddress, sshPort: item.sshPort, sshUser: item.sshUser, authType: item.authType, credential: '', passphrase: '', connectionAddress: item.connectionAddress, dataRoot: item.dataRoot, portStart: item.portStart, portEnd: item.portEnd }
+      : { name: '', sshAddress: '', sshPort: 22, sshUser: '', authType: 'private_key', credential: '', passphrase: '', connectionAddress: '', dataRoot: '/opt/dbmock', portStart: 20000, portEnd: 40000 }) as HostForm
     if (item) setDetail(null)
     form.resetFields()
     setEditing(item ?? null)
@@ -169,7 +156,6 @@ export function HostsPage() {
     setVerificationToken('')
     setProbe(null)
     setVerificationDirty(false)
-    setVerificationReason('')
     hostBaseline.current = values
     form.setFieldsValue(values)
     setOpen(true)
@@ -188,7 +174,6 @@ export function HostsPage() {
       setVerificationToken(result.verificationToken)
       setProbe(result)
       setVerificationDirty(false)
-      setVerificationReason('')
       if (returnTo && !editing && continuationRequirement.status === 'resolved' && !hostMeetsDeploymentRequirement(result, continuationRequirement)) {
         message.warning(t('deploymentHostArchitectureMismatch', { architecture: result.architecture, architectures: continuationRequirement.architectures.join(' / ') }))
       } else {
@@ -206,7 +191,6 @@ export function HostsPage() {
       setSaving(true)
       const values = await form.validateFields()
       if (!verificationReady) { message.warning(t('confirmFingerprint')); return }
-      if (!dockerPolicyReady) { message.warning(t('dockerSudoRequired')); return }
       if (continuationSaveBlocked) {
         message.warning(t('databaseCreationContextUnavailable'))
         return
@@ -215,7 +199,7 @@ export function HostsPage() {
         message.warning(t('deploymentHostArchitectureMismatch', { architecture: probe?.architecture || '—', architectures: continuationRequirement.architectures.join(' / ') }))
         return
       }
-      const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...values, verificationToken } })
+      const result = await api<Host | { host: Host; task: Task }>(editing ? `/hosts/${editing.id}` : '/hosts', { method: editing ? 'PUT' : 'POST', body: { ...mvpHostPayload(values, editing ?? undefined), verificationToken } })
       setEditorDirty(false)
       if ('task' in result) {
         notifyTask(result.task)
@@ -253,23 +237,15 @@ export function HostsPage() {
     setSaveError('')
     const changedKeys = Object.keys(changed)
     const connectionChanged = changedKeys.some((key) => verificationFields.has(key))
-    const credentialOnly = changedKeys.every((key) => key === 'credential' || key === 'passphrase')
-    const dockerManagementNeedsVerification = changed.manageDocker === true && !!editing && !probe
     const baseline = hostBaseline.current
     const connectionMatchesBaseline = !!baseline && [...verificationFields].every((key) => sameHostField(values, baseline, key as keyof HostForm))
-    const dockerPolicyMatchesBaseline = !!baseline && (!!values.manageDocker === !!baseline.manageDocker || !values.manageDocker)
-    if (editing && connectionMatchesBaseline && dockerPolicyMatchesBaseline && (connectionChanged || changed.manageDocker !== undefined)) {
-      setFingerprint(editing.hostKey ?? ''); setVerificationToken(''); setProbe(null); setVerificationDirty(false); setVerificationReason('')
+    if (editing && connectionMatchesBaseline && connectionChanged) {
+      setFingerprint(editing.hostKey ?? ''); setVerificationToken(''); setProbe(null); setVerificationDirty(false)
       return
     }
-    if (changed.manageDocker === false && verificationReason === 'docker_policy' && editing) {
-      setFingerprint(editing.hostKey ?? ''); setVerificationToken(''); setProbe(null); setVerificationDirty(false); setVerificationReason('')
-      return
-    }
-    if (!connectionChanged && !dockerManagementNeedsVerification) return
+    if (!connectionChanged) return
     if (!fingerprint && !verificationDirty) return
-    const reason = verificationReason === 'docker_policy' && credentialOnly ? 'docker_policy' : connectionChanged ? 'connection' : 'docker_policy'
-    setFingerprint(''); setVerificationToken(''); setProbe(null); setVerificationDirty(true); setVerificationReason(reason)
+    setFingerprint(''); setVerificationToken(''); setProbe(null); setVerificationDirty(true)
   }
   const openDetail = (item: Host) => { const next = new URLSearchParams(params); next.set('host', item.id); if (item.id !== hostID) next.delete('recoveryTask'); setParams(next, { replace: true }); setDetail(item) }
   const closeDetail = () => { setDetail(null); if (hostID || recoveryTaskID) { const next = new URLSearchParams(params); next.delete('host'); next.delete('recoveryTask'); setParams(next, { replace: true }) } }
@@ -291,15 +267,17 @@ export function HostsPage() {
     setDeleteTarget(item)
     setDeleteConfirm('')
     setDeleteError('')
+    setDeleteNeedsRefresh(false)
   }
   const closeDelete = () => {
     if (deleting) return
     setDeleteTarget(null)
     setDeleteConfirm('')
     setDeleteError('')
+    setDeleteNeedsRefresh(false)
   }
   const remove = async () => {
-    if (!deleteTarget || deleteConfirm !== deleteTarget.name) return
+    if (!deleteTarget || deleteConfirm !== deleteTarget.name || deleteNeedsRefresh || hostContextState !== 'ready') return
     try {
       setDeleting(true)
       setDeleteError('')
@@ -311,8 +289,32 @@ export function HostsPage() {
       await load()
     } catch (error) {
       setDeleteError(errorMessage(error))
+      setDeleteConfirm('')
+      setDeleteNeedsRefresh(true)
     } finally {
       setDeleting(false)
+    }
+  }
+  const refreshDeleteEvidence = async () => {
+    if (!deleteTarget) return
+    try {
+      setDeleteRefreshing(true)
+      const hosts = await load()
+      if (!hosts) return
+      if (!hosts.some((host) => host.id === deleteTarget.id)) {
+        message.success(t('hostDeleteAlreadyCompleted'))
+        closeDetail()
+        setDeleteTarget(null)
+        setDeleteError('')
+        setDeleteNeedsRefresh(false)
+        return
+      }
+      const contextReady = await loadHostContext(deleteTarget.id, true)
+      if (!contextReady) return
+      setDeleteNeedsRefresh(false)
+      setDeleteError('')
+    } finally {
+      setDeleteRefreshing(false)
     }
   }
   const relatedInstances = detail ? instances.filter((instance) => instance.hostId === detail.id) : []
@@ -379,20 +381,13 @@ export function HostsPage() {
     }
   }
   const columns = useMemo(() => [
-    { title: t('name'), dataIndex: 'name', width: 190, render: (value: string, item: Host) => <div className="host-name-cell"><Button type="link" onClick={() => openDetail(item)}><CloudServerOutlined /> {value}</Button><Typography.Text type="secondary">{projects.find((project) => project.id === item.projectId)?.name || t('noProject')}</Typography.Text></div> },
-    { title: t('status'), dataIndex: 'status', width: 110, render: (value: string, item: Host) => <div className="host-status-cell"><StatusTag value={value} />{item.maintenance && <Tag>{t('maintenance')}</Tag>}</div> },
-    { title: t('ssh'), width: 220, render: (_: unknown, item: Host) => <><Typography.Text>{item.sshUser}@{item.sshAddress}:{item.sshPort}</Typography.Text><br /><Typography.Text type="secondary">{item.distro || item.os || '—'} / {item.architecture || '—'}</Typography.Text></> },
-    { title: t('docker'), width: 145, render: (_: unknown, item: Host) => <><Typography.Text>{item.dockerVersion || t('dockerNotInstalled')}</Typography.Text><br /><Typography.Text type="secondary">{t('compose')} {item.composeVersion || '—'}</Typography.Text></> },
-    { title: t('schedulingCapacity'), width: 260, render: (_: unknown, item: Host) => { const related = instances.filter((instance) => instance.hostId === item.id); const reserved = reservationForHost(instances, item.id); return <div className="host-list-capacity"><div><DatabaseOutlined /><Typography.Text>{t('managedInstanceCount', { count: related.length })}</Typography.Text></div><Typography.Text type="secondary">{t('reservedCapacity')}: {reserved.cpu} CPU · {bytes(reserved.memory)} · {bytes(reserved.disk)}</Typography.Text></div> } },
-    { title: t('actions'), width: 64, align: 'right' as const, render: (_: unknown, item: Host) => canOperate ? <Dropdown trigger={['click']} menu={{ items: [
-      { key: 'probe', icon: <ReloadOutlined />, label: t('reprobeHost'), disabled: !!actioning, onClick: () => void action(item, 'probe') },
-      { key: 'edit', icon: <EditOutlined />, label: t('edit'), disabled: !!actioning, onClick: () => show(item) },
-      { type: 'divider' as const },
-      { key: 'install', icon: <ToolOutlined />, label: t('installDocker'), disabled: !item.manageDocker || item.status === 'offline' || !!actioning, onClick: () => void action(item, 'install_docker') },
-      { key: 'upgrade', label: t('upgradeDocker'), disabled: !item.manageDocker || item.status !== 'online' || !!actioning, onClick: () => void action(item, 'upgrade_docker') },
-      { key: 'proxy', label: t('applyDockerProxy'), disabled: !item.manageDocker || item.status !== 'online' || item.os === 'darwin' || !!actioning, onClick: () => void action(item, 'configure_proxy') },
-    ] }}><Button type="text" aria-label={t('moreActions')} title={t('moreActions')} icon={<MoreOutlined />} loading={!!actioning} /></Dropdown> : null },
-  ], [actioning, canOperate, instances, projects, t])
+    { title: t('name'), dataIndex: 'name', width: 170, render: (value: string, item: Host) => <Button type="link" className="description-link" onClick={() => openDetail(item)}><CloudServerOutlined /> {value}</Button> },
+    { title: t('status'), dataIndex: 'status', width: 90, render: (value: string) => <StatusTag value={value} /> },
+    { title: t('ssh'), width: 200, render: (_: unknown, item: Host) => <><Typography.Text>{item.sshUser}@{item.sshAddress}:{item.sshPort}</Typography.Text><br /><Typography.Text type="secondary">{item.distro || item.os || '—'} / {item.architecture || '—'}</Typography.Text></> },
+    { title: t('docker'), width: 130, render: (_: unknown, item: Host) => <><Typography.Text>{item.dockerVersion || t('dockerNotInstalled')}</Typography.Text><br /><Typography.Text type="secondary">{t('compose')} {item.composeVersion || '—'}</Typography.Text></> },
+    ...(screens.xl ? [{ title: t('schedulingCapacity'), width: 240, render: (_: unknown, item: Host) => { const related = instances.filter((instance) => instance.hostId === item.id); const reserved = reservationForHost(instances, item.id); return <div className="host-list-capacity"><div><DatabaseOutlined /><Typography.Text>{t('managedInstanceCount', { count: related.length })}</Typography.Text></div><Typography.Text type="secondary">{t('reservedCapacity')}: {reserved.cpu} CPU · {bytes(reserved.memory)} · {bytes(reserved.disk)}</Typography.Text></div> } }] : []),
+    { title: t('actions'), width: 84, align: 'right' as const, render: (_: unknown, item: Host) => canOperate ? <Space size={4}><Button type="text" aria-label={`${t('reprobeHost')} ${item.name}`} title={t('reprobeHost')} icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!actioning && actioning !== 'probe'} onClick={() => void action(item, 'probe')} /><Button type="text" aria-label={`${t('edit')} ${item.name}`} title={t('edit')} icon={<EditOutlined />} disabled={!!actioning} onClick={() => show(item)} /></Space> : null },
+  ], [actioning, canOperate, instances, screens.xl, t])
   const capacityItems = detail ? [
     { key: 'cpu', label: t('cpu'), reserved: detailReservation.cpu, limit: detail.cpuCount * .9, format: (value: number) => `${value.toFixed(value % 1 ? 1 : 0)} CPU` },
     { key: 'memory', label: t('memory'), reserved: detailReservation.memory, limit: detail.memoryBytes * .8, format: bytes },
@@ -516,15 +511,15 @@ export function HostsPage() {
     {loadError && <Alert className="instance-page-alert" type={items.length ? 'warning' : 'error'} showIcon message={t('hostListLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('hostSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {taskRetryRequestPanel && (!detail || taskRetryHostID !== detail.id) && <div className="instance-page-alert">{taskRetryRequestPanel}</div>}
-    {(items.length > 0 || !loadError) && <Card className="host-table-card"><div className="embedded-toolbar host-toolbar"><div className="host-list-heading"><Typography.Text strong>{t('hosts')}</Typography.Text><Typography.Text type="secondary">{t(hasHostFilters ? 'hostFilteredResultCount' : 'hostResultCount', { filtered: filteredItems.length, total: items.length, count: items.length })}</Typography.Text></div><Space wrap className="host-filter-controls"><Input allowClear className="host-search" aria-label={t('hostSearchLabel')} placeholder={t('hostSearchPlaceholder')} prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} /><Select className="host-project-filter" aria-label={t('project')} value={projectFilter} onChange={setProjectFilter} options={[{ value: '', label: t('allProjects') }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} /><Select className="host-status-filter" aria-label={t('status')} value={statusFilter} onChange={setStatusFilter} options={[{ value: '', label: t('allStatuses') }, ...hostStatuses.map((status) => ({ value: status, label: translateCode(t, status) }))]} /><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && items.length > 0 && <Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('addHost')}</Button>}</Space></div><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} pagination={false} tableLayout="fixed" scroll={{ x: 989 }} locale={{ emptyText: <EmptyState compact action={hasHostFilters ? clearHostFilters : canOperate ? () => show() : undefined} actionLabel={hasHostFilters ? t('clearFilters') : canOperate ? t('addHost') : undefined} description={t(hasHostFilters ? 'hostsFilteredEmptyDescription' : 'noHostsDescription')} /> }} /></Card>}
-    <Modal className="host-editor-modal" title={editing ? t('edit') : t('addHost')} open={open} onCancel={closeEditor} width={760} style={{ top: screens.md === false ? 12 : 32 }} styles={{ body: { maxHeight: screens.md === false ? 'calc(100dvh - 220px)' : 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }} destroyOnHidden footer={<div className="workflow-modal-footer"><Button disabled={saving || testing} onClick={closeEditor}>{t('cancel')}</Button><Space>{(!editing || verificationDirty || !fingerprint) && <Button loading={testing} disabled={saving || !connectionTestReady} icon={<SafetyCertificateOutlined />} onClick={() => void test()}>{t('testConnection')}</Button>}<Button type="primary" loading={saving} disabled={testing || !verificationReady || !dockerPolicyReady || continuationSaveBlocked || probeIncompatible || (!!editing && !editorDirty)} onClick={() => void submit()}>{t('save')}</Button></Space></div>}>
-      <Form form={form} className="host-editor-form" layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={invalidateVerification}><Alert className="form-save-alert" type="info" showIcon message={t(editing ? 'hostEditFormHint' : 'hostCreateFormHint')} />{saveError && <Alert className="form-save-alert" type="error" showIcon message={t('hostSaveFailed')} description={saveError} />}{returnTo && !editing && <Alert className="host-continuation-modal-alert" type={['incompatible', 'unavailable'].includes(continuationState) ? 'warning' : 'info'} showIcon icon={<DatabaseOutlined />} message={t(continuationMessageKey)} description={creationProgress} />}<Typography.Text className="form-section-label">{t('connectionSettings')}</Typography.Text><div className="form-grid"><Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input autoFocus autoComplete="off" maxLength={120} placeholder={t('hostNamePlaceholder')} /></Form.Item><Form.Item name="projectId" label={t('project')}><Select allowClear placeholder={t('selectProjectOptional')} options={projects.map((p) => ({ value: p.id, label: p.name }))} /></Form.Item><Form.Item name="sshAddress" label={t('sshAddress')} rules={[{ required: true, whitespace: true, max: 255 }]}><Input autoComplete="off" maxLength={255} placeholder={t('sshAddressPlaceholder')} /></Form.Item><Form.Item name="sshPort" label={t('sshPort')} rules={[{ required: true }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="sshUser" label={t('sshUser')} rules={[{ required: true, whitespace: true, max: 255 }]}><Input autoComplete="off" maxLength={255} placeholder={t('sshUserPlaceholder')} data-1p-ignore data-lpignore="true" /></Form.Item><Form.Item name="authType" label={t('authentication')}><Select options={[{ value: 'private_key', label: t('privateKey') }, { value: 'password', label: t('password') }]} /></Form.Item></div>
+    {(items.length > 0 || !loadError) && <Card className="host-table-card"><div className="embedded-toolbar host-toolbar"><div className="host-list-heading"><Typography.Text strong>{t('hosts')}</Typography.Text><Typography.Text type="secondary">{t(hasHostFilters ? 'hostFilteredResultCount' : 'hostResultCount', { filtered: filteredItems.length, total: items.length, count: items.length })}</Typography.Text></div><Space wrap className="host-filter-controls"><Input allowClear className="host-search" aria-label={t('hostSearchLabel')} placeholder={t('hostSearchPlaceholder')} prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} /><Select className="host-status-filter" aria-label={t('status')} value={statusFilter} onChange={setStatusFilter} options={[{ value: '', label: t('allStatuses') }, ...hostStatuses.map((status) => ({ value: status, label: translateCode(t, status) }))]} /><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && items.length > 0 && <Button type="primary" icon={<PlusOutlined />} onClick={() => show()}>{t('addHost')}</Button>}</Space></div><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} pagination={false} tableLayout="fixed" scroll={{ x: screens.xl ? 914 : 674 }} locale={{ emptyText: <EmptyState compact action={hasHostFilters ? clearHostFilters : canOperate ? () => show() : undefined} actionLabel={hasHostFilters ? t('clearFilters') : canOperate ? t('addHost') : undefined} description={t(hasHostFilters ? 'hostsFilteredEmptyDescription' : 'noHostsDescription')} /> }} /></Card>}
+    <Modal className="host-editor-modal" title={editing ? t('editHost') : t('addHost')} open={open} onCancel={closeEditor} width={760} style={{ top: screens.md === false ? 12 : 32 }} styles={{ body: { maxHeight: screens.md === false ? 'calc(100dvh - 220px)' : 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 4 } }} destroyOnHidden footer={<div className="workflow-modal-footer"><Button disabled={saving || testing} onClick={closeEditor}>{t('cancel')}</Button><Space>{(!editing || verificationDirty || !fingerprint) && <Button loading={testing} disabled={saving || !connectionTestReady} icon={<SafetyCertificateOutlined />} onClick={() => void test()}>{t('testConnection')}</Button>}<Button type="primary" loading={saving} disabled={testing || !verificationReady || continuationSaveBlocked || probeIncompatible || (!!editing && !editorDirty)} onClick={() => void submit()}>{t('save')}</Button></Space></div>}>
+      <Form form={form} className="host-editor-form" layout="vertical" requiredMark={false} autoComplete="off" onValuesChange={invalidateVerification}><Alert className="form-save-alert" type="info" showIcon message={t(editing ? 'hostEditFormHint' : 'hostCreateFormHint')} />{saveError && <Alert className="form-save-alert" type="error" showIcon message={t('hostSaveFailed')} description={saveError} />}{returnTo && !editing && <Alert className="host-continuation-modal-alert" type={['incompatible', 'unavailable'].includes(continuationState) ? 'warning' : 'info'} showIcon icon={<DatabaseOutlined />} message={t(continuationMessageKey)} description={creationProgress} />}<Typography.Text className="form-section-label">{t('connectionSettings')}</Typography.Text><div className="form-grid"><Form.Item name="name" label={t('name')} rules={[{ required: true, whitespace: true, max: 120 }]}><Input autoFocus autoComplete="off" maxLength={120} placeholder={t('hostNamePlaceholder')} /></Form.Item><Form.Item name="sshAddress" label={t('sshAddress')} rules={[{ required: true, whitespace: true, max: 255 }]}><Input autoComplete="off" maxLength={255} placeholder={t('sshAddressPlaceholder')} /></Form.Item><Form.Item name="sshPort" label={t('sshPort')} rules={[{ required: true }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="sshUser" label={t('sshUser')} rules={[{ required: true, whitespace: true, max: 255 }]}><Input autoComplete="off" maxLength={255} placeholder={t('sshUserPlaceholder')} data-1p-ignore data-lpignore="true" /></Form.Item><Form.Item name="authType" label={t('authentication')}><Select options={[{ value: 'private_key', label: t('privateKey') }, { value: 'password', label: t('password') }]} /></Form.Item></div>
         <Form.Item noStyle shouldUpdate={(a, b) => a.authType !== b.authType}>{({ getFieldValue }) => <><Form.Item name="credential" label={getFieldValue('authType') === 'password' ? t('password') : t('privateKey')} extra={t('hostCredentialHint')} rules={!editing || verificationDirty ? [{ required: true }] : []}>{getFieldValue('authType') === 'password' ? <Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /> : <Input.TextArea rows={4} autoComplete="off" data-1p-ignore data-lpignore="true" placeholder={t('privateKeyPlaceholder')} />}</Form.Item>{getFieldValue('authType') === 'private_key' && <Form.Item name="passphrase" label={t('privateKeyPassphrase')}><Input.Password autoComplete="new-password" data-1p-ignore data-lpignore="true" /></Form.Item>}</>}</Form.Item>
-        <Collapse className="host-advanced" items={[{ key: 'advanced', label: <div><Typography.Text strong>{t('advancedSettings')}</Typography.Text><Typography.Text type="secondary">{t('advancedHostSettingsHint')}</Typography.Text></div>, children: <><div className="form-grid"><Form.Item name="connectionAddress" label={t('databaseConnectionAddress')} rules={[{ max: 255 }]}><Input maxLength={255} placeholder={t('defaultsToSSHAddress')} /></Form.Item><Form.Item name="dataRoot" label={t('managedDataRoot')} rules={[{ required: true, whitespace: true, max: 4096 }]}><Input maxLength={4096} /></Form.Item><Form.Item name="portStart" label={t('portPoolStart')} rules={[{ required: true, type: 'number', min: 1, max: 65535 }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="portEnd" label={t('portPoolEnd')} dependencies={['portStart']} validateStatus={portPoolInvalid ? 'error' : undefined} help={portPoolInvalid ? t('portPoolRangeInvalid') : undefined} rules={[{ required: true, type: 'number', min: 1, max: 65535 },({ getFieldValue }) => ({ validator: (_, value) => value === undefined || value >= getFieldValue('portStart') ? Promise.resolve() : Promise.reject(new Error(t('portPoolRangeInvalid'))) })]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item></div><Card size="small" title={t('proxy')} className="form-section"><div className="form-grid"><Form.Item name="proxyHttp" label="HTTP_PROXY" rules={[{ max: 2048 }]}><Input maxLength={2048} /></Form.Item><Form.Item name="proxyHttps" label="HTTPS_PROXY" rules={[{ max: 2048 }]}><Input maxLength={2048} /></Form.Item></div><Form.Item name="proxyNoProxy" label="NO_PROXY" rules={[{ max: 4096 }]}><Input maxLength={4096} /></Form.Item></Card></> },{ key: 'policies', label: <div><Typography.Text strong>{t('hostPolicies')}</Typography.Text><Typography.Text type="secondary">{t('hostPoliciesHint')}</Typography.Text></div>, children: <div className="host-policy-list"><div className="host-policy-item"><div><Typography.Text strong>{t('allowDockerManagement')}</Typography.Text><Typography.Text type="secondary">{t('dockerManagementPolicyHint')}</Typography.Text>{manageDocker && verificationReason === 'docker_policy' && <Typography.Text type="danger" role="alert" className="host-policy-warning">{t('dockerPolicyVerificationRequired')}</Typography.Text>}{manageDocker && probe && !probe.passwordlessSudo && <Typography.Text type="danger" role="alert" className="host-policy-warning">{t('dockerManagementBlockedInline')}</Typography.Text>}</div><Form.Item name="manageDocker" valuePropName="checked" noStyle><Switch aria-label={t('allowDockerManagement')} /></Form.Item></div><div className="host-policy-item"><div><Typography.Text strong>{t('autoRestart')}</Typography.Text><Typography.Text type="secondary">{t('autoRestartPolicyHint')}</Typography.Text></div><Form.Item name="autoRestartDefault" valuePropName="checked" noStyle><Switch aria-label={t('autoRestart')} /></Form.Item></div><div className="host-policy-item"><div><Typography.Text strong>{t('maintenance')}</Typography.Text><Typography.Text type="secondary">{t('maintenancePolicyHint')}</Typography.Text></div><Form.Item name="maintenance" valuePropName="checked" noStyle><Switch aria-label={t('maintenance')} /></Form.Item></div></div> }]} />
-        {verificationRequired && <div ref={verificationSection} className="verification-section"><Typography.Text className="form-section-label">{t('connectionVerification')}</Typography.Text>{verificationError ? <Alert type="error" showIcon message={t('hostConnectionTestFailed')} description={<Space direction="vertical" size={2}><Typography.Text>{verificationError}</Typography.Text><Typography.Text type="secondary">{t('hostConnectionFailureHint')}</Typography.Text></Space>} /> : probe ? <><Alert type="success" showIcon message={t('connectionVerified')} description={<><Descriptions size="small" column={2} items={[{ key: 'system', label: t('testResultSystem'), children: `${probe.os}/${probe.architecture}` },{ key: 'docker', label: t('testResultDocker'), children: probe.dockerVersion ? `${probe.dockerVersion} / ${probe.composeVersion || '—'}` : t('dockerNotInstalled') },{ key: 'sudo', label: t('passwordlessSudo'), children: probe.passwordlessSudo ? t('available') : t('unavailable') },{ key: 'resources', label: t('testResultResources'), children: `${probe.cpuCount} CPU · ${bytes(probe.memoryBytes)} · ${bytes(probe.diskFreeBytes)}` },{ key: 'root', label: t('testResultDataRoot'), children: probe.dataRootWritable ? t('writable') : t('unavailable') },{ key: 'port', label: t('testResultPortPool'), children: probe.portProbeAvailable ? probe.firstAvailablePort ? t('firstAvailablePort', { port: probe.firstAvailablePort }) : t('portPoolExhausted') : t('unavailable') }]} /><Typography.Text code copyable className="fingerprint-value">{fingerprint.split(' ')[0]}</Typography.Text></>} />{probeIncompatible && <Alert type="warning" showIcon message={t('deploymentHostArchitectureMismatch', { architecture: probe.architecture, architectures: continuationArchitectures })} description={t('deploymentHostArchitectureMismatchHint', { database: continuationTemplateName, version: continuationRequirement.status === 'resolved' ? continuationRequirement.templateVersion : '', architecture: probe.architecture, architectures: continuationArchitectures })} />}{probe.portProbeAvailable && !probe.firstAvailablePort && <Alert type="warning" showIcon message={t('portPoolExhausted')} description={t('portPoolExhaustedHint')} />}{manageDocker && !probe.passwordlessSudo && <Alert type="warning" showIcon message={t('dockerSudoRequired')} description={t('dockerSudoRequiredHint')} />}</> : <Alert type={verificationDirty ? 'warning' : 'info'} showIcon message={verificationDirty ? t(verificationReason === 'docker_policy' ? 'dockerPolicyVerificationRequired' : 'connectionChanged') : t(portPoolInvalid ? 'portPoolRangeInvalid' : connectionTestReady ? 'connectionVerificationHint' : 'connectionDetailsIncomplete')} />}</div>}
+        <Typography.Text className="form-section-label">{t('hostDeploymentSettings')}</Typography.Text><Typography.Paragraph className="host-deployment-hint" type="secondary">{t('hostDeploymentSettingsHint')}</Typography.Paragraph><div className="form-grid"><Form.Item name="connectionAddress" label={t('databaseConnectionAddress')} rules={[{ max: 255 }]}><Input maxLength={255} placeholder={t('defaultsToSSHAddress')} /></Form.Item><Form.Item name="dataRoot" label={t('managedDataRoot')} rules={[{ required: true, whitespace: true, max: 4096 }]}><Input maxLength={4096} /></Form.Item><Form.Item name="portStart" label={t('portPoolStart')} rules={[{ required: true, type: 'number', min: 1, max: 65535 }]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item><Form.Item name="portEnd" label={t('portPoolEnd')} dependencies={['portStart']} validateStatus={portPoolInvalid ? 'error' : undefined} help={portPoolInvalid ? t('portPoolRangeInvalid') : undefined} rules={[{ required: true, type: 'number', min: 1, max: 65535 },({ getFieldValue }) => ({ validator: (_, value) => value === undefined || value >= getFieldValue('portStart') ? Promise.resolve() : Promise.reject(new Error(t('portPoolRangeInvalid'))) })]}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item></div>
+        {verificationRequired && <div ref={verificationSection} className="verification-section"><Typography.Text className="form-section-label">{t('connectionVerification')}</Typography.Text>{verificationError ? <Alert type="error" showIcon message={t('hostConnectionTestFailed')} description={<Space direction="vertical" size={2}><Typography.Text>{verificationError}</Typography.Text><Typography.Text type="secondary">{t('hostConnectionFailureHint')}</Typography.Text></Space>} /> : probe ? <><Alert type="success" showIcon message={t('connectionVerified')} description={<><Descriptions size="small" column={2} items={[{ key: 'system', label: t('testResultSystem'), children: `${probe.os}/${probe.architecture}` },{ key: 'docker', label: t('testResultDocker'), children: probe.dockerVersion ? `${probe.dockerVersion} / ${probe.composeVersion || '—'}` : t('dockerNotInstalled') },{ key: 'resources', label: t('testResultResources'), children: `${probe.cpuCount} CPU · ${bytes(probe.memoryBytes)} · ${bytes(probe.diskFreeBytes)}` },{ key: 'root', label: t('testResultDataRoot'), children: probe.dataRootWritable ? t('writable') : t('unavailable') },{ key: 'port', label: t('testResultPortPool'), children: probe.portProbeAvailable ? probe.firstAvailablePort ? t('firstAvailablePort', { port: probe.firstAvailablePort }) : t('portPoolExhausted') : t('unavailable') }]} /><Typography.Text code copyable className="fingerprint-value">{fingerprint.split(' ')[0]}</Typography.Text></>} />{probeIncompatible && <Alert type="warning" showIcon message={t('deploymentHostArchitectureMismatch', { architecture: probe.architecture, architectures: continuationArchitectures })} description={t('deploymentHostArchitectureMismatchHint', { database: continuationTemplateName, version: continuationRequirement.status === 'resolved' ? continuationRequirement.templateVersion : '', architecture: probe.architecture, architectures: continuationArchitectures })} />}{probe.portProbeAvailable && !probe.firstAvailablePort && <Alert type="warning" showIcon message={t('portPoolExhausted')} description={t('portPoolExhaustedHint')} />}</> : <Alert type={verificationDirty ? 'warning' : 'info'} showIcon message={verificationDirty ? t('connectionChanged') : t(portPoolInvalid ? 'portPoolRangeInvalid' : connectionTestReady ? 'connectionVerificationHint' : 'connectionDetailsIncomplete')} />}</div>}
       </Form>
     </Modal>
-    <Drawer className="host-detail-drawer" title={detail ? <div className="host-detail-title"><div><CloudServerOutlined /><Typography.Text strong>{detail.name}</Typography.Text></div><StatusTag value={detail.status} /></div> : t('hostDetails')} open={!!detail} onClose={closeDetail} width={780} destroyOnHidden footer={canOperate && detail ? <div className="workflow-drawer-footer"><Button danger icon={<DeleteOutlined />} disabled={relatedInstances.length > 0 || !!activeTask || !!actioning} title={relatedInstances.length ? t('hostDeleteBlocked') : activeTask ? t('hostOperationInProgress') : t('delete')} onClick={() => showDelete(detail)}>{t('delete')}</Button><Space wrap>{!recoveryTaskID && <Button icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button>}<Button icon={<EditOutlined />} disabled={!!activeTask || !!actioning} onClick={() => show(detail)}>{t('edit')}</Button><Dropdown trigger={['click']} menu={{ items: [{ key: 'install', icon: <ToolOutlined />, label: t('installDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status === 'offline' || !!actioning },{ key: 'upgrade', label: t('upgradeDocker'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || !!actioning },{ key: 'proxy', label: t('applyDockerProxy'), disabled: !!activeTask || !detail.manageDocker || detail.status !== 'online' || detail.os === 'darwin' || !!actioning }], onClick: ({ key }) => void action(detail, key === 'install' ? 'install_docker' : key === 'upgrade' ? 'upgrade_docker' : 'configure_proxy') }}><Button icon={<MoreOutlined />} disabled={!!activeTask || !!actioning} title={activeTask ? t('hostOperationInProgress') : t('moreActions')}>{t('moreActions')}</Button></Dropdown></Space></div> : undefined}>
+    <Drawer className="host-detail-drawer" title={detail ? <div className="host-detail-title"><div><CloudServerOutlined /><Typography.Text strong>{detail.name}</Typography.Text></div><StatusTag value={detail.status} /></div> : t('hostDetails')} open={!!detail} onClose={closeDetail} width={780} destroyOnHidden footer={canOperate && detail ? <div className="workflow-drawer-footer"><Button danger icon={<DeleteOutlined />} disabled={hostContextState !== 'ready' || relatedInstances.length > 0 || !!activeTask || !!actioning} title={hostContextState !== 'ready' ? t('hostDeleteEvidenceUnavailable') : relatedInstances.length ? t('hostDeleteBlocked') : activeTask ? t('hostOperationInProgress') : t('delete')} onClick={() => showDelete(detail)}>{t('delete')}</Button><Space wrap>{!recoveryTaskID && <Button icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button>}<Button icon={<EditOutlined />} disabled={!!activeTask || !!actioning} onClick={() => show(detail)}>{t('edit')}</Button></Space></div> : undefined}>
       {detail && <div className="host-detail">
         {detailError && <Alert type="warning" showIcon message={t('hostContextLoadFailed')} description={detailError} action={<Button size="small" onClick={() => void loadHostContext(detail.id)}>{t('retry')}</Button>} />}
         {recoveryPanel}
@@ -533,19 +528,19 @@ export function HostsPage() {
         <div className={`host-health-banner is-${detail.status === 'online' ? 'success' : detail.status === 'needs_docker' ? 'warning' : 'error'}`}>
           <div><StatusTag value={detail.status} /><Typography.Text strong>{t('currentHostState')}</Typography.Text></div>
           <Typography.Paragraph>{detail.statusMessage ? translateCode(t, detail.statusMessage, 'statusMessage') : detail.status === 'online' ? t('hostOnlineHint') : detail.status === 'needs_docker' ? t('hostNeedsDockerHint') : t('hostOfflineHint')}</Typography.Paragraph>
-          {canOperate && detail.status === 'needs_docker' && <div className="host-health-guidance"><Typography.Text>{t(detail.manageDocker ? 'hostNeedsDockerManagedHint' : 'hostNeedsDockerHint')}</Typography.Text>{detail.manageDocker ? <Button size="small" type="primary" icon={<ToolOutlined />} loading={actioning === 'install_docker'} disabled={!!activeTask || (!!actioning && actioning !== 'install_docker')} onClick={() => void action(detail, 'install_docker')}>{t('installDocker')}</Button> : <Button size="small" icon={<EditOutlined />} disabled={!!activeTask || !!actioning} onClick={() => show(detail)}>{t('editDockerPolicy')}</Button>}</div>}
+          {canOperate && detail.status === 'needs_docker' && <div className="host-health-guidance"><Typography.Text>{t('hostNeedsDockerManualHint')}</Typography.Text><Button size="small" type="primary" icon={<ReloadOutlined />} loading={actioning === 'probe'} disabled={!!activeTask || (!!actioning && actioning !== 'probe')} onClick={() => void action(detail, 'probe')}>{t('reprobeHost')}</Button></div>}
           <div className="host-health-facts"><span><Typography.Text type="secondary">{t('lastChecked')}</Typography.Text><Typography.Text>{formatDateTime(detail.lastCheckedAt, i18n.language, timezone)}</Typography.Text></span><span><Typography.Text type="secondary">{t('lastSeen')}</Typography.Text><Typography.Text>{formatDateTime(detail.lastSeenAt, i18n.language, timezone)}</Typography.Text></span><span><Typography.Text type="secondary">{t('consecutiveFailures')}</Typography.Text><Typography.Text>{detail.consecutiveFailures}</Typography.Text></span></div>
         </div>
         <Card size="small" title={t('schedulingCapacity')} extra={<Typography.Text type="secondary">{t('schedulingCapacityPolicy')}</Typography.Text>}><div className="host-capacity-grid">{capacityItems.map((item) => <div className="host-capacity-item" key={item.key}><div><Typography.Text strong>{item.label}</Typography.Text><Typography.Text type="secondary">{t('capacityRemaining', { value: item.format(Math.max(0, item.limit - item.reserved)) })}</Typography.Text></div><Progress percent={percent(item.reserved, item.limit)} size="small" status={item.reserved > item.limit ? 'exception' : 'normal'} /><Typography.Text type="secondary">{t('capacityReservedOf', { reserved: item.format(item.reserved), limit: item.format(item.limit) })}</Typography.Text></div>)}</div></Card>
         <Card size="small" title={t('managedInstances')} extra={<Typography.Text type="secondary">{t('managedInstanceCount', { count: relatedInstances.length })}</Typography.Text>} className="host-instance-card"><Table size="small" rowKey="id" pagination={false} dataSource={relatedInstances} locale={{ emptyText: <EmptyState compact description={t('noManagedInstances')} /> }} columns={[{ title: t('name'), dataIndex: 'name', render: (value: string, instance: Instance) => <Button type="link" className="description-link" onClick={() => navigate(`/instances/${instance.id}`)}>{value}</Button> },{ title: t('status'), dataIndex: 'status', width: 110, render: (value: string) => <StatusTag value={value} /> },{ title: t('resources'), width: 190, render: (_: unknown, instance: Instance) => `${instance.cpu} CPU · ${bytes(instance.memoryBytes)} · ${bytes(instance.reservedDiskBytes)}` },{ title: t('port'), dataIndex: 'hostPort', width: 85 }]} /></Card>
-        <Card size="small" title={t('hostConfiguration')}><Descriptions column={{ xs: 1, md: 2 }} items={[{ key: 'project', label: t('project'), children: projects.find((project) => project.id === detail.projectId)?.name || t('noProject') },{ key: 'ssh', label: t('ssh'), children: `${detail.sshUser}@${detail.sshAddress}:${detail.sshPort}` },{ key: 'connect', label: t('databaseAddress'), children: detail.connectionAddress || detail.sshAddress },{ key: 'system', label: t('system'), children: `${detail.distro || detail.os || '—'} / ${detail.architecture || '—'}` },{ key: 'docker', label: t('docker'), children: detail.dockerVersion || t('dockerNotInstalled') },{ key: 'compose', label: t('compose'), children: detail.composeVersion || '—' },{ key: 'root', label: t('dataRoot'), children: <Space><Typography.Text code>{detail.dataRoot}</Typography.Text><Tag color={detail.dataRootWritable ? 'green' : 'red'}>{detail.dataRootWritable ? t('writable') : t('unavailable')}</Tag></Space> },{ key: 'ports', label: t('portPool'), children: <Space><Typography.Text>{detail.portStart}–{detail.portEnd}</Typography.Text><Tag color={detail.portProbeAvailable && detail.availablePort ? 'green' : 'orange'}>{detail.portProbeAvailable ? detail.availablePort ? t('firstAvailablePort', { port: detail.availablePort }) : t('portPoolExhausted') : t('unavailable')}</Tag></Space> },{ key: 'usedPorts', label: t('usedPorts'), children: detailReservation.ports.length ? detailReservation.ports.sort((a, b) => a - b).join(', ') : '—' },{ key: 'policies', label: t('hostPolicies'), children: <Space wrap><Tag color={detail.manageDocker ? 'blue' : undefined}>{t('dockerManagement')}: {detail.manageDocker ? t('enabled') : t('disabled')}</Tag><Tag color={detail.autoRestartDefault ? 'green' : undefined}>{t('autoRestart')}: {detail.autoRestartDefault ? t('enabled') : t('disabled')}</Tag><Tag color={detail.maintenance ? 'orange' : undefined}>{t('maintenance')}: {detail.maintenance ? t('enabled') : t('disabled')}</Tag></Space>, span: 2 },{ key: 'labels', label: t('labels'), children: Object.keys(detail.labels || {}).length ? <Space wrap>{Object.entries(detail.labels).map(([key, value]) => <Tag key={key}>{key}={value}</Tag>)}</Space> : '—', span: 2 }]} /></Card>
+        <Card size="small" title={t('hostConfiguration')}><Descriptions column={{ xs: 1, md: 2 }} items={[{ key: 'ssh', label: t('ssh'), children: `${detail.sshUser}@${detail.sshAddress}:${detail.sshPort}` },{ key: 'connect', label: t('databaseAddress'), children: detail.connectionAddress || detail.sshAddress },{ key: 'system', label: t('system'), children: `${detail.distro || detail.os || '—'} / ${detail.architecture || '—'}` },{ key: 'docker', label: t('docker'), children: detail.dockerVersion || t('dockerNotInstalled') },{ key: 'compose', label: t('compose'), children: detail.composeVersion || '—' },{ key: 'root', label: t('dataRoot'), children: <Space><Typography.Text code>{detail.dataRoot}</Typography.Text><Tag color={detail.dataRootWritable ? 'green' : 'red'}>{detail.dataRootWritable ? t('writable') : t('unavailable')}</Tag></Space> },{ key: 'ports', label: t('portPool'), children: <Space><Typography.Text>{detail.portStart}–{detail.portEnd}</Typography.Text><Tag color={detail.portProbeAvailable && detail.availablePort ? 'green' : 'orange'}>{detail.portProbeAvailable ? detail.availablePort ? t('firstAvailablePort', { port: detail.availablePort }) : t('portPoolExhausted') : t('unavailable')}</Tag></Space> },{ key: 'usedPorts', label: t('usedPorts'), children: detailReservation.ports.length ? detailReservation.ports.sort((a, b) => a - b).join(', ') : '—' }]} /></Card>
       </div>}
     </Drawer>
-    <Modal title={deleteTarget ? `${t('delete')} ${deleteTarget.name}` : t('delete')} open={!!deleteTarget} onCancel={closeDelete} onOk={() => void remove()} confirmLoading={deleting} okText={t('delete')} okButtonProps={{ danger: true, disabled: deleteConfirm !== deleteTarget?.name }} cancelButtonProps={{ disabled: deleting }} closable={!deleting} maskClosable={!deleting} destroyOnHidden>
+    <Modal title={deleteTarget ? `${t('delete')} ${deleteTarget.name}` : t('delete')} open={!!deleteTarget} onCancel={closeDelete} onOk={() => void remove()} confirmLoading={deleting} okText={t('delete')} okButtonProps={{ danger: true, disabled: deleteConfirm !== deleteTarget?.name || deleteNeedsRefresh || hostContextState !== 'ready' }} cancelButtonProps={{ disabled: deleting }} closable={!deleting} maskClosable={!deleting} destroyOnHidden>
       <Alert className="delete-instance-alert" type="error" showIcon message={t('deleteHostWarningTitle')} description={t('deleteHostWarningDescription')} />
-      {deleteError && <Alert className="form-save-alert" type="error" showIcon message={t('hostDeleteFailed')} description={deleteError} />}
+      {deleteError && <Alert className="form-save-alert" type="error" showIcon message={t('hostDeleteFailed')} description={<Space direction="vertical" size={4}><Typography.Text>{deleteError}</Typography.Text>{deleteNeedsRefresh && <Typography.Text type="secondary">{t('hostDeleteUnknownResultHint')}</Typography.Text>}</Space>} action={deleteNeedsRefresh ? <Button size="small" loading={deleteRefreshing} onClick={() => void refreshDeleteEvidence()}>{t('refreshStatus')}</Button> : undefined} />}
       <Typography.Paragraph>{t('deleteHostConfirmHint', { name: deleteTarget?.name || '' })}</Typography.Paragraph>
-      <Input autoFocus aria-label={t('deleteHostConfirmLabel')} value={deleteConfirm} onChange={(event) => setDeleteConfirm(event.target.value)} placeholder={deleteTarget?.name} />
+      <Input autoFocus aria-label={t('deleteHostConfirmLabel')} value={deleteConfirm} disabled={deleteNeedsRefresh || deleting} onChange={(event) => setDeleteConfirm(event.target.value)} placeholder={deleteTarget?.name} />
     </Modal>
   </>
 }
