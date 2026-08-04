@@ -30,7 +30,7 @@ describe('task recovery helpers', () => {
     expect(taskRecoveryResourcePath({ ...task, resourceType: 'host', resourceId: 'host-id' })).toBe('/hosts?host=host-id')
     const backupTask = { ...task, resourceType: 'backup', resourceId: 'backup-id', payload: { instanceId: 'instance id' } }
     expect(taskRecoveryInstanceID(backupTask)).toBe('instance id')
-    expect(taskRecoveryResourcePath(backupTask)).toBe('/instances/instance%20id?tab=backups&cleanup=review')
+    expect(taskRecoveryResourcePath(backupTask)).toBe('/instances/instance%20id')
     expect(taskRecoveryResourcePath({ ...backupTask, payload: {} })).toBeUndefined()
   })
 

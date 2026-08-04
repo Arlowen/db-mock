@@ -34,7 +34,7 @@ describe('task resource reference', () => {
       lookupType: 'instance',
       lookupID: 'instance id',
       fallbackID: 'backup-id',
-      path: '/instances/instance%20id?tab=backups&cleanup=review',
+      path: '/instances/instance%20id',
     })
   })
 

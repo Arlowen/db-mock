@@ -46,7 +46,7 @@ export function taskRecoveryResourcePath(task?: Task): string | undefined {
   if (!task) return undefined
   const instanceID = taskRecoveryInstanceID(task)
   if (task.resourceType === 'instance' && instanceID) return `/instances/${encodeURIComponent(instanceID)}`
-  if (task.resourceType === 'backup' && instanceID) return `/instances/${encodeURIComponent(instanceID)}?tab=backups&cleanup=review`
+  if (task.resourceType === 'backup' && instanceID) return `/instances/${encodeURIComponent(instanceID)}`
   if (task.resourceType === 'host' && task.resourceId) return `/hosts?host=${encodeURIComponent(task.resourceId)}`
   return undefined
 }

@@ -6,6 +6,9 @@ const templateVersionID = '22222222-2222-4222-8222-222222222222'
 const hostID = '33333333-3333-4333-8333-333333333333'
 const instanceID = '44444444-4444-4444-8444-444444444444'
 const createdInstanceID = '55555555-5555-4555-8555-555555555555'
+const deleteTaskID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const backupID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const backupDeleteTaskID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
 const standardTemplate = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -147,6 +150,23 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   let instances = [runningInstance]
   let createPayload: Record<string, unknown> | undefined
   let stopPayload: Record<string, unknown> | undefined
+  let deletePayload: Record<string, unknown> | undefined
+  let backupDeletePayload: Record<string, unknown> | undefined
+  let managedBackups = [{
+    id: backupID,
+    instanceId: instanceID,
+    hostId: hostID,
+    templateVersionId: templateVersionID,
+    templateVersion: '17',
+    name: 'nightly-before-release',
+    creationType: 'manual',
+    status: 'ready',
+    sizeBytes: 32 * 1024 ** 2,
+    createdBy: 'e2e-admin',
+    createdByUsername: 'e2e-admin',
+    createdAt: '2026-08-04T07:00:00Z',
+    updatedAt: '2026-08-04T07:02:00Z',
+  }]
   await page.route('**/api/v1/templates', (route) => route.fulfill({ json: { items: [standardTemplate, ...hiddenTemplates] } }))
   await page.route('**/api/v1/hosts', (route) => route.fulfill({ json: { items: [host] } }))
   await page.route('**/api/v1/projects', (route) => route.fulfill({ json: { items: [] } }))
@@ -166,9 +186,26 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
     stopPayload = route.request().postDataJSON()
     await route.fulfill({ status: 202, json: { action: 'stop', accepted: [{ instanceId: instanceID, instanceName: runningInstance.name, task: succeededTask }], rejected: [] } })
   })
+  const deleteTask = { ...succeededTask, id: deleteTaskID, kind: 'instance.delete', status: 'queued', progress: 0, stage: 'queued', message: 'Queued', finishedAt: undefined }
+  await page.route('**/api/v1/tasks', (route) => route.fulfill({ json: { items: [deleteTask] } }))
+  await page.route(`**/api/v1/tasks/${deleteTaskID}`, (route) => route.fulfill({ json: deleteTask }))
+  await page.route(`**/api/v1/tasks/${deleteTaskID}/logs`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/instances/${instanceID}`, (route) => route.fulfill({ json: runningInstance }))
   await page.route(`**/api/v1/instances/${instanceID}/connection`, (route) => route.fulfill({ json: { address: host.connectionAddress, port: 25432, username: 'dbmock', password: 'generated-secret', database: 'app', authentication: 'password', uri: 'postgresql://dbmock:generated-secret@10.0.0.8:25432/app', jdbc: 'jdbc:postgresql://10.0.0.8:25432/app' } }))
+  await page.route(`**/api/v1/instances/${instanceID}/logs**`, (route) => route.fulfill({ contentType: 'text/plain', body: '2026-08-04T08:05:00Z database ready\n2026-08-04T08:05:02Z accepting connections\n' }))
   await page.route(`**/api/v1/instances/${instanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
-  await page.route(`**/api/v1/instances/${instanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/v1/instances/${instanceID}/backups`, (route) => route.fulfill({ json: { items: managedBackups } }))
+  await page.route(`**/api/v1/instances/${instanceID}/cleanup-review`, (route) => route.fulfill({ json: { instanceId: instanceID, instanceName: runningInstance.name, status: 'running', purpose: '', owner: '', backupCount: managedBackups.length, deleteReady: managedBackups.length === 0, blockers: managedBackups.length ? ['backups_present'] : [] } }))
+  await page.route(`**/api/v1/instances/${instanceID}/backups/${backupID}/delete`, async (route) => {
+    backupDeletePayload = route.request().postDataJSON()
+    const deletedBackup = { ...managedBackups[0], status: 'deleting' }
+    managedBackups = []
+    await route.fulfill({ status: 202, json: { backup: deletedBackup, task: { ...deleteTask, id: backupDeleteTaskID, kind: 'instance.backup.delete', resourceType: 'backup', resourceId: backupID } } })
+  })
+  await page.route(`**/api/v1/instances/${instanceID}/actions/delete`, async (route) => {
+    deletePayload = route.request().postDataJSON()
+    await route.fulfill({ status: 202, json: deleteTask })
+  })
   await page.route(`**/api/v1/instances/${createdInstanceID}`, (route) => route.fulfill({ json: instances.find((item) => item.id === createdInstanceID) }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/tasks`, (route) => route.fulfill({ json: { items: [] } }))
   await page.route(`**/api/v1/instances/${createdInstanceID}/backups`, (route) => route.fulfill({ json: { items: [] } }))
@@ -213,6 +250,77 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   expect(copied).not.toContain('项目:')
   expect(copied).not.toContain('环境:')
   await handoff.getByRole('button', { name: '关闭', exact: true }).click()
+
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: 'Orders DB', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Orders DB' })).toBeVisible()
+  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(page.getByRole('tab', { name: '概览' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '连接信息' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '日志' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '监控' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: '备份' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '编辑' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '更多操作' })).toHaveCount(0)
+  for (const removedDetail of ['项目', '环境', '用途', '负责人', '预计到期']) {
+    await expect(page.getByText(removedDetail, { exact: true })).toHaveCount(0)
+  }
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('database-overview-1440.png'), fullPage: true })
+
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.getByRole('tab', { name: '连接信息' }).click()
+  await page.getByRole('button', { name: '显示连接信息' }).click()
+  await expect(page.getByText('postgresql://dbmock:generated-secret@10.0.0.8:25432/app')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('database-connection-1024.png'), fullPage: true })
+
+  await page.getByRole('tab', { name: '日志' }).click()
+  await expect(page.getByText('accepting connections', { exact: false })).toBeVisible()
+  await page.waitForTimeout(400)
+  await expect.poll(() => page.locator('.instance-detail-actions .ant-btn').evaluateAll((buttons) => buttons.every((button) => {
+    const box = button.getBoundingClientRect()
+    return box.left >= 0 && box.right <= window.innerWidth
+  }))).toBe(true)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('database-logs-1024.png'), fullPage: true })
+
+  await page.getByRole('tab', { name: '概览' }).click()
+  await page.locator('.instance-detail-actions').getByRole('button', { name: /删除/ }).click()
+  const deleteDialog = page.getByRole('dialog', { name: '删除数据库 · Orders DB' })
+  await expect(deleteDialog).toBeVisible()
+  await expect(deleteDialog.getByText('先处理阻止删除的托管备份')).toBeVisible()
+  await expect(deleteDialog.getByText('nightly-before-release')).toBeVisible()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: testInfo.outputPath('database-delete-blocked-1024.png'), fullPage: false })
+  await deleteDialog.getByRole('button', { name: '删除备份' }).click()
+  const backupDeleteDialog = page.getByRole('dialog', { name: '删除备份 · nightly-before-release' })
+  await expect(backupDeleteDialog).toBeVisible()
+  const confirmBackupDelete = backupDeleteDialog.getByRole('button', { name: '删除备份' })
+  await expect(confirmBackupDelete).toBeDisabled()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: testInfo.outputPath('database-backup-delete-1024.png'), fullPage: false })
+  await backupDeleteDialog.getByLabel('输入备份名确认删除').fill('nightly-before-release')
+  await confirmBackupDelete.click()
+  await expect.poll(() => backupDeletePayload).toEqual({ confirmName: 'nightly-before-release' })
+  await expect(deleteDialog.getByText('将永久删除数据库及其数据')).toBeVisible()
+  const backupNotificationClose = page.locator('.ant-notification-notice-close')
+  if (await backupNotificationClose.isVisible()) await backupNotificationClose.click()
+  await expect(backupNotificationClose).toHaveCount(0)
+  await expect(page.locator('.ant-message-notice')).toHaveCount(0, { timeout: 5_000 })
+  await page.waitForTimeout(400)
+  const confirmDelete = deleteDialog.getByRole('button', { name: '确认永久删除' })
+  await expect(confirmDelete).toBeDisabled()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('database-delete-1024.png'), fullPage: false })
+  await deleteDialog.getByLabel('输入实例名称 Orders DB 确认删除').fill('orders-db')
+  await expect(confirmDelete).toBeDisabled()
+  await deleteDialog.getByLabel('输入实例名称 Orders DB 确认删除').fill('Orders DB')
+  await confirmDelete.click()
+  await expect.poll(() => deletePayload).toEqual({ confirmName: 'Orders DB' })
+  await expect(page).toHaveURL(new RegExp(`/tasks\\?task=${deleteTaskID}$`))
+  await page.goto('/instances')
+  await expect(page.getByRole('button', { name: 'Orders DB', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '运行操作 · Orders DB' }).click()
   await page.getByRole('menuitem', { name: '停止' }).click()
@@ -281,6 +389,12 @@ test('keeps database deployment on the three-step MVP path', async ({ page, cont
   })
   await expect(page).toHaveURL(new RegExp(`/instances/${createdInstanceID}$`))
   await expect(page.getByRole('heading', { name: 'orders_test' })).toBeVisible()
+  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(page.getByRole('tab', { name: '概览' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '连接信息' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '日志' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '监控' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: '备份' })).toHaveCount(0)
   const createdNotificationClose = page.locator('.ant-notification-notice-close')
   if (await createdNotificationClose.isVisible()) await createdNotificationClose.click()
   await expect(createdNotificationClose).toHaveCount(0)
