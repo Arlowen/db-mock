@@ -190,15 +190,15 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 	}
 }
 
-func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
+func TestHistoricalInstanceMetadataRemainsReadable(t *testing.T) {
 	ctx, pool := openInstanceStoreTest(t)
-	hostID, templateID, versionID := uuid.New(), uuid.New(), uuid.New()
-	projectID, instanceID, occupiedID, deletedID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	hostID, templateID, versionID, projectID, instanceID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	expiresAt := time.Now().UTC().Add(72 * time.Hour).Truncate(time.Second)
 	for _, statement := range []struct {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO projects(id,name) VALUES($1,'Platform')`, []any{projectID}},
+		{`INSERT INTO projects(id,name) VALUES($1,'Historical project')`, []any{projectID}},
 		{`INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,connection_address,
             data_root,status) VALUES($1,'metadata-host','127.0.0.1','tester','password','sealed','127.0.0.1',
             '/opt/dbmock','online')`, []any{hostID}},
@@ -207,117 +207,31 @@ func TestUpdateInstanceMetadataValidatesAndMapsDatabaseErrors(t *testing.T) {
 		{`INSERT INTO template_versions(id,template_id,version,image_reference,min_cpu,min_memory_bytes,
             min_disk_bytes,default_port,compose_template) VALUES($1,$2,'17','postgres:17',1,1073741824,
             10737418240,5432,'services: {}')`, []any{versionID, templateID}},
+		{`INSERT INTO instances(id,name,host_id,project_id,template_version_id,status,desired_state,
+            environment,purpose,owner_name,expires_at,labels,cpu,memory_bytes,reserved_disk_bytes,host_port,
+            container_port,database_username,encrypted_password,compose_project,remote_directory)
+            VALUES($1,'historical-metadata-db',$2,$3,$4,'running','running','staging','Release verification',
+            'Database team',$5,$6,1,1073741824,10737418240,25430,5432,'postgres','sealed',$7,$8)`,
+			[]any{instanceID, hostID, projectID, versionID, expiresAt, json.RawMessage(`{"team":"platform"}`),
+				"dbmock_" + strings.ReplaceAll(instanceID.String(), "-", ""), "/opt/dbmock/instances/" + instanceID.String()}},
 	} {
 		if _, err := pool.Exec(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for index, item := range []struct {
-		id     uuid.UUID
-		name   string
-		status string
-	}{
-		{id: instanceID, name: "metadata-db", status: "running"},
-		{id: occupiedID, name: "occupied-db", status: "running"},
-		{id: deletedID, name: "deleted-db", status: "deleted"},
-	} {
-		desiredState := "running"
-		if item.status == "deleted" {
-			desiredState = "deleted"
-		}
-		if _, err := pool.Exec(ctx, `INSERT INTO instances(id,name,host_id,template_version_id,status,
-            desired_state,cpu,memory_bytes,reserved_disk_bytes,host_port,container_port,database_username,
-            encrypted_password,compose_project,remote_directory) VALUES($1,$2,$3,$4,$5,$6,1,1073741824,
-            10737418240,$7,5432,'postgres','sealed',$8,$9)`, item.id, item.name, hostID, versionID, item.status,
-			desiredState, 25430+index,
-			"dbmock_"+strings.ReplaceAll(item.id.String(), "-", ""), "/opt/dbmock/instances/"+item.id.String()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	target := store.New(pool)
 
-	expiresAt := time.Now().UTC().Add(72 * time.Hour).Truncate(time.Second)
-	updated, err := target.UpdateInstanceMetadata(ctx, instanceID, "  renamed-db  ", &projectID, "staging",
-		"  Release candidate verification  ", "  Database team  ", &expiresAt, json.RawMessage(`{"team":"platform"}`))
+	item, err := store.New(pool).GetInstance(ctx, instanceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var storedLabels map[string]string
-	if err = json.Unmarshal(updated.Labels, &storedLabels); err != nil {
+	var labels map[string]string
+	if err = json.Unmarshal(item.Labels, &labels); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "renamed-db" || updated.Environment != "staging" || updated.ProjectID == nil ||
-		*updated.ProjectID != projectID || updated.Purpose != "Release candidate verification" ||
-		updated.Owner != "Database team" || updated.ExpiresAt == nil || !updated.ExpiresAt.Equal(expiresAt) ||
-		storedLabels["team"] != "platform" {
-		t.Fatalf("normalized metadata = %#v", updated)
-	}
-	cleanupExpiry := expiresAt.Add(7 * 24 * time.Hour)
-	updatedExpiry, err := target.UpdateInstanceExpiry(ctx, instanceID, &cleanupExpiry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updatedExpiry.ExpiresAt == nil || !updatedExpiry.ExpiresAt.Equal(cleanupExpiry) ||
-		updatedExpiry.Name != updated.Name || updatedExpiry.Owner != updated.Owner || updatedExpiry.Purpose != updated.Purpose {
-		t.Fatalf("targeted expiry update changed unrelated metadata: %#v", updatedExpiry)
-	}
-	if _, err = target.UpdateInstanceExpiry(ctx, instanceID, nil); err != nil {
-		t.Fatal(err)
-	}
-	if clearedExpiry, getErr := target.GetInstance(ctx, instanceID); getErr != nil || clearedExpiry.ExpiresAt != nil {
-		t.Fatalf("expiry was not cleared: instance=%#v err=%v", clearedExpiry, getErr)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE instances SET status='deleting' WHERE id=$1`, instanceID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = target.UpdateInstanceExpiry(ctx, instanceID, &cleanupExpiry); !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("deleting instance expiry update error = %v, want conflict", err)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE instances SET status='running' WHERE id=$1`, instanceID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = target.UpdateInstanceExpiry(ctx, deletedID, &cleanupExpiry); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("deleted instance expiry update error = %v, want not found", err)
-	}
-
-	zeroProject, missingProject := uuid.Nil, uuid.New()
-	invalidCases := []struct {
-		name        string
-		instanceID  uuid.UUID
-		value       string
-		projectID   *uuid.UUID
-		environment string
-		labels      json.RawMessage
-		want        error
-	}{
-		{name: "blank name", instanceID: instanceID, value: "   ", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
-		{name: "long name", instanceID: instanceID, value: strings.Repeat("数", 121), environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
-		{name: "unsupported environment", instanceID: instanceID, value: "renamed-db", environment: "preview", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
-		{name: "non-object labels", instanceID: instanceID, value: "renamed-db", environment: "staging", labels: json.RawMessage(`[]`), want: domain.ErrInvalid},
-		{name: "zero project", instanceID: instanceID, value: "renamed-db", projectID: &zeroProject, environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
-		{name: "missing project", instanceID: instanceID, value: "renamed-db", projectID: &missingProject, environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrInvalid},
-		{name: "duplicate name", instanceID: instanceID, value: " OCCUPIED-DB ", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrConflict},
-		{name: "deleted instance", instanceID: deletedID, value: "still-deleted", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrNotFound},
-		{name: "missing instance", instanceID: uuid.New(), value: "missing-db", environment: "staging", labels: json.RawMessage(`{}`), want: domain.ErrNotFound},
-	}
-	for _, test := range invalidCases {
-		t.Run(test.name, func(t *testing.T) {
-			_, updateErr := target.UpdateInstanceMetadata(ctx, test.instanceID, test.value, test.projectID,
-				test.environment, "", "", nil, test.labels)
-			if !errors.Is(updateErr, test.want) {
-				t.Fatalf("update error = %v, want %v", updateErr, test.want)
-			}
-		})
-	}
-
-	updated, err = target.UpdateInstanceMetadata(ctx, instanceID, "renamed-db", nil, "production",
-		"", "", nil, json.RawMessage(`null`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.ProjectID != nil || updated.Environment != "production" || updated.Purpose != "" ||
-		updated.Owner != "" || updated.ExpiresAt != nil || string(updated.Labels) != `{}` {
-		t.Fatalf("cleared optional metadata = %#v", updated)
+	if item.ProjectID == nil || *item.ProjectID != projectID || item.Environment != "staging" ||
+		item.Purpose != "Release verification" || item.Owner != "Database team" ||
+		item.ExpiresAt == nil || !item.ExpiresAt.Equal(expiresAt) || labels["team"] != "platform" {
+		t.Fatalf("historical metadata was not preserved: %#v", item)
 	}
 }
 

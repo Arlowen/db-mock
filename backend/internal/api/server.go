@@ -63,8 +63,6 @@ func (s *Server) authenticatedRoutes(r chi.Router) {
 	r.Put("/auth/password", s.changeOwnPassword)
 	r.Post("/auth/logout", s.logout)
 	r.Get("/dashboard", s.dashboard)
-	r.Route("/users", s.userRoutes)
-	r.Route("/projects", s.projectRoutes)
 	r.Route("/hosts", s.hostRoutes)
 	r.Route("/templates", s.templateRoutes)
 	r.Route("/instances", s.instanceRoutes)

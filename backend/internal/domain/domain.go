@@ -24,10 +24,6 @@ const (
 	RoleViewer   = "viewer"
 )
 
-func ValidUserRole(role string) bool {
-	return role == RoleAdmin || role == RoleOperator || role == RoleViewer
-}
-
 type User struct {
 	ID           uuid.UUID  `json:"id"`
 	Username     string     `json:"username"`
@@ -50,27 +46,6 @@ type Session struct {
 	LastSeen  time.Time `json:"lastSeen"`
 	IP        string    `json:"ip"`
 	UserAgent string    `json:"userAgent"`
-}
-
-type Project struct {
-	ID                        uuid.UUID       `json:"id"`
-	Name                      string          `json:"name"`
-	Description               string          `json:"description"`
-	Color                     string          `json:"color"`
-	DefaultEnvironment        *string         `json:"defaultEnvironment,omitempty"`
-	DefaultExpiryDays         *int            `json:"defaultExpiryDays,omitempty"`
-	DefaultLabels             json.RawMessage `json:"defaultLabels"`
-	DefaultTemplateVersionID  *uuid.UUID      `json:"defaultTemplateVersionId,omitempty"`
-	DefaultCPU                *float64        `json:"defaultCpu,omitempty"`
-	DefaultMemoryBytes        *int64          `json:"defaultMemoryBytes,omitempty"`
-	DefaultDiskBytes          *int64          `json:"defaultDiskBytes,omitempty"`
-	DefaultTemplateName       *string         `json:"defaultTemplateName,omitempty"`
-	DefaultTemplateVersion    *string         `json:"defaultTemplateVersion,omitempty"`
-	DefaultTemplateSelectable *bool           `json:"defaultTemplateSelectable,omitempty"`
-	HostCount                 int             `json:"hostCount"`
-	InstanceCount             int             `json:"instanceCount"`
-	CreatedAt                 time.Time       `json:"createdAt"`
-	UpdatedAt                 time.Time       `json:"updatedAt"`
 }
 
 type Host struct {

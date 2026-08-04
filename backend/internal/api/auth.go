@@ -137,7 +137,7 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, fmt.Errorf("%w: unsupported language preference", domain.ErrInvalid))
 		return
 	}
-	user, err := s.store.UpdateUser(r.Context(), actor.User.ID, displayName, locale, nil, "", nil, nil)
+	user, err := s.store.UpdateOwnProfile(r.Context(), actor.User.ID, displayName, locale)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,12 +20,9 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.Get("/", s.listInstances)
 	r.With(requireOperator).Post("/", s.createInstance)
 	r.With(requireOperator).Post("/batch-actions/{action}", s.batchInstanceAction)
-	r.With(requireOperator).Post("/batch-cleanup-decisions", s.batchInstanceCleanupDecision)
 	r.Get("/{id}", s.getInstance)
 	r.Get("/{id}/tasks", s.listInstanceRelatedTasks)
-	r.With(requireOperator).Patch("/{id}", s.updateInstance)
 	r.Get("/{id}/cleanup-review", s.getInstanceCleanupReview)
-	r.With(requireOperator).Post("/{id}/cleanup-decision", s.updateInstanceCleanupDecision)
 	r.Get("/{id}/backups", s.listInstanceBackups)
 	r.With(requireOperator).Post("/{id}/backups", s.createInstanceBackup)
 	r.Get("/{id}/backup-policy", s.getInstanceBackupPolicy)
@@ -298,102 +294,6 @@ func (s *Server) getInstanceCleanupReview(w http.ResponseWriter, r *http.Request
 	httpx.JSON(w, http.StatusOK, review)
 }
 
-func (s *Server) updateInstanceCleanupDecision(w http.ResponseWriter, r *http.Request) {
-	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	var input struct {
-		Decision string `json:"decision"`
-		Days     int    `json:"days"`
-	}
-	if err = httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	before, err := s.store.GetInstance(r.Context(), id)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	item, err := s.instances.ApplyCleanupDecision(r.Context(), id, strings.TrimSpace(input.Decision),
-		input.Days, time.Now())
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	changes := instanceAuditChanges(before, item)
-	changes["cleanupDecision"] = input.Decision
-	if input.Decision == "extend" {
-		changes["extensionDays"] = input.Days
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.auditWithChanges(r, actor, "instance.cleanup_decision", "instance", &id, item.Name, nil,
-		"success", "", changes)
-	httpx.JSON(w, http.StatusOK, item)
-}
-
-func (s *Server) batchInstanceCleanupDecision(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		InstanceIDs []uuid.UUID `json:"instanceIds"`
-		Decision    string      `json:"decision"`
-		Days        int         `json:"days"`
-	}
-	if err := httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	input.Decision = strings.TrimSpace(input.Decision)
-	now := time.Now()
-	outcomes, err := s.instances.BatchCleanupDecision(r.Context(), input.Decision, input.Days, input.InstanceIDs, now)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	type updatedItem struct {
-		InstanceID   uuid.UUID       `json:"instanceId"`
-		InstanceName string          `json:"instanceName"`
-		Instance     domain.Instance `json:"instance"`
-	}
-	type rejectedItem struct {
-		InstanceID   uuid.UUID `json:"instanceId"`
-		InstanceName string    `json:"instanceName,omitempty"`
-		Code         string    `json:"code"`
-		Message      string    `json:"message"`
-	}
-	updated := make([]updatedItem, 0, len(outcomes))
-	rejected := make([]rejectedItem, 0)
-	actor, _ := auth.ActorFrom(r.Context())
-	for _, outcome := range outcomes {
-		if outcome.Err != nil {
-			code, message := batchActionError(outcome.Err)
-			rejected = append(rejected, rejectedItem{InstanceID: outcome.InstanceID,
-				InstanceName: outcome.InstanceName, Code: code, Message: message})
-			continue
-		}
-		if outcome.Instance == nil {
-			rejected = append(rejected, rejectedItem{InstanceID: outcome.InstanceID,
-				InstanceName: outcome.InstanceName, Code: "internal_error", Message: "Internal server error"})
-			continue
-		}
-		item := *outcome.Instance
-		updated = append(updated, updatedItem{InstanceID: outcome.InstanceID,
-			InstanceName: outcome.InstanceName, Instance: item})
-		changes := instanceAuditChanges(outcome.Before, item)
-		changes["cleanupDecision"] = input.Decision
-		changes["batch"] = true
-		if input.Decision == "extend" {
-			changes["extensionDays"] = input.Days
-		}
-		_ = s.auditWithChanges(r, actor, "instance.cleanup_decision", "instance", &outcome.InstanceID,
-			item.Name, nil, "success", "", changes)
-	}
-	httpx.JSON(w, http.StatusOK, map[string]any{
-		"decision": input.Decision, "days": input.Days, "updated": updated, "rejected": rejected,
-	})
-}
-
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	var input instances.CreateRequest
 	if err := httpx.Decode(r, &input); err != nil {
@@ -408,42 +308,6 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.auditWithChanges(r, actor, "instance.create", "instance", &item.ID, item.Name, &task.ID, "success", "", instanceAuditChanges(domain.Instance{}, item))
 	httpx.JSON(w, http.StatusAccepted, map[string]any{"instance": item, "task": task})
-}
-
-func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {
-	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	var input struct {
-		Name        string            `json:"name"`
-		ProjectID   *uuid.UUID        `json:"projectId"`
-		Environment string            `json:"environment"`
-		Purpose     string            `json:"purpose"`
-		Owner       string            `json:"owner"`
-		ExpiresAt   *time.Time        `json:"expiresAt"`
-		Labels      map[string]string `json:"labels"`
-	}
-	if err = httpx.Decode(r, &input); err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	before, err := s.store.GetInstance(r.Context(), id)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	labels, _ := json.Marshal(input.Labels)
-	item, err := s.store.UpdateInstanceMetadata(r.Context(), id, input.Name, input.ProjectID,
-		input.Environment, input.Purpose, input.Owner, input.ExpiresAt, labels)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	actor, _ := auth.ActorFrom(r.Context())
-	_ = s.auditWithChanges(r, actor, "instance.update", "instance", &id, item.Name, nil, "success", "", instanceAuditChanges(before, item))
-	httpx.JSON(w, http.StatusOK, item)
 }
 
 func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {

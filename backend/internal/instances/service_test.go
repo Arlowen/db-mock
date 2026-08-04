@@ -128,32 +128,6 @@ func TestBatchActionRejectsUnsafeRequestShapes(t *testing.T) {
 	}
 }
 
-func TestBatchCleanupDecisionRejectsUnsafeRequestShapes(t *testing.T) {
-	service := &Service{}
-	instanceID := uuid.New()
-	tests := []struct {
-		name        string
-		decision    string
-		days        int
-		instanceIDs []uuid.UUID
-	}{
-		{name: "delete is never a batch decision", decision: "delete", instanceIDs: []uuid.UUID{instanceID}},
-		{name: "empty selection", decision: "extend", days: 7},
-		{name: "duplicate IDs", decision: "retain", instanceIDs: []uuid.UUID{instanceID, instanceID}},
-		{name: "nil ID", decision: "extend", days: 7, instanceIDs: []uuid.UUID{uuid.Nil}},
-		{name: "too many IDs", decision: "retain", instanceIDs: make([]uuid.UUID, 101)},
-		{name: "invalid extension", decision: "extend", days: 366, instanceIDs: []uuid.UUID{instanceID}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := service.BatchCleanupDecision(context.Background(), test.decision, test.days,
-				test.instanceIDs, time.Now()); !errors.Is(err, domain.ErrInvalid) {
-				t.Fatalf("BatchCleanupDecision error = %v, want invalid input", err)
-			}
-		})
-	}
-}
-
 func TestValidateBatchInstanceActionKeepsFailedRecoveryIndividual(t *testing.T) {
 	for _, test := range []struct{ status, action string }{
 		{status: "stopped", action: "start"},
@@ -202,37 +176,6 @@ func TestBuildCleanupReviewExplainsEveryDeleteBlocker(t *testing.T) {
 	busy := buildCleanupReview(domain.Instance{ID: instanceID, Name: "busy-db", Status: "backing_up"}, nil, nil)
 	if busy.DeleteReady || len(busy.Blockers) != 1 || busy.Blockers[0] != "status_not_deletable" {
 		t.Fatalf("busy instance cleanup review = %#v", busy)
-	}
-}
-
-func TestCleanupDecisionExpiryExtendsFromTheLaterBoundary(t *testing.T) {
-	now := time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC)
-	expired := now.Add(-48 * time.Hour)
-	got, err := cleanupDecisionExpiry(&expired, "extend", 7, now)
-	if err != nil || got == nil || !got.Equal(now.AddDate(0, 0, 7)) {
-		t.Fatalf("expired extension = %v, %v", got, err)
-	}
-	future := now.Add(72 * time.Hour)
-	got, err = cleanupDecisionExpiry(&future, "extend", 7, now)
-	if err != nil || got == nil || !got.Equal(future.AddDate(0, 0, 7)) {
-		t.Fatalf("future extension = %v, %v", got, err)
-	}
-	got, err = cleanupDecisionExpiry(&future, "retain", 0, now)
-	if err != nil || got != nil {
-		t.Fatalf("retain decision = %v, %v", got, err)
-	}
-	for _, input := range []struct {
-		decision string
-		days     int
-	}{
-		{decision: "extend", days: 0},
-		{decision: "extend", days: 366},
-		{decision: "retain", days: 7},
-		{decision: "delete", days: 0},
-	} {
-		if _, err = cleanupDecisionExpiry(nil, input.decision, input.days, now); !errors.Is(err, domain.ErrInvalid) {
-			t.Fatalf("cleanupDecisionExpiry(%q, %d) error = %v, want invalid", input.decision, input.days, err)
-		}
 	}
 }
 

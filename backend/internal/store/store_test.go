@@ -18,37 +18,6 @@ func TestTranslateUniqueViolation(t *testing.T) {
 	}
 }
 
-func TestNormalizeProjectInputValidatesDeploymentDefaults(t *testing.T) {
-	environment := " testing "
-	expiryDays := 14
-	input, err := normalizeProjectInput(ProjectInput{
-		Name:               " Orders ",
-		DefaultEnvironment: &environment,
-		DefaultExpiryDays:  &expiryDays,
-		DefaultLabels:      json.RawMessage(`{"team":"orders"}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if input.Name != "Orders" || input.DefaultEnvironment == nil || *input.DefaultEnvironment != "testing" ||
-		input.DefaultExpiryDays == nil || *input.DefaultExpiryDays != 14 ||
-		string(input.DefaultLabels) != `{"team":"orders"}` {
-		t.Fatalf("unexpected normalized project input: %#v", input)
-	}
-
-	unsupported := "sandbox"
-	if _, err = normalizeProjectInput(ProjectInput{Name: "Orders", DefaultEnvironment: &unsupported}); !errors.Is(err, domain.ErrInvalid) {
-		t.Fatalf("unsupported environment error = %v, want invalid input", err)
-	}
-	tooLong := 366
-	if _, err = normalizeProjectInput(ProjectInput{Name: "Orders", DefaultExpiryDays: &tooLong}); !errors.Is(err, domain.ErrInvalid) {
-		t.Fatalf("expiry error = %v, want invalid input", err)
-	}
-	if _, err = normalizeProjectInput(ProjectInput{Name: "Orders", DefaultLabels: json.RawMessage(`["orders"]`)}); !errors.Is(err, domain.ErrInvalid) {
-		t.Fatalf("labels error = %v, want invalid input", err)
-	}
-}
-
 func TestTaskInsertErrorExplainsActiveResourceConflict(t *testing.T) {
 	err := taskInsertError(&pgconn.PgError{Code: "23505", ConstraintName: "tasks_active_resource_idx"})
 	if !errors.Is(err, domain.ErrConflict) || !strings.Contains(err.Error(), "another operation") {

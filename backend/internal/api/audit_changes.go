@@ -48,21 +48,6 @@ func auditURL(value string) string {
 	return parsed.String()
 }
 
-func projectAuditChanges(before, after domain.Project) map[string]any {
-	changes := map[string]any{}
-	addAuditTransition(changes, "name", before.Name, after.Name)
-	addAuditTransition(changes, "description", before.Description, after.Description)
-	addAuditTransition(changes, "color", before.Color, after.Color)
-	addAuditTransition(changes, "defaultEnvironment", before.DefaultEnvironment, after.DefaultEnvironment)
-	addAuditTransition(changes, "defaultExpiryDays", before.DefaultExpiryDays, after.DefaultExpiryDays)
-	addAuditTransition(changes, "defaultLabels", auditJSON(before.DefaultLabels), auditJSON(after.DefaultLabels))
-	addAuditTransition(changes, "defaultTemplateVersionId", auditUUID(before.DefaultTemplateVersionID), auditUUID(after.DefaultTemplateVersionID))
-	addAuditTransition(changes, "defaultCpu", before.DefaultCPU, after.DefaultCPU)
-	addAuditTransition(changes, "defaultMemoryBytes", before.DefaultMemoryBytes, after.DefaultMemoryBytes)
-	addAuditTransition(changes, "defaultDiskBytes", before.DefaultDiskBytes, after.DefaultDiskBytes)
-	return changes
-}
-
 func hostAuditChanges(before, after domain.Host, input hostRequest) map[string]any {
 	changes := map[string]any{}
 	addAuditTransition(changes, "name", before.Name, after.Name)

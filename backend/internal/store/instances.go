@@ -287,42 +287,6 @@ func (s *Store) IncrementRestartFailure(ctx context.Context, id uuid.UUID) (int,
 	return count, translate(err)
 }
 
-func (s *Store) UpdateInstanceMetadata(ctx context.Context, id uuid.UUID, name string, projectID *uuid.UUID, environment, purpose, owner string, expiresAt *time.Time, labels json.RawMessage) (domain.Instance, error) {
-	name, purpose, owner, labels, err := normalizeInstanceMetadata(name, environment, purpose, owner, labels)
-	if err != nil {
-		return domain.Instance{}, err
-	}
-	if projectID != nil && *projectID == uuid.Nil {
-		return domain.Instance{}, fmt.Errorf("%w: projectId must be a non-zero UUID", domain.ErrInvalid)
-	}
-	result, err := s.pool.Exec(ctx, `UPDATE instances SET name=$2,project_id=$3,environment=$4,purpose=$5,
-        owner_name=$6,expires_at=$7,labels=$8,updated_at=now() WHERE id=$1 AND status<>'deleted'`,
-		id, name, projectID, environment, purpose, owner, expiresAt, labels)
-	if err != nil {
-		return domain.Instance{}, instanceWriteError(err)
-	}
-	if result.RowsAffected() == 0 {
-		return domain.Instance{}, domain.ErrNotFound
-	}
-	return s.GetInstance(ctx, id)
-}
-
-func (s *Store) UpdateInstanceExpiry(ctx context.Context, id uuid.UUID, expiresAt *time.Time) (domain.Instance, error) {
-	result, err := s.pool.Exec(ctx, `UPDATE instances SET expires_at=$2,updated_at=now()
-		WHERE id=$1 AND status NOT IN ('deleting','deleted')`, id, expiresAt)
-	if err != nil {
-		return domain.Instance{}, err
-	}
-	if result.RowsAffected() == 0 {
-		item, getErr := s.GetInstance(ctx, id)
-		if getErr != nil || item.Status == "deleted" {
-			return domain.Instance{}, domain.ErrNotFound
-		}
-		return domain.Instance{}, fmt.Errorf("%w: cleanup decisions cannot change after deletion starts", domain.ErrConflict)
-	}
-	return s.GetInstance(ctx, id)
-}
-
 func (s *Store) MarkInstanceDeleted(ctx context.Context, id uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `UPDATE instances SET status='deleted',desired_state='deleted',status_message='',
         updated_at=now() WHERE id=$1`, id)

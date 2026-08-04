@@ -61,14 +61,6 @@ type BatchActionOutcome struct {
 	Err          error
 }
 
-type BatchCleanupDecisionOutcome struct {
-	InstanceID   uuid.UUID
-	InstanceName string
-	Before       domain.Instance
-	Instance     *domain.Instance
-	Err          error
-}
-
 type CleanupReview struct {
 	InstanceID   uuid.UUID                   `json:"instanceId"`
 	InstanceName string                      `json:"instanceName"`
@@ -459,83 +451,6 @@ func buildCleanupReview(instance domain.Instance, backups []domain.InstanceBacku
 	review.Blockers = domain.InstanceCleanupBlockers(instance.Status, review.BackupCount, review.ActiveTask != nil)
 	review.DeleteReady = len(review.Blockers) == 0
 	return review
-}
-
-func (s *Service) ApplyCleanupDecision(ctx context.Context, instanceID uuid.UUID, decision string, days int, now time.Time) (domain.Instance, error) {
-	instance, err := s.store.GetInstance(ctx, instanceID)
-	if err != nil {
-		return domain.Instance{}, err
-	}
-	if instance.Status == "deleting" {
-		return domain.Instance{}, fmt.Errorf("%w: cleanup decisions cannot change after deletion starts", domain.ErrConflict)
-	}
-	expiresAt, err := cleanupDecisionExpiry(instance.ExpiresAt, decision, days, now)
-	if err != nil {
-		return domain.Instance{}, err
-	}
-	return s.store.UpdateInstanceExpiry(ctx, instanceID, expiresAt)
-}
-
-func (s *Service) BatchCleanupDecision(ctx context.Context, decision string, days int, instanceIDs []uuid.UUID, now time.Time) ([]BatchCleanupDecisionOutcome, error) {
-	if _, err := cleanupDecisionExpiry(nil, decision, days, now); err != nil {
-		return nil, err
-	}
-	if len(instanceIDs) == 0 || len(instanceIDs) > 100 {
-		return nil, fmt.Errorf("%w: select between 1 and 100 instances", domain.ErrInvalid)
-	}
-	seen := make(map[uuid.UUID]struct{}, len(instanceIDs))
-	for _, instanceID := range instanceIDs {
-		if instanceID == uuid.Nil {
-			return nil, fmt.Errorf("%w: instance IDs must be valid UUIDs", domain.ErrInvalid)
-		}
-		if _, duplicate := seen[instanceID]; duplicate {
-			return nil, fmt.Errorf("%w: instance IDs must be unique", domain.ErrInvalid)
-		}
-		seen[instanceID] = struct{}{}
-	}
-
-	outcomes := make([]BatchCleanupDecisionOutcome, 0, len(instanceIDs))
-	for _, instanceID := range instanceIDs {
-		outcome := BatchCleanupDecisionOutcome{InstanceID: instanceID}
-		before, err := s.store.GetInstance(ctx, instanceID)
-		if err != nil {
-			outcome.Err = err
-			outcomes = append(outcomes, outcome)
-			continue
-		}
-		outcome.InstanceName = before.Name
-		outcome.Before = before
-		item, err := s.ApplyCleanupDecision(ctx, instanceID, decision, days, now)
-		if err != nil {
-			outcome.Err = err
-		} else {
-			outcome.Instance = &item
-		}
-		outcomes = append(outcomes, outcome)
-	}
-	return outcomes, nil
-}
-
-func cleanupDecisionExpiry(current *time.Time, decision string, days int, now time.Time) (*time.Time, error) {
-	switch decision {
-	case "extend":
-		if days < 1 || days > 365 {
-			return nil, fmt.Errorf("%w: cleanup extension must be between 1 and 365 days", domain.ErrInvalid)
-		}
-		base := now.UTC()
-		if current != nil && current.After(base) {
-			base = current.UTC()
-		}
-		expiresAt := base.AddDate(0, 0, days)
-		return &expiresAt, nil
-	case "retain":
-		if days != 0 {
-			return nil, fmt.Errorf("%w: retained instances do not accept extension days", domain.ErrInvalid)
-		}
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("%w: cleanup decision must be extend or retain", domain.ErrInvalid)
-	}
 }
 
 func validateBatchInstanceAction(status, action string) error {
