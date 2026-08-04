@@ -1,9 +1,8 @@
 import {
-  AlertOutlined, AuditOutlined, BellOutlined, CloudServerOutlined, ContainerOutlined,
-  DatabaseOutlined, DownOutlined, GlobalOutlined, HomeOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ProjectOutlined,
-  SettingOutlined, TeamOutlined, UnorderedListOutlined, UserOutlined,
+  AuditOutlined, CloudServerOutlined, DatabaseOutlined, DownOutlined, GlobalOutlined,
+  HomeOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined,
 } from '@ant-design/icons'
-import { Alert, App, Avatar, Badge, Button, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Tabs, Tag, Typography } from 'antd'
+import { Alert, App, Avatar, Button, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Tabs, Typography } from 'antd'
 import type { MenuProps } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,10 +10,9 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../components/BrandLogo'
 import { PageHeaderTargetProvider } from '../components/Common'
 import { useAuth } from '../contexts/AuthContext'
-import { api, errorMessage } from '../lib/api'
+import { errorMessage } from '../lib/api'
 import { oppositeLocale } from '../lib/locale'
 import { permissionsFor } from '../lib/permissions'
-import type { Alert as AlertItem } from '../lib/types'
 import { displayNameReady, passwordReady } from '../lib/user-form'
 
 const { Header, Sider, Content } = Layout
@@ -31,7 +29,6 @@ export function AppLayout() {
   const { user, logout, updateLocale, updateProfile, changePassword } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [activeAlerts, setActiveAlerts] = useState(0)
   const [pageHeaderTarget, setPageHeaderTarget] = useState<HTMLDivElement | null>(null)
   const [languageSaving, setLanguageSaving] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
@@ -60,36 +57,12 @@ export function AppLayout() {
     media.addEventListener('change', sync)
     return () => media.removeEventListener('change', sync)
   }, [])
-  useEffect(() => {
-    let active = true
-    const loadAlerts = () => void api<{ items: AlertItem[] }>('/alerts').then((response) => {
-      if (active) setActiveAlerts(response.items.filter((item) => item.status !== 'resolved').length)
-    }).catch(() => undefined)
-    loadAlerts()
-    const timer = window.setInterval(loadAlerts, 30000)
-    return () => { active = false; window.clearInterval(timer) }
-  }, [location.pathname])
   const dashboardItem = { key: '/dashboard', icon: <HomeOutlined />, label: t('workbench') }
-  const projectsItem = { key: '/projects', icon: <ProjectOutlined />, label: t('projects') }
   const hostsItem = { key: '/hosts', icon: <CloudServerOutlined />, label: t('hosts') }
-  const catalogItem = { key: '/catalog', icon: <DatabaseOutlined />, label: t('catalog') }
-  const instancesItem = { key: '/instances', icon: <ContainerOutlined />, label: t('instances') }
-  const imagesItem = { key: '/images', icon: <UnorderedListOutlined />, label: t('images') }
+  const instancesItem = { key: '/instances', icon: <DatabaseOutlined />, label: t('databases') }
   const tasksItem = { key: '/tasks', icon: <AuditOutlined />, label: t('tasks') }
-  const alertsItem = { key: '/alerts', icon: <AlertOutlined />, label: t('alerts') }
-  const usersItem = { key: '/users', icon: <TeamOutlined />, label: t('users') }
-  const auditItem = { key: '/audit', icon: <AuditOutlined />, label: t('audit') }
-  const settingsItem = { key: '/settings', icon: <SettingOutlined />, label: t('settings') }
-  const routeItems = [dashboardItem, projectsItem, hostsItem, catalogItem, instancesItem, imagesItem, tasksItem, alertsItem, usersItem, auditItem, settingsItem]
-  const operationalItems = [tasksItem, alertsItem, ...(permissions.canViewAudit ? [auditItem] : [])]
-  const systemItems = [...(permissions.canManageUsers ? [usersItem] : []), ...(permissions.canManageSettings ? [settingsItem] : [])]
-  const items: MenuProps['items'] = [
-    dashboardItem,
-    { type: 'group', label: t('navResources'), children: [projectsItem, hostsItem] },
-    { type: 'group', label: t('navDatabases'), children: [catalogItem, instancesItem, imagesItem] },
-    { type: 'group', label: t('navOperations'), children: operationalItems },
-  ]
-  if (systemItems.length) items.push({ type: 'group', label: t('navSystem'), children: systemItems })
+  const routeItems = [dashboardItem, hostsItem, instancesItem, tasksItem]
+  const items: MenuProps['items'] = routeItems
   const selectedItem = routeItems.find((item) => location.pathname.startsWith(item.key)) ?? dashboardItem
   const selected = selectedItem.key
   useEffect(() => {
@@ -191,9 +164,8 @@ export function AppLayout() {
         </div>
         <Space className="app-header-tools" size={12}>
           <Button type="text" icon={<GlobalOutlined />} loading={languageSaving} aria-label={t(targetLocale === 'en-US' ? 'switchToEnglish' : 'switchToChinese')} onClick={() => void switchLanguage()}><span className="header-language-label">{targetLocale === 'en-US' ? t('languageEnglish') : t('languageChinese')}</span></Button>
-          <Badge count={activeAlerts} size="small" overflowCount={99}><Button type="text" aria-label={t('alerts')} title={t('alerts')} icon={<BellOutlined />} onClick={() => navigate('/alerts')} /></Badge>
           <Dropdown trigger={['click']} menu={{ items: [{ key: 'account', icon: <UserOutlined />, label: t('accountSettings'), onClick: openAccount }, { type: 'divider' }, { key: 'logout', icon: <LogoutOutlined />, label: t('logout'), onClick: () => void logout() }] }}>
-            <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><Tag className="desktop-only" bordered={false}>{t(`role_${user?.role}`)}</Tag><DownOutlined className="user-menu-caret" /></Button>
+            <Button type="text" className="user-menu" aria-label={t('accountMenu')}><Avatar size={30}>{user?.displayName?.slice(0, 1).toUpperCase()}</Avatar><span className="desktop-only">{user?.displayName}</span><DownOutlined className="user-menu-caret" /></Button>
           </Dropdown>
         </Space>
       </Header>

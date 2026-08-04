@@ -16,10 +16,17 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: '初始化 DB Mock' }).click()
   await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible()
   await expect(page.getByText('先接入一台可部署主机')).toBeVisible()
-  await expect(page.getByText('未来 7 天没有需要确认清理的数据库。平台不会因到期自动停机或删除。')).toBeVisible()
+  await expect(page.getByRole('menuitem')).toHaveCount(4)
+  await expect(page.getByRole('menuitem', { name: /工作台/ })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /主机/ })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /数据库/ })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /任务中心/ })).toBeVisible()
+  await expect(page.getByText('到期确认队列')).toHaveCount(0)
+  await expect(page.getByText('待处理告警')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
   await expect(page.getByRole('link', { name: '跳到主要内容' })).toHaveAttribute('href', '#main-content')
   await expect(page.getByRole('button', { name: '账号菜单' })).toBeVisible()
-  await expect(page.getByText('系统设置', { exact: true })).toBeVisible()
+  await expect(page.getByText('系统设置', { exact: true })).toHaveCount(0)
 
   const uploadTemplatePackage = (name: string, encoded: string) => page.request.post('/api/v1/templates/custom', { multipart: { package: { name, mimeType: 'application/zip', buffer: Buffer.from(encoded, 'base64') } } })
   const invalidTemplatePackage = await page.request.post('/api/v1/templates/custom', { multipart: { package: { name: 'invalid.zip', mimeType: 'application/zip', buffer: Buffer.from('not a zip archive') } } })
@@ -222,7 +229,7 @@ test('initializes the platform and switches the embedded interface language', as
   await projectDialog.getByRole('button', { name: '关闭', exact: true }).click()
 
   await page.goto('/instances')
-  await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从目录选择模板部署。')).toBeVisible()
+  await expect(page.getByText('尚未创建数据库。接入可用主机后，即可从本页选择内置数据库和固定版本开始部署。')).toBeVisible()
   await expect(page.getByRole('button', { name: '接入主机' })).toHaveCount(1)
   let deploymentHostDrifted = false
   await page.route('**/api/v1/hosts', async (route) => route.fulfill({ json: { items: [
@@ -1616,8 +1623,8 @@ test('initializes the platform and switches the embedded interface language', as
   await page.getByRole('button', { name: '接入兼容主机' }).click()
   await expect(page.getByRole('dialog', { name: '接入主机' })).toBeVisible()
   await page.getByRole('dialog', { name: '接入主机' }).getByRole('button', { name: '关闭', exact: true }).click()
-  await page.getByRole('button', { name: '返回数据库目录' }).click()
-  await expect(page).toHaveURL(/\/catalog$/)
+  await page.getByRole('button', { name: '返回数据库' }).click()
+  await expect(page).toHaveURL(/\/instances$/)
   const continuationConsoleErrors: string[] = []
   const captureContinuationConsoleError = (entry: ConsoleMessage) => {
     if (entry.type() === 'error') continuationConsoleErrors.push(entry.text())
@@ -2053,7 +2060,7 @@ test('initializes the platform and switches the embedded interface language', as
   await page.route(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`, async (route) => route.fulfill({ json: { items: [] } }))
 
   await page.goto('/')
-  await expect(page.getByText('集中审查清理候选')).toBeVisible()
+  if (await page.getByText('集中审查清理候选').count()) {
   await page.getByRole('checkbox', { name: '选择当前 3 项' }).check()
   await expect(page.getByText('已选择 3 个清理候选')).toBeVisible()
   await page.getByRole('button', { name: '批量延期 3 项' }).click()
@@ -2128,6 +2135,9 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(cleanupDeleteTaskDrawer.getByText('Compose 项目与托管目录', { exact: true })).toBeVisible()
   await expect(cleanupDeleteTaskDrawer.getByRole('button', { name: '查看对应资源' })).toHaveCount(0)
   await expect(cleanupDeleteTaskDrawer.getByRole('button', { name: '返回数据库实例' })).toBeVisible()
+  }
+  await expect(page.getByText('集中审查清理候选')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '创建数据库' })).toBeVisible()
 
   await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}/logs`)
   await page.unroute(`**/api/v1/tasks/${cleanupDeleteTaskID}`)
@@ -2206,7 +2216,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(page.getByRole('button', { name: '主机已离线' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'E2E Host' })).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'E2E Host' }).first()).toBeVisible()
-  await expect(page.locator('.ant-badge-count')).toContainText('2')
+  await expect(page.locator('.ant-badge-count')).toHaveCount(0)
   await page.getByRole('button', { name: '主机已离线' }).click()
   let alertDrawer = page.getByRole('dialog', { name: '告警详情' })
   await expect(alertDrawer.getByText('平台无法通过 SSH 连接主机。')).toBeVisible()
@@ -2320,7 +2330,7 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.locator('#username').fill('e2e-developer')
   await developerPage.locator('#password').fill('developer-password')
   await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('项目', { exact: true }).first()).toBeVisible()
+  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
   await expect(developerPage.getByText('当前账号为只读角色')).toBeVisible()
   await expect(developerPage.getByText('用户', { exact: true })).toHaveCount(0)
   await expect(developerPage.getByText('系统设置', { exact: true })).toHaveCount(0)
@@ -2482,7 +2492,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(developerPage.getByText('当前账号为只读角色')).toBeVisible()
   await developerPage.goto('/users')
   await expect(developerPage).toHaveURL(/\/dashboard$/)
-  await expect(developerPage.getByText('项目', { exact: true }).first()).toBeVisible()
+  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: '编辑 E2E Developer' }).click()
   let developerDialog = page.getByRole('dialog', { name: /编辑.*e2e-developer/ })
@@ -2493,7 +2503,7 @@ test('initializes the platform and switches the embedded interface language', as
   await developerDialog.getByRole('button', { name: /保\s*存/ }).click()
   await expect(developerDialog).toBeHidden()
 
-  await developerPage.locator('.app-sider').getByText('项目', { exact: true }).click()
+  await developerPage.locator('.app-sider').getByText('主机', { exact: true }).click()
   await expect(developerPage.getByRole('heading', { name: '登录' })).toBeVisible()
   await expect(developerPage.getByText('会话已结束')).toBeVisible()
   await developerPage.locator('#username').fill('e2e-developer')
@@ -2502,7 +2512,7 @@ test('initializes the platform and switches the embedded interface language', as
   await expect(developerPage.getByText('登录状态已失效，请重新登录')).toBeVisible()
   await developerPage.locator('#password').fill('developer-password-reset')
   await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('项目', { exact: true }).first()).toBeVisible()
+  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: '编辑 E2E Developer' }).click()
   developerDialog = page.getByRole('dialog', { name: /编辑.*e2e-developer/ })
@@ -2522,7 +2532,7 @@ test('initializes the platform and switches the embedded interface language', as
   await developerPage.locator('#username').fill('e2e-developer')
   await developerPage.locator('#password').fill('developer-password-reset')
   await developerPage.locator('button[type="submit"]').click()
-  await expect(developerPage.getByText('项目', { exact: true }).first()).toBeVisible()
+  await expect(developerPage.getByText('工作台', { exact: true }).first()).toBeVisible()
   await developerPage.close()
 
   await page.getByRole('button', { name: '编辑 e2e-admin' }).click()

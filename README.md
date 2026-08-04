@@ -4,6 +4,8 @@ DB Mock 是一个基于 Web 和 Docker Compose 的开源数据库实例管理平
 管理 Linux 与 macOS Docker 主机，让团队可以在浏览器中创建、启停、升级、监控和
 删除单机数据库实例。
 
+> 当前正在将产品收缩为单管理员测试数据库部署 MVP。新的范围权威、依赖风险和分阶段删减计划见 [MVP 范围收缩审计](docs/mvp-scope-reduction-2026-08-04.md)。旧页面和后端能力在兼容清理完成前可能仍存在，但不再代表 MVP 产品范围。
+
 已确认的产品范围、架构和验收标准见 [需求规格](docs/requirements.md) 与
 [技术架构](docs/architecture.md)。自定义包格式见
 [自定义模板说明](docs/custom-templates.md)，首批公司试用步骤见

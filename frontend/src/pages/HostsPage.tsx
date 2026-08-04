@@ -286,7 +286,7 @@ export function HostsPage() {
       onOk: finishCloseEditor,
     })
   }
-  const cancelDatabaseCreation = () => { setOpen(false); navigate('/catalog') }
+  const cancelDatabaseCreation = () => { setOpen(false); navigate('/instances') }
   const showDelete = (item: Host) => {
     setDeleteTarget(item)
     setDeleteConfirm('')
