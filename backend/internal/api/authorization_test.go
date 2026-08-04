@@ -44,7 +44,9 @@ func TestAuthenticatedRouteSurfaceExcludesNonMVPAPIs(t *testing.T) {
 	if err := chi.Walk(router, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		routes[method+" "+route] = true
 		if strings.HasPrefix(route, "/images") || strings.HasPrefix(route, "/registries") ||
-			strings.HasPrefix(route, "/users") || strings.HasPrefix(route, "/projects") {
+			strings.HasPrefix(route, "/users") || strings.HasPrefix(route, "/projects") ||
+			strings.HasPrefix(route, "/alerts") || strings.HasPrefix(route, "/webhooks") ||
+			strings.HasPrefix(route, "/audit") {
 			t.Errorf("retired route is still registered: %s %s", method, route)
 		}
 		return nil
@@ -61,6 +63,7 @@ func TestAuthenticatedRouteSurfaceExcludesNonMVPAPIs(t *testing.T) {
 		http.MethodPatch + " /instances/{id}",
 		http.MethodPost + " /instances/batch-cleanup-decisions",
 		http.MethodPost + " /instances/{id}/cleanup-decision",
+		http.MethodGet + " /instances/{id}/metrics",
 	} {
 		if routes[retired] {
 			t.Fatalf("retired route is still registered: %s", retired)
@@ -81,9 +84,6 @@ func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 		{name: "instance batch restart", method: http.MethodPost, path: "/batch-actions/restart", routes: (*Server).instanceRoutes},
 		{name: "credential reveal", method: http.MethodGet, path: "/11111111-1111-4111-8111-111111111111/connection", routes: (*Server).instanceRoutes},
 		{name: "task cancel", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/cancel", routes: (*Server).taskRoutes},
-		{name: "alert acknowledge", method: http.MethodPost, path: "/11111111-1111-4111-8111-111111111111/acknowledged", routes: (*Server).alertRoutes},
-		{name: "webhooks", method: http.MethodGet, path: "/", routes: (*Server).webhookRoutes},
-		{name: "audit", method: http.MethodGet, path: "/", routes: (*Server).auditRoutes},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -91,34 +91,6 @@ func TestViewerIsDeniedProtectedRoutesBeforeHandlersRun(t *testing.T) {
 			router.Use(func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					actor := auth.Actor{User: domain.User{Role: domain.RoleViewer}}
-					next.ServeHTTP(w, r.WithContext(auth.WithActor(r.Context(), actor)))
-				})
-			})
-			test.routes(&Server{}, router)
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, httptest.NewRequest(test.method, test.path, nil))
-			if response.Code != http.StatusForbidden {
-				t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
-			}
-		})
-	}
-}
-
-func TestOperatorIsDeniedAdministratorOnlyRoutes(t *testing.T) {
-	tests := []struct {
-		name   string
-		method string
-		path   string
-		routes func(*Server, chi.Router)
-	}{
-		{name: "clear audit", method: http.MethodPost, path: "/clear", routes: (*Server).auditRoutes},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			router := chi.NewRouter()
-			router.Use(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					actor := auth.Actor{User: domain.User{Role: domain.RoleOperator}}
 					next.ServeHTTP(w, r.WithContext(auth.WithActor(r.Context(), actor)))
 				})
 			})

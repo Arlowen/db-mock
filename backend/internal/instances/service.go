@@ -19,7 +19,6 @@ import (
 	appcrypto "github.com/pika/db-mock/internal/crypto"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/hostops"
-	platformsettings "github.com/pika/db-mock/internal/settings"
 	"github.com/pika/db-mock/internal/store"
 	"github.com/pika/db-mock/internal/tasks"
 	"github.com/pika/db-mock/internal/templates"
@@ -1582,7 +1581,6 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 				recoveryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, stable.Status, stable.Desired, "")
-				_ = s.store.ResolveAlerts(recoveryCtx, "instance", instance.ID, "upgrade_failed")
 				_ = s.docker.DeleteUpgradeSnapshot(recoveryCtx, host, instance, operationID)
 			}
 			return nil, err
@@ -1590,7 +1588,6 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 		if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
 			return nil, err
 		}
-		_ = s.store.ResolveAlerts(ctx, "instance", instance.ID, "upgrade_failed")
 		if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance, operationID); cleanupErr != nil {
 			_ = runtime.Log(ctx, "warning", "Upgrade was already applied, but the temporary snapshot could not be removed")
 		}
@@ -1778,7 +1775,6 @@ func (s *Service) handleUpgrade(ctx context.Context, runtime *tasks.Runtime, tas
 	if err = s.store.UpdateInstanceState(ctx, instance.ID, stable.Status, stable.Desired, ""); err != nil {
 		return nil, err
 	}
-	_ = s.store.ResolveAlerts(ctx, "instance", instance.ID, "upgrade_failed")
 	if cleanupErr := s.docker.DeleteUpgradeSnapshot(ctx, host, instance, operationID); cleanupErr != nil {
 		_ = runtime.Log(ctx, "warning", "Upgrade succeeded, but the temporary snapshot could not be removed")
 	}
@@ -1836,34 +1832,6 @@ func (s *Service) recoverUpgradeFailure(runtime *tasks.Runtime, task domain.Task
 		_ = s.store.UpdateInstanceState(recoveryCtx, instance.ID, "failed", previousDesired, message)
 	}
 
-	severity, recoveryStatus := "warning", "restored"
-	if !recovered {
-		severity, recoveryStatus = "critical", "incomplete"
-	}
-	activePolicy := platformsettings.DefaultMonitoringPolicy(30, 7)
-	if values, settingsErr := s.store.GetSettings(recoveryCtx); settingsErr == nil {
-		if configured, decodeErr := platformsettings.DecodeMonitoringPolicy(values["monitoring"], activePolicy); decodeErr == nil {
-			activePolicy = configured
-		}
-	}
-	if !activePolicy.AlertEnabled(platformsettings.AlertUpgradeFailed) {
-		return
-	}
-	details := map[string]string{
-		"taskId":         task.ID.String(),
-		"fromVersion":    oldVersion.Version,
-		"toVersion":      targetVersion,
-		"recoveryStatus": recoveryStatus,
-	}
-	if len(recoveryErrors) > 0 {
-		details["recoveryFailures"] = strings.Join(recoveryErrors, ",")
-	}
-	alert, created, alertErr := s.store.CreateAlert(recoveryCtx, store.AlertInput{Severity: severity, Type: "upgrade_failed", ResourceType: "instance",
-		ResourceID: instance.ID, Title: "Database upgrade failed", Message: message, Details: details})
-	if alertErr == nil && created {
-		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "alert.created", alert)
-		_ = s.store.EnqueueWebhookEvent(recoveryCtx, "instance.failed", alert)
-	}
 }
 
 func backupFailureMessage(err error) string {

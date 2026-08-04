@@ -111,27 +111,6 @@ func TestCreateInstanceTaskCommitsTheResourceAndTaskAtomically(t *testing.T) {
 		instance.ExpiresAt == nil || !instance.ExpiresAt.Equal(expiresAt) {
 		t.Fatalf("instance lifecycle metadata = %#v", instance)
 	}
-	backupID := uuid.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO instance_backups(id,instance_id,host_id,template_version_id,
-        name,status,remote_path,created_by) VALUES($1,$2,$3,$4,'release baseline','ready',$5,$6)`,
-		backupID, instanceID, hostID, versionID, "/opt/dbmock/backups/"+backupID.String(), userID); err != nil {
-		t.Fatal(err)
-	}
-	dashboard, err := target.Dashboard(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(dashboard.LifecycleInstances) != 1 || dashboard.LifecycleInstances[0].ID != instanceID ||
-		dashboard.LifecycleInstances[0].Purpose != atomicInput.Purpose ||
-		dashboard.LifecycleInstances[0].Owner != atomicInput.Owner ||
-		dashboard.LifecycleInstances[0].BackupCount != 1 ||
-		dashboard.LifecycleInstances[0].ActiveTask == nil ||
-		dashboard.LifecycleInstances[0].ActiveTask.ID != task.ID ||
-		dashboard.LifecycleInstances[0].DeleteReady ||
-		strings.Join(dashboard.LifecycleInstances[0].Blockers, ",") !=
-			"active_operation,backups_present,status_not_deletable" {
-		t.Fatalf("dashboard lifecycle queue = %#v", dashboard.LifecycleInstances)
-	}
 	if _, err = target.GetInstance(ctx, instanceID); err != nil {
 		t.Fatalf("committed instance is unavailable: %v", err)
 	}
@@ -305,58 +284,5 @@ func TestRuntimeConfigurationPersistsAndRollsBackAutomaticRestart(t *testing.T) 
 	instance, err = target.GetInstance(ctx, instanceID)
 	if err != nil || instance.AutoRestart || instance.StatusMessage != "restored" {
 		t.Fatalf("rolled-back configuration = %#v, err=%v", instance, err)
-	}
-}
-
-func TestListInstanceMetricsSamplesTheWholeRequestedWindow(t *testing.T) {
-	ctx, pool := openInstanceStoreTest(t)
-	hostID, templateID, versionID, instanceID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	for _, statement := range []struct {
-		query string
-		args  []any
-	}{
-		{`INSERT INTO hosts(id,name,ssh_address,ssh_user,auth_type,encrypted_credential,connection_address,
-            data_root,status) VALUES($1,'metric-host','127.0.0.1','tester','password','sealed','127.0.0.1',
-            '/opt/dbmock','online')`, []any{hostID}},
-		{`INSERT INTO templates(id,slug,name,name_zh,category,tier)
-            VALUES($1,'metric-postgres','PostgreSQL','PostgreSQL','sql','standard')`, []any{templateID}},
-		{`INSERT INTO template_versions(id,template_id,version,image_reference,min_cpu,min_memory_bytes,
-            min_disk_bytes,default_port,compose_template) VALUES($1,$2,'17','postgres:17',1,1073741824,
-            10737418240,5432,'services: {}')`, []any{versionID, templateID}},
-		{`INSERT INTO instances(id,name,host_id,template_version_id,status,desired_state,cpu,memory_bytes,
-            reserved_disk_bytes,host_port,container_port,database_username,encrypted_password,compose_project,
-            remote_directory) VALUES($1,'metric-db',$2,$3,'running','running',1,1073741824,10737418240,
-            25432,5432,'postgres','sealed',$4,$5)`, []any{instanceID, hostID, versionID,
-			"dbmock_" + strings.ReplaceAll(instanceID.String(), "-", ""), "/opt/dbmock/instances/" + instanceID.String()}},
-	} {
-		if _, err := pool.Exec(ctx, statement.query, statement.args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	start := time.Date(2026, 7, 22, 8, 0, 0, 0, time.UTC)
-	if _, err := pool.Exec(ctx, `INSERT INTO metric_samples(host_id,instance_id,cpu_percent,memory_percent,
-        disk_used_bytes,disk_total_bytes,collected_at)
-        SELECT $1,$2,number,number,number*1024,102400,$3::timestamptz+number*interval '1 minute'
-        FROM generate_series(0,9) AS number`, hostID, instanceID, start); err != nil {
-		t.Fatal(err)
-	}
-
-	items, err := store.New(pool).ListInstanceMetrics(ctx, instanceID, start.Add(-time.Second), 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 4 {
-		t.Fatalf("sample count = %d, want 4", len(items))
-	}
-	wantTimes := []time.Time{start, start.Add(3 * time.Minute), start.Add(6 * time.Minute), start.Add(9 * time.Minute)}
-	for index, item := range items {
-		if !item.CollectedAt.Equal(wantTimes[index]) {
-			t.Fatalf("sample %d time = %s, want %s", index, item.CollectedAt, wantTimes[index])
-		}
-	}
-
-	all, err := store.New(pool).ListInstanceMetrics(ctx, instanceID, start.Add(-time.Second), 20)
-	if err != nil || len(all) != 10 {
-		t.Fatalf("unsampled metrics = %d, %v", len(all), err)
 	}
 }

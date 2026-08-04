@@ -2,29 +2,27 @@ package monitor
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/pika/db-mock/internal/domain"
 	"github.com/pika/db-mock/internal/hostops"
-	platformsettings "github.com/pika/db-mock/internal/settings"
 	"github.com/pika/db-mock/internal/store"
 )
 
+// Monitor is the MVP state reconciler. It keeps host capabilities and database runtime status
+// current, but intentionally does not retain metrics, create alerts, or emit webhooks.
 type Monitor struct {
 	store     *store.Store
 	docker    *hostops.Docker
 	logger    *slog.Logger
 	interval  time.Duration
-	retention time.Duration
 	semaphore chan struct{}
 }
 
-func New(target *store.Store, docker *hostops.Docker, logger *slog.Logger, interval, retention time.Duration) *Monitor {
-	return &Monitor{store: target, docker: docker, logger: logger, interval: interval, retention: retention, semaphore: make(chan struct{}, 4)}
+func New(target *store.Store, docker *hostops.Docker, logger *slog.Logger, interval time.Duration) *Monitor {
+	return &Monitor{store: target, docker: docker, logger: logger, interval: interval, semaphore: make(chan struct{}, 4)}
 }
 
 func (m *Monitor) Start(ctx context.Context) { go m.loop(ctx) }
@@ -33,9 +31,8 @@ func (m *Monitor) loop(ctx context.Context) {
 	cleanup := time.NewTicker(time.Hour)
 	defer cleanup.Stop()
 	for {
-		active := m.loadPolicy(ctx)
-		m.run(ctx, active)
-		timer := time.NewTimer(time.Duration(active.IntervalSeconds) * time.Second)
+		m.run(ctx)
+		timer := time.NewTimer(m.interval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -43,40 +40,19 @@ func (m *Monitor) loop(ctx context.Context) {
 		case <-timer.C:
 		case <-cleanup.C:
 			timer.Stop()
-			_, _ = m.store.DeleteOldMetrics(ctx, time.Now().Add(-time.Duration(active.RetentionDays)*24*time.Hour))
 			_, _ = m.store.CleanupSessions(ctx)
 		}
 	}
 }
 
-func (m *Monitor) loadPolicy(ctx context.Context) platformsettings.MonitoringPolicy {
-	result := platformsettings.DefaultMonitoringPolicy(max(int(m.interval/time.Second), 5), max(int(m.retention/(24*time.Hour)), 1))
-	settings, err := m.store.GetSettings(ctx)
-	if err != nil {
-		return result
-	}
-	if raw := settings["monitoring"]; len(raw) > 0 {
-		configured, decodeErr := platformsettings.DecodeMonitoringPolicy(raw, result)
-		if decodeErr != nil {
-			m.logger.Warn("ignore invalid monitoring policy", "error", decodeErr)
-			return result
-		}
-		return configured
-	}
-	return result
-}
-
-func (m *Monitor) run(ctx context.Context, active platformsettings.MonitoringPolicy) {
+func (m *Monitor) run(ctx context.Context) {
 	hosts, err := m.store.ListHosts(ctx)
 	if err != nil {
-		m.logger.Error("list hosts for monitoring", "error", err)
+		m.logger.Error("list hosts for state reconciliation", "error", err)
 		return
 	}
 	var wg sync.WaitGroup
 	for _, host := range hosts {
-		if host.Maintenance {
-			continue
-		}
 		host := host
 		wg.Add(1)
 		go func() {
@@ -87,108 +63,46 @@ func (m *Monitor) run(ctx context.Context, active platformsettings.MonitoringPol
 				return
 			}
 			defer func() { <-m.semaphore }()
-			m.checkHost(ctx, host, active)
+			m.checkHost(ctx, host)
 		}()
 	}
 	wg.Wait()
 }
 
-func (m *Monitor) checkHost(ctx context.Context, host domain.Host, active platformsettings.MonitoringPolicy) {
+func (m *Monitor) checkHost(ctx context.Context, host domain.Host) {
 	probe, err := m.docker.Probe(ctx, host)
 	if err != nil {
-		statusMessage := err.Error()
+		message := err.Error()
 		if hostops.IsSSHCredentialInvalid(err) {
-			statusMessage = "SSH credential was rejected"
+			message = "SSH credential was rejected"
 		}
-		_ = m.store.SetHostStatus(ctx, host.ID, "offline", statusMessage, false)
-		fresh, _ := m.store.GetHost(ctx, host.ID)
-		alertType := hostProbeAlertType(err)
-		if alertType == platformsettings.AlertSSHCredentialInvalid {
-			_ = m.store.ResolveAlerts(ctx, "host", host.ID, platformsettings.AlertHostOffline)
-			m.raiseIfEnabled(ctx, active, store.AlertInput{Severity: "critical", Type: alertType, ResourceType: "host", ResourceID: host.ID,
-				Title: "SSH credential was rejected", Message: "The host rejected the configured SSH password or private key; update the host credential and test the connection"})
-		} else if fresh.ConsecutiveFailures >= 3 {
-			m.raiseIfEnabled(ctx, active, store.AlertInput{Severity: "critical", Type: alertType, ResourceType: "host", ResourceID: host.ID, Title: "Host is offline", Message: err.Error()})
-		}
+		_ = m.store.SetHostStatus(ctx, host.ID, "offline", message, false)
 		return
 	}
 	status, message := hostops.ProbeStatus(probe)
-	_ = m.store.UpdateHostProbe(ctx, host.ID, store.HostProbe{HostKey: probe.HostKey, OS: probe.OS, Distro: probe.Distro, Architecture: probe.Architecture,
-		DockerVersion: probe.DockerVersion, ComposeVersion: probe.ComposeVersion, CPUCount: probe.CPUCount, MemoryBytes: probe.MemoryBytes,
-		DiskTotalBytes: probe.DiskTotalBytes, DiskFreeBytes: probe.DiskFreeBytes, DataRootWritable: probe.DataRootWritable,
-		PortProbeAvailable: probe.PortProbeAvailable, AvailablePort: probe.FirstAvailablePort, Status: status, StatusMessage: message})
-	_ = m.store.ResolveAlerts(ctx, "host", host.ID, "host_offline")
-	_ = m.store.ResolveAlerts(ctx, "host", host.ID, "ssh_credential_invalid")
+	_ = m.store.UpdateHostProbe(ctx, host.ID, store.HostProbe{
+		HostKey: probe.HostKey, OS: probe.OS, Distro: probe.Distro, Architecture: probe.Architecture,
+		DockerVersion: probe.DockerVersion, ComposeVersion: probe.ComposeVersion, CPUCount: probe.CPUCount,
+		MemoryBytes: probe.MemoryBytes, DiskTotalBytes: probe.DiskTotalBytes, DiskFreeBytes: probe.DiskFreeBytes,
+		DataRootWritable: probe.DataRootWritable, PortProbeAvailable: probe.PortProbeAvailable,
+		AvailablePort: probe.FirstAvailablePort, Status: status, StatusMessage: message,
+	})
 	if status != "online" {
 		return
 	}
-	metrics, diskUsed, diskTotal, err := m.docker.Metrics(ctx, host)
-	if err != nil {
-		m.logger.Warn("collect host metrics", "hostId", host.ID, "error", err)
-		return
-	}
-	now := time.Now()
-	_ = m.store.AddMetric(ctx, domain.MetricSample{HostID: host.ID, DiskUsedBytes: diskUsed, DiskTotalBytes: diskTotal, CollectedAt: now})
-	if diskTotal > 0 {
-		percent := float64(diskUsed) * 100 / float64(diskTotal)
-		switch diskAlertType(active, percent) {
-		case platformsettings.AlertDiskCritical:
-			_ = m.store.ResolveAlerts(ctx, "host", host.ID, "disk_warning")
-			m.raise(ctx, store.AlertInput{Severity: "critical", Type: "disk_critical", ResourceType: "host", ResourceID: host.ID, Title: "Disk usage is critical", Message: fmt.Sprintf("Disk usage is %.1f%%", percent)})
-		case platformsettings.AlertDiskWarning:
-			_ = m.store.ResolveAlerts(ctx, "host", host.ID, "disk_critical")
-			m.raise(ctx, store.AlertInput{Severity: "warning", Type: "disk_warning", ResourceType: "host", ResourceID: host.ID, Title: "Disk usage is high", Message: fmt.Sprintf("Disk usage is %.1f%%", percent)})
-		default:
-			_ = m.store.ResolveAlerts(ctx, "host", host.ID, "disk_warning")
-			_ = m.store.ResolveAlerts(ctx, "host", host.ID, "disk_critical")
-		}
-	}
-	aggregated := aggregateInstanceMetrics(host.ID, metrics, diskUsed, diskTotal, now)
-	for _, metric := range aggregated {
-		_ = m.store.AddMetric(ctx, metric)
-	}
 	states, err := m.docker.ManagedStates(ctx, host)
 	if err != nil {
+		m.logger.Warn("read managed database states", "hostId", host.ID, "error", err)
 		return
 	}
 	instances, err := m.store.ListInstances(ctx, &host.ID, nil, "")
 	if err != nil {
+		m.logger.Warn("list databases for state reconciliation", "hostId", host.ID, "error", err)
 		return
 	}
 	for _, instance := range instances {
-		m.reconcileInstance(ctx, active, host, instance, states[instance.ID.String()])
+		m.reconcileInstance(ctx, host, instance, states[instance.ID.String()])
 	}
-}
-
-func aggregateInstanceMetrics(hostID uuid.UUID, metrics []hostops.ContainerMetric, diskUsed, diskTotal int64, collectedAt time.Time) map[uuid.UUID]domain.MetricSample {
-	result := make(map[uuid.UUID]domain.MetricSample)
-	for _, metric := range metrics {
-		id, err := uuid.Parse(metric.InstanceID)
-		if err != nil {
-			continue
-		}
-		item := result[id]
-		item.HostID = hostID
-		item.InstanceID = &id
-		item.CPUPercent += metric.CPUPercent
-		item.MemoryBytes += metric.MemoryBytes
-		item.MemoryPercent += metric.MemoryPercent
-		item.DiskUsedBytes = diskUsed
-		item.DiskTotalBytes = diskTotal
-		item.CollectedAt = collectedAt
-		result[id] = item
-	}
-	return result
-}
-
-func diskAlertType(active platformsettings.MonitoringPolicy, usagePercent float64) string {
-	if usagePercent >= active.DiskCriticalPercent && active.AlertEnabled(platformsettings.AlertDiskCritical) {
-		return platformsettings.AlertDiskCritical
-	}
-	if usagePercent >= active.DiskWarningPercent && active.AlertEnabled(platformsettings.AlertDiskWarning) {
-		return platformsettings.AlertDiskWarning
-	}
-	return ""
 }
 
 type instanceReconciliation struct {
@@ -220,56 +134,29 @@ func decideInstanceReconciliation(desired string, observed hostops.ManagedState)
 	return instanceReconciliation{Status: "degraded", Message: "Container is not running", Failure: "container_exited"}
 }
 
-func (m *Monitor) reconcileInstance(ctx context.Context, active platformsettings.MonitoringPolicy, host domain.Host, instance domain.Instance, observed hostops.ManagedState) {
+func (m *Monitor) reconcileInstance(ctx context.Context, host domain.Host, instance domain.Instance, observed hostops.ManagedState) {
 	if taskOwnsInstanceState(instance.Status) {
 		return
 	}
 	decision := decideInstanceReconciliation(instance.DesiredState, observed)
 	_ = m.store.UpdateInstanceState(ctx, instance.ID, decision.Status, instance.DesiredState, decision.Message)
-	if instance.DesiredState == "stopped" {
-		m.resolveRuntimeAlerts(ctx, instance.ID, "container_exited", "container_unhealthy", "restart_failed")
+	if decision.Failure == "" || instance.DesiredState == "stopped" || !instance.AutoRestart || instance.RestartFailures >= 3 {
 		return
 	}
-	switch decision.Failure {
-	case "":
-		_ = m.store.ResolveAlerts(ctx, "instance", instance.ID, "container_exited")
-		if decision.Status == "running" {
-			m.resolveRuntimeAlerts(ctx, instance.ID, "container_unhealthy", "restart_failed")
-		}
-		return
-	case "container_unhealthy":
-		_ = m.store.ResolveAlerts(ctx, "instance", instance.ID, "container_exited")
-		m.raiseIfEnabled(ctx, active, store.AlertInput{Severity: "warning", Type: "container_unhealthy", ResourceType: "instance", ResourceID: instance.ID,
-			Title: "Database health check failed", Message: "Docker reported that the database health check is " + observed.Health,
-			Details: map[string]string{"healthStatus": observed.Health}})
+	count, err := m.store.IncrementRestartFailure(ctx, instance.ID)
+	if err != nil {
+		m.logger.Warn("record automatic restart attempt", "instanceId", instance.ID, "error", err)
 		return
 	}
-	_ = m.store.ResolveAlerts(ctx, "instance", instance.ID, "container_unhealthy")
-	m.raiseIfEnabled(ctx, active, store.AlertInput{Severity: "warning", Type: "container_exited", ResourceType: "instance", ResourceID: instance.ID,
-		Title: "Database container stopped", Message: "One or more database containers exited unexpectedly",
-		Details: map[string]string{"containerState": observed.State, "healthStatus": observed.Health}})
-	if !instance.AutoRestart || instance.RestartFailures >= 3 {
-		return
-	}
-	count, _ := m.store.IncrementRestartFailure(ctx, instance.ID)
 	restartCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	err := m.docker.ComposeStart(restartCtx, host, instance)
+	err = m.docker.ComposeStart(restartCtx, host, instance)
 	cancel()
-	if err != nil && count >= 3 {
-		m.raiseIfEnabled(ctx, active, store.AlertInput{Severity: "critical", Type: "restart_failed", ResourceType: "instance", ResourceID: instance.ID, Title: "Automatic restart failed", Message: err.Error()})
-	}
-}
-
-func hostProbeAlertType(err error) string {
-	if hostops.IsSSHCredentialInvalid(err) {
-		return platformsettings.AlertSSHCredentialInvalid
-	}
-	return platformsettings.AlertHostOffline
-}
-
-func (m *Monitor) resolveRuntimeAlerts(ctx context.Context, instanceID uuid.UUID, alertTypes ...string) {
-	for _, alertType := range alertTypes {
-		_ = m.store.ResolveAlerts(ctx, "instance", instanceID, alertType)
+	if err != nil {
+		m.logger.Warn("automatic database restart failed", "instanceId", instance.ID, "attempt", count, "error", err)
+		if count >= 3 {
+			_ = m.store.UpdateInstanceState(ctx, instance.ID, "degraded", instance.DesiredState,
+				"Automatic restart failed; inspect recent logs and retry manually")
+		}
 	}
 }
 
@@ -280,38 +167,4 @@ func taskOwnsInstanceState(status string) bool {
 	default:
 		return false
 	}
-}
-
-func (m *Monitor) raise(ctx context.Context, input store.AlertInput) {
-	alert, created, err := m.store.CreateAlert(ctx, input)
-	if err != nil {
-		m.logger.Error("create alert", "error", err)
-		return
-	}
-	if created {
-		_ = m.store.EnqueueWebhookEvent(ctx, "alert.created", alert)
-		if eventType := webhookEventForAlert(input.Type); eventType != "" {
-			_ = m.store.EnqueueWebhookEvent(ctx, eventType, alert)
-		}
-	}
-}
-
-func (m *Monitor) raiseIfEnabled(ctx context.Context, active platformsettings.MonitoringPolicy, input store.AlertInput) {
-	if active.AlertEnabled(input.Type) {
-		m.raise(ctx, input)
-	}
-}
-
-func webhookEventForAlert(alertType string) string {
-	eventTypes := map[string]string{
-		"host_offline":           "host.offline",
-		"ssh_credential_invalid": "host.offline",
-		"container_exited":       "instance.failed",
-		"container_unhealthy":    "instance.failed",
-		"upgrade_failed":         "instance.failed",
-		"restart_failed":         "instance.restart_failed",
-		"disk_warning":           "host.disk_warning",
-		"disk_critical":          "host.disk_critical",
-	}
-	return eventTypes[alertType]
 }

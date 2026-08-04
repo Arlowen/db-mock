@@ -28,7 +28,6 @@ type Config struct {
 	TLSKeyFile          string
 	SessionDuration     time.Duration
 	MonitorInterval     time.Duration
-	MetricsRetention    time.Duration
 	TaskWorkers         int
 	Timezone            string
 	SecureCookies       bool
@@ -41,10 +40,6 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	monitorInterval, err := envDuration("DBMOCK_MONITOR_INTERVAL", 30*time.Second)
-	if err != nil {
-		return Config{}, err
-	}
-	metricsRetention, err := envDuration("DBMOCK_METRICS_RETENTION", 7*24*time.Hour)
 	if err != nil {
 		return Config{}, err
 	}
@@ -70,7 +65,6 @@ func Load() (Config, error) {
 		TLSKeyFile:          os.Getenv("DBMOCK_TLS_KEY_FILE"),
 		SessionDuration:     sessionDuration,
 		MonitorInterval:     monitorInterval,
-		MetricsRetention:    metricsRetention,
 		TaskWorkers:         int(taskWorkers),
 		Timezone:            strings.TrimSpace(env("DBMOCK_TIMEZONE", "Asia/Shanghai")),
 		SecureCookies:       secureCookies,
@@ -93,9 +87,6 @@ func Load() (Config, error) {
 	}
 	if cfg.MonitorInterval < 5*time.Second || cfg.MonitorInterval > time.Hour {
 		return Config{}, errors.New("DBMOCK_MONITOR_INTERVAL must be between 5s and 1h")
-	}
-	if cfg.MetricsRetention < 24*time.Hour || cfg.MetricsRetention > 365*24*time.Hour || cfg.MetricsRetention%(24*time.Hour) != 0 {
-		return Config{}, errors.New("DBMOCK_METRICS_RETENTION must be a whole number of days between 24h and 8760h")
 	}
 	if err := platformsettings.ValidateTimezone(cfg.Timezone); err != nil {
 		return Config{}, errors.New("DBMOCK_TIMEZONE must be a valid IANA timezone name")

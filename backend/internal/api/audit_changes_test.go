@@ -59,31 +59,6 @@ func TestHostAuditChangesNeverIncludeCredentialMaterial(t *testing.T) {
 	}
 }
 
-func TestWebhookAuditChangesSanitizeEndpointsAndSecrets(t *testing.T) {
-	webhookChanges := webhookAuditChanges(
-		domain.Webhook{URL: "https://hooks.example.com/db?token=old-token", EncryptedSecret: "old-secret", HasSecret: true, Events: json.RawMessage(`["alert.created"]`)},
-		domain.Webhook{URL: "https://hooks.example.com/db?token=new-token", EncryptedSecret: "new-secret", HasSecret: true, Events: json.RawMessage(`["task.failed"]`), Enabled: true},
-		webhookRequest{Secret: "plain-secret"},
-	)
-
-	encoded, err := json.Marshal(webhookChanges)
-	if err != nil {
-		t.Fatalf("marshal changes: %v", err)
-	}
-	text := string(encoded)
-	for _, secret := range []string{"old-token", "new-token", "old-secret", "new-secret", "plain-secret"} {
-		if strings.Contains(text, secret) {
-			t.Fatalf("sensitive value %q leaked into audit changes: %s", secret, text)
-		}
-	}
-	if webhookChanges["secretChanged"] != true {
-		t.Fatalf("expected safe secret-change flag: %#v", webhookChanges)
-	}
-	if webhookChanges["endpointChanged"] != true {
-		t.Fatalf("query-only endpoint changes should retain a safe change flag: %#v", webhookChanges)
-	}
-}
-
 func TestInstanceReconfigureAuditChangesNeverIncludeEnvironmentValues(t *testing.T) {
 	before := domain.Instance{CPU: 1, MemoryBytes: 1024, ReservedDiskBytes: 2048,
 		Configuration: json.RawMessage(`{"extraEnvironment":{"API_TOKEN":"old-secret"}}`)}

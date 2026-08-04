@@ -63,9 +63,6 @@ func (m *Manager) CancelTask(ctx context.Context, id uuid.UUID) (domain.Task, er
 		}
 	}
 	task, err = m.store.CancelTask(ctx, id, recovery)
-	if err == nil && task.Status == "canceled" {
-		m.NotifyTaskFinished(ctx, task)
-	}
 	return task, err
 }
 
@@ -200,29 +197,7 @@ func (m *Manager) finish(parent context.Context, runtime *Runtime, task domain.T
 		m.logger.Error("finish task", "taskId", task.ID, "kind", task.Kind, "status", status, "error", err)
 		return false
 	}
-	if err := m.enqueueWebhook(ctx, task, status); err != nil {
-		m.logger.Warn("enqueue task webhook", "taskId", task.ID, "kind", task.Kind, "status", status, "error", err)
-	}
 	return true
-}
-
-func (m *Manager) enqueueWebhook(ctx context.Context, original domain.Task, status string) error {
-	task, err := m.store.GetTask(ctx, original.ID)
-	if err != nil {
-		return err
-	}
-	return errors.Join(
-		m.store.EnqueueWebhookEvent(ctx, "task.finished", task),
-		m.store.EnqueueWebhookEvent(ctx, "task."+status, task),
-	)
-}
-
-// NotifyTaskFinished publishes the same durable completion events used by a
-// worker for a task that was completed synchronously before execution.
-func (m *Manager) NotifyTaskFinished(ctx context.Context, task domain.Task) {
-	if err := m.enqueueWebhook(ctx, task, task.Status); err != nil {
-		m.logger.Warn("enqueue task webhook", "taskId", task.ID, "kind", task.Kind, "status", task.Status, "error", err)
-	}
 }
 
 var ErrCanceled = errors.New("task canceled")

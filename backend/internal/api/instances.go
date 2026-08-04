@@ -32,7 +32,6 @@ func (s *Server) instanceRoutes(r chi.Router) {
 	r.With(requireOperator).Post("/{id}/actions/{action}", s.instanceAction)
 	r.With(requireOperator).Get("/{id}/connection", s.instanceConnection)
 	r.Get("/{id}/logs", s.instanceLogs)
-	r.Get("/{id}/metrics", s.instanceMetrics)
 }
 
 func (s *Server) listInstanceRelatedTasks(w http.ResponseWriter, r *http.Request) {
@@ -493,22 +492,4 @@ func (s *Server) instanceLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(logs))
-}
-
-func (s *Server) instanceMetrics(w http.ResponseWriter, r *http.Request) {
-	id, err := httpx.UUIDParam(chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
-	if hours <= 0 || hours > 168 {
-		hours = 24
-	}
-	items, err := s.store.ListInstanceMetrics(r.Context(), id, time.Now().Add(-time.Duration(hours)*time.Hour), 2000)
-	if err != nil {
-		httpx.Error(w, r, err)
-		return
-	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 }

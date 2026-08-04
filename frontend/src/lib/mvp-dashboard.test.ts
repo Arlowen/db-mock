@@ -6,15 +6,11 @@ const dashboard: Dashboard = {
   hosts: { online: 2, offline: 1 },
   instances: { running: 4, stopped: 2, degraded: 1, failed: 2, provisioning: 1 },
   activeTasks: 3,
-  openAlerts: 7,
-  users: 4,
-  projects: 5,
   attentionItems: [
     { resourceType: 'instance', resourceId: 'one', resourceName: 'one', resourceStatus: 'failed', taskStatus: 'failed', updatedAt: '2026-08-04T00:00:00Z' },
     { resourceType: 'host', resourceId: 'two', resourceName: 'two', resourceStatus: 'offline', taskStatus: 'interrupted', updatedAt: '2026-08-04T00:00:00Z' },
     { resourceType: 'instance', resourceId: 'three', resourceName: 'three', resourceStatus: 'degraded', updatedAt: '2026-08-04T00:00:00Z' },
   ],
-  lifecycleInstances: [],
 }
 
 describe('MVP dashboard summary', () => {

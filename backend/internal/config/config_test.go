@@ -20,7 +20,6 @@ func configureValidEnvironment(t *testing.T) {
 	t.Setenv("DBMOCK_TLS_KEY_FILE", "")
 	t.Setenv("DBMOCK_SESSION_DURATION", "720h")
 	t.Setenv("DBMOCK_MONITOR_INTERVAL", "30s")
-	t.Setenv("DBMOCK_METRICS_RETENTION", "168h")
 	t.Setenv("DBMOCK_TASK_WORKERS", "4")
 	t.Setenv("DBMOCK_TIMEZONE", "Asia/Shanghai")
 	t.Setenv("DBMOCK_MASTER_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
@@ -61,14 +60,13 @@ func TestLoadParsesStrictTypedEnvironment(t *testing.T) {
 	configureValidEnvironment(t)
 	t.Setenv("DBMOCK_SESSION_DURATION", "48h")
 	t.Setenv("DBMOCK_MONITOR_INTERVAL", "45s")
-	t.Setenv("DBMOCK_METRICS_RETENTION", "240h")
 	t.Setenv("DBMOCK_TASK_WORKERS", "8")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.SessionDuration != 48*time.Hour || cfg.MonitorInterval != 45*time.Second || cfg.MetricsRetention != 240*time.Hour {
+	if cfg.SessionDuration != 48*time.Hour || cfg.MonitorInterval != 45*time.Second {
 		t.Fatalf("unexpected durations: %#v", cfg)
 	}
 	if cfg.TaskWorkers != 8 {
@@ -85,8 +83,6 @@ func TestLoadRejectsInvalidTypedEnvironment(t *testing.T) {
 		{name: "DBMOCK_SESSION_DURATION", value: "0s"},
 		{name: "DBMOCK_MONITOR_INTERVAL", value: "-1s"},
 		{name: "DBMOCK_MONITOR_INTERVAL", value: "2s"},
-		{name: "DBMOCK_METRICS_RETENTION", value: "forever"},
-		{name: "DBMOCK_METRICS_RETENTION", value: "25h"},
 		{name: "DBMOCK_TASK_WORKERS", value: "four"},
 		{name: "DBMOCK_TASK_WORKERS", value: "0"},
 	}

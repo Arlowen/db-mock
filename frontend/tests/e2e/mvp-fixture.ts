@@ -197,11 +197,7 @@ export async function installMvpApi(page: Page): Promise<MvpApiState> {
     hosts: { online: hosts.length },
     instances: { running: instances.length },
     activeTasks: 0,
-    openAlerts: 0,
-    users: 1,
-    projects: 0,
     attentionItems: [],
-    lifecycleInstances: [],
   } }))
   await page.route('**/api/v1/instances', async (route) => {
     if (route.request().method() === 'POST') {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -44,7 +43,7 @@ func (s *Store) IsInitialized(ctx context.Context) (bool, error) {
 func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 	result := domain.Dashboard{
 		Hosts: map[string]int{}, Instances: map[string]int{},
-		AttentionItems: []domain.DashboardAttentionItem{}, LifecycleInstances: []domain.DashboardInstance{},
+		AttentionItems: []domain.DashboardAttentionItem{},
 	}
 	rows, err := s.pool.Query(ctx, "SELECT status, count(*) FROM hosts GROUP BY status")
 	if err != nil {
@@ -74,11 +73,7 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 		result.Instances[status] = count
 	}
 	rows.Close()
-	err = s.pool.QueryRow(ctx, `SELECT
-        (SELECT count(*) FROM tasks WHERE status IN ('queued','running')),
-        (SELECT count(*) FROM alerts WHERE status <> 'resolved'),
-        (SELECT count(*) FROM users WHERE disabled_at IS NULL),
-        (SELECT count(*) FROM projects)`).Scan(&result.ActiveTasks, &result.OpenAlerts, &result.Users, &result.Projects)
+	err = s.pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE status IN ('queued','running')`).Scan(&result.ActiveTasks)
 	if err != nil {
 		return result, err
 	}
@@ -86,48 +81,7 @@ func (s *Store) Dashboard(ctx context.Context) (domain.Dashboard, error) {
 	if err != nil {
 		return result, err
 	}
-	rows, err = s.pool.Query(ctx, `SELECT i.id,i.name,i.purpose,i.owner_name,i.expires_at,i.status,
-        i.environment,t.name,v.version,h.name,
-        (SELECT count(*)::integer FROM instance_backups b WHERE b.instance_id=i.id),
-        active_task.id,active_task.kind,active_task.status,active_task.stage
-        FROM instances i
-        JOIN template_versions v ON v.id=i.template_version_id
-        JOIN templates t ON t.id=v.template_id
-        JOIN hosts h ON h.id=i.host_id
-        LEFT JOIN LATERAL (
-          SELECT id,kind,status,stage
-          FROM tasks
-          WHERE resource_type='instance' AND resource_id=i.id AND status IN ('queued','running')
-          ORDER BY created_at DESC,id DESC
-          LIMIT 1
-        ) active_task ON true
-        WHERE i.status<>'deleted' AND i.expires_at IS NOT NULL
-          AND i.expires_at <= now() + interval '7 days'
-        ORDER BY i.expires_at ASC,i.name ASC
-        LIMIT 50`)
-	if err != nil {
-		return result, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item domain.DashboardInstance
-		var activeTaskID *uuid.UUID
-		var activeTaskKind, activeTaskStatus, activeTaskStage *string
-		if err = rows.Scan(&item.ID, &item.Name, &item.Purpose, &item.Owner, &item.ExpiresAt,
-			&item.Status, &item.Environment, &item.TemplateName, &item.TemplateVersion, &item.HostName,
-			&item.BackupCount, &activeTaskID, &activeTaskKind, &activeTaskStatus, &activeTaskStage); err != nil {
-			return result, err
-		}
-		if activeTaskID != nil {
-			item.ActiveTask = &domain.InstanceCleanupTask{
-				ID: *activeTaskID, Kind: *activeTaskKind, Status: *activeTaskStatus, Stage: *activeTaskStage,
-			}
-		}
-		item.Blockers = domain.InstanceCleanupBlockers(item.Status, item.BackupCount, item.ActiveTask != nil)
-		item.DeleteReady = len(item.Blockers) == 0
-		result.LifecycleInstances = append(result.LifecycleInstances, item)
-	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func (s *Store) dashboardAttention(ctx context.Context) ([]domain.DashboardAttentionItem, error) {
@@ -295,83 +249,6 @@ func auditSensitiveKey(key string) bool {
 		}
 	}
 	return false
-}
-
-type AuditFilter struct {
-	Search              string
-	ResourceType        string
-	Result              string
-	ActionAliases       []string
-	ResourceTypeAliases []string
-	Before              time.Time
-	Limit               int
-	Offset              int
-}
-
-func (s *Store) ListAudit(ctx context.Context, filter AuditFilter) ([]domain.AuditLog, error) {
-	if filter.Limit <= 0 || filter.Limit > 500 {
-		filter.Limit = 100
-	}
-	if filter.Offset < 0 {
-		filter.Offset = 0
-	}
-	if filter.Before.IsZero() {
-		filter.Before = time.Now().Add(time.Hour)
-	}
-	rows, err := s.pool.Query(ctx, `SELECT id,user_id,username,action,resource_type,resource_id,resource_name,
-        ip,request_id,task_id,result,changes,message,created_at FROM audit_logs
-        WHERE created_at < $1
-        AND ($2='' OR resource_type=$2)
-        AND ($3='' OR result=$3)
-        AND ($4='' OR username ILIKE '%'||$4||'%' OR action ILIKE '%'||$4||'%'
-          OR resource_type ILIKE '%'||$4||'%' OR COALESCE(resource_id::text,'') ILIKE '%'||$4||'%'
-          OR resource_name ILIKE '%'||$4||'%' OR result ILIKE '%'||$4||'%'
-          OR ip ILIKE '%'||$4||'%' OR request_id ILIKE '%'||$4||'%'
-          OR COALESCE(task_id::text,'') ILIKE '%'||$4||'%' OR message ILIKE '%'||$4||'%'
-          OR changes::text ILIKE '%'||$4||'%' OR action = ANY($5::text[])
-          OR resource_type = ANY($6::text[]))
-        ORDER BY created_at DESC LIMIT $7 OFFSET $8`, filter.Before, filter.ResourceType, filter.Result, filter.Search,
-		filter.ActionAliases, filter.ResourceTypeAliases, filter.Limit, filter.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := make([]domain.AuditLog, 0)
-	for rows.Next() {
-		var item domain.AuditLog
-		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.Action, &item.ResourceType,
-			&item.ResourceID, &item.ResourceName, &item.IP, &item.RequestID, &item.TaskID, &item.Result,
-			&item.Changes, &item.Message, &item.CreatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-func (s *Store) CountAudit(ctx context.Context, filter AuditFilter) (int64, error) {
-	if filter.Before.IsZero() {
-		filter.Before = time.Now().Add(time.Hour)
-	}
-	var total int64
-	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs
-        WHERE created_at < $1
-        AND ($2='' OR resource_type=$2)
-        AND ($3='' OR result=$3)
-        AND ($4='' OR username ILIKE '%'||$4||'%' OR action ILIKE '%'||$4||'%'
-          OR resource_type ILIKE '%'||$4||'%' OR COALESCE(resource_id::text,'') ILIKE '%'||$4||'%'
-          OR resource_name ILIKE '%'||$4||'%' OR result ILIKE '%'||$4||'%'
-          OR ip ILIKE '%'||$4||'%' OR request_id ILIKE '%'||$4||'%'
-          OR COALESCE(task_id::text,'') ILIKE '%'||$4||'%' OR message ILIKE '%'||$4||'%'
-          OR changes::text ILIKE '%'||$4||'%' OR action = ANY($5::text[])
-          OR resource_type = ANY($6::text[]))`, filter.Before, filter.ResourceType, filter.Result, filter.Search,
-		filter.ActionAliases, filter.ResourceTypeAliases).Scan(&total)
-	return total, err
-}
-
-func (s *Store) ClearAudit(ctx context.Context, before time.Time) (int64, error) {
-	result, err := s.pool.Exec(ctx, "DELETE FROM audit_logs WHERE created_at < $1", before)
-	return result.RowsAffected(), err
 }
 
 func (s *Store) GetSettings(ctx context.Context) (map[string]json.RawMessage, error) {

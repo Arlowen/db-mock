@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"net/url"
 	"reflect"
 
 	"github.com/google/uuid"
@@ -32,20 +31,6 @@ func auditJSON(value json.RawMessage) any {
 		return string(value)
 	}
 	return decoded
-}
-
-// auditURL removes fields that commonly carry credentials while keeping enough
-// of the endpoint to explain a configuration change.
-func auditURL(value string) string {
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return ""
-	}
-	parsed.User = nil
-	parsed.RawQuery = ""
-	parsed.ForceQuery = false
-	parsed.Fragment = ""
-	return parsed.String()
 }
 
 func hostAuditChanges(before, after domain.Host, input hostRequest) map[string]any {
@@ -102,22 +87,6 @@ func instanceReconfigureAuditChanges(before domain.Instance, cpu float64, memory
 	}
 	if json.Unmarshal(before.Configuration, &configuration) != nil || !reflect.DeepEqual(configuration.ExtraEnvironment, extraEnvironment) {
 		changes["environmentConfigurationChanged"] = true
-	}
-	return changes
-}
-
-func webhookAuditChanges(before, after domain.Webhook, input webhookRequest) map[string]any {
-	changes := map[string]any{}
-	addAuditTransition(changes, "name", before.Name, after.Name)
-	addAuditTransition(changes, "endpoint", auditURL(before.URL), auditURL(after.URL))
-	if before.URL != after.URL && auditURL(before.URL) == auditURL(after.URL) {
-		changes["endpointChanged"] = true
-	}
-	addAuditTransition(changes, "events", auditJSON(before.Events), auditJSON(after.Events))
-	addAuditTransition(changes, "enabled", before.Enabled, after.Enabled)
-	addAuditTransition(changes, "signingConfigured", before.HasSecret, after.HasSecret)
-	if input.Secret != "" {
-		changes["secretChanged"] = true
 	}
 	return changes
 }

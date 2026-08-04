@@ -304,83 +304,6 @@ type TaskLog struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-type MetricSample struct {
-	ID             int64      `json:"id"`
-	HostID         uuid.UUID  `json:"hostId"`
-	InstanceID     *uuid.UUID `json:"instanceId,omitempty"`
-	CPUPercent     float64    `json:"cpuPercent"`
-	MemoryBytes    int64      `json:"memoryBytes"`
-	MemoryPercent  float64    `json:"memoryPercent"`
-	DiskUsedBytes  int64      `json:"diskUsedBytes"`
-	DiskTotalBytes int64      `json:"diskTotalBytes"`
-	CollectedAt    time.Time  `json:"collectedAt"`
-}
-
-type Alert struct {
-	ID             uuid.UUID       `json:"id"`
-	Severity       string          `json:"severity"`
-	Type           string          `json:"type"`
-	ResourceType   string          `json:"resourceType"`
-	ResourceID     uuid.UUID       `json:"resourceId"`
-	Title          string          `json:"title"`
-	Message        string          `json:"message"`
-	Details        json.RawMessage `json:"details"`
-	Status         string          `json:"status"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	AcknowledgedAt *time.Time      `json:"acknowledgedAt,omitempty"`
-	AcknowledgedBy string          `json:"acknowledgedBy,omitempty"`
-	ResolvedAt     *time.Time      `json:"resolvedAt,omitempty"`
-	ResolvedBy     string          `json:"resolvedBy,omitempty"`
-}
-
-type Webhook struct {
-	ID                 uuid.UUID       `json:"id"`
-	Name               string          `json:"name"`
-	URL                string          `json:"url"`
-	EncryptedSecret    string          `json:"-"`
-	HasSecret          bool            `json:"hasSecret"`
-	Events             json.RawMessage `json:"events"`
-	Enabled            bool            `json:"enabled"`
-	CreatedAt          time.Time       `json:"createdAt"`
-	UpdatedAt          time.Time       `json:"updatedAt"`
-	LastDeliveryStatus string          `json:"lastDeliveryStatus,omitempty"`
-	LastDeliveryAt     *time.Time      `json:"lastDeliveryAt,omitempty"`
-	FailedDeliveries   int             `json:"failedDeliveries"`
-	QueuedDeliveries   int             `json:"queuedDeliveries"`
-}
-
-type WebhookDelivery struct {
-	ID             uuid.UUID `json:"id"`
-	WebhookID      uuid.UUID `json:"webhookId"`
-	EventID        uuid.UUID `json:"eventId"`
-	EventType      string    `json:"eventType"`
-	Status         string    `json:"status"`
-	Attempts       int       `json:"attempts"`
-	NextAttemptAt  time.Time `json:"nextAttemptAt"`
-	ResponseStatus *int      `json:"responseStatus,omitempty"`
-	ResponseBody   string    `json:"responseBody,omitempty"`
-	ErrorMessage   string    `json:"errorMessage,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-}
-
-type AuditLog struct {
-	ID           int64           `json:"id"`
-	UserID       *uuid.UUID      `json:"userId,omitempty"`
-	Username     string          `json:"username,omitempty"`
-	Action       string          `json:"action"`
-	ResourceType string          `json:"resourceType"`
-	ResourceID   *uuid.UUID      `json:"resourceId,omitempty"`
-	ResourceName string          `json:"resourceName,omitempty"`
-	IP           string          `json:"ip"`
-	RequestID    string          `json:"requestId"`
-	TaskID       *uuid.UUID      `json:"taskId,omitempty"`
-	Result       string          `json:"result"`
-	Changes      json.RawMessage `json:"changes"`
-	Message      string          `json:"message"`
-	CreatedAt    time.Time       `json:"createdAt"`
-}
-
 type ImageArtifact struct {
 	ID            uuid.UUID  `json:"id"`
 	Name          string     `json:"name"`
@@ -412,14 +335,10 @@ type Upload struct {
 }
 
 type Dashboard struct {
-	Hosts              map[string]int           `json:"hosts"`
-	Instances          map[string]int           `json:"instances"`
-	ActiveTasks        int                      `json:"activeTasks"`
-	OpenAlerts         int                      `json:"openAlerts"`
-	Users              int                      `json:"users"`
-	Projects           int                      `json:"projects"`
-	AttentionItems     []DashboardAttentionItem `json:"attentionItems"`
-	LifecycleInstances []DashboardInstance      `json:"lifecycleInstances"`
+	Hosts          map[string]int           `json:"hosts"`
+	Instances      map[string]int           `json:"instances"`
+	ActiveTasks    int                      `json:"activeTasks"`
+	AttentionItems []DashboardAttentionItem `json:"attentionItems"`
 }
 
 type DashboardAttentionItem struct {
@@ -435,21 +354,4 @@ type DashboardAttentionItem struct {
 	TaskStage      string     `json:"taskStage,omitempty"`
 	ErrorCode      string     `json:"errorCode,omitempty"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
-}
-
-type DashboardInstance struct {
-	ID              uuid.UUID            `json:"id"`
-	Name            string               `json:"name"`
-	Purpose         string               `json:"purpose"`
-	Owner           string               `json:"owner"`
-	ExpiresAt       time.Time            `json:"expiresAt"`
-	Status          string               `json:"status"`
-	Environment     string               `json:"environment"`
-	TemplateName    string               `json:"templateName"`
-	TemplateVersion string               `json:"templateVersion"`
-	HostName        string               `json:"hostName"`
-	BackupCount     int                  `json:"backupCount"`
-	ActiveTask      *InstanceCleanupTask `json:"activeTask,omitempty"`
-	DeleteReady     bool                 `json:"deleteReady"`
-	Blockers        []string             `json:"blockers"`
 }

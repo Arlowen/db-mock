@@ -23,7 +23,6 @@ import (
 	"github.com/pika/db-mock/internal/store"
 	"github.com/pika/db-mock/internal/tasks"
 	"github.com/pika/db-mock/internal/templates"
-	"github.com/pika/db-mock/internal/webhooks"
 )
 
 var version = "dev"
@@ -79,8 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 	instanceService.StartBackupScheduler(root, logger)
-	monitor.New(target, docker, logger, cfg.MonitorInterval, cfg.MetricsRetention).Start(root)
-	webhooks.New(target, vault, logger).Start(root)
+	monitor.New(target, docker, logger, cfg.MonitorInterval).Start(root)
 	authService := auth.New(target, cfg.SessionDuration, cfg.SecureCookies)
 	api.Version = version
 	handler := api.New(cfg, target, vault, authService, hostService, docker, instanceService, taskManager, logger).Handler()

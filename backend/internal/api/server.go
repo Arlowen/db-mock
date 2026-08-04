@@ -67,17 +67,7 @@ func (s *Server) authenticatedRoutes(r chi.Router) {
 	r.Route("/templates", s.templateRoutes)
 	r.Route("/instances", s.instanceRoutes)
 	r.Route("/tasks", s.taskRoutes)
-	r.Route("/alerts", s.alertRoutes)
-	r.Route("/webhooks", s.webhookRoutes)
-	r.Route("/audit", s.auditRoutes)
 	r.Route("/settings", s.settingRoutes)
-}
-
-func (s *Server) sealOptional(value, context string) (string, error) {
-	if value == "" {
-		return "", nil
-	}
-	return s.vault.Seal([]byte(value), context)
 }
 
 func (s *Server) serveFrontend(router *chi.Mux) {
