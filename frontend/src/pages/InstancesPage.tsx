@@ -1,4 +1,4 @@
-import { CheckCircleOutlined, CloudServerOutlined, ControlOutlined, CopyOutlined, ExportOutlined, LeftOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, CloudServerOutlined, ControlOutlined, CopyOutlined, ExportOutlined, LeftOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Grid, Input, InputNumber, Modal, Progress, Radio, Row, Select, Space, Steps, Switch, Table, Tag, Typography } from 'antd'
 import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -419,6 +419,7 @@ export function InstancesPage() {
       >
         <Button
           type="text"
+          size="small"
           disabled={actionSubmitting}
           aria-label={t('instanceLifecycleActionsForInstance', { name: item.name })}
           title={t('instanceLifecycleActionsForInstance', { name: item.name })}
@@ -429,13 +430,14 @@ export function InstancesPage() {
       </Dropdown>}
       {canReadCredentials && <Button
         type="text"
+        size="small"
         disabled={handoffAvailability !== 'ready'}
         aria-label={t('quickConnectionHandoff')}
         title={handoffAvailability === 'ready' ? t('quickConnectionHandoffForInstance', { name: item.name }) : t('quickConnectionHandoffUnavailable')}
         icon={<ExportOutlined />}
         onClick={() => openConnectionHandoff(item)}
       />}
-      <Button type="text" aria-label={t('details')} title={t('details')} icon={<MoreOutlined />} onClick={() => navigate(`/instances/${item.id}`)} />
+      <Button type="text" size="small" aria-label={t('details')} title={t('details')} icon={<MoreOutlined />} onClick={() => navigate(`/instances/${item.id}`)} />
     </Space>
   }
   const desktopColumns = [
@@ -483,6 +485,8 @@ export function InstancesPage() {
   const emptyAction = hasFilters ? clearFilters : canOperate ? creationDataReady ? openCreate : () => { setLoading(true); void load() } : undefined
   const emptyActionLabel = hasFilters ? t('clearFilters') : canOperate ? creationDataReady ? hasOnlineHost ? t('createInstance') : t('addHost') : t('retry') : undefined
   const emptyDescription = hasFilters ? t('instancesFilteredEmptyDescription') : creationDataReady ? t('instancesEmptyDescription') : t('instanceCreationDataUnavailable')
+  const emptyActionIcon = hasFilters ? undefined : creationDataReady ? hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined /> : <ReloadOutlined />
+  const emptyActionType = hasFilters || !creationDataReady ? 'default' : 'primary'
   const listActions = <Space wrap><Button loading={loading} icon={<ReloadOutlined />} onClick={() => { setLoading(true); void load() }}>{t('refresh')}</Button>{canOperate && creationDataReady && (items.length > 0 || hasFilters) && <Button type="primary" icon={hasOnlineHost ? <PlusOutlined /> : <CloudServerOutlined />} onClick={openCreate}>{hasOnlineHost ? t('createInstance') : t('addHost')}</Button>}</Space>
   const actionFailed = !!actionResult && ['failed', 'canceled', 'interrupted'].includes(actionResult.task.status)
   const actionRecoveryPath = actionFailed && actionResult && taskFailureGuidance(actionResult.task).inspectHost
@@ -534,7 +538,7 @@ export function InstancesPage() {
     {supportingDataError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceSupportingDataLoadFailed')} description={supportingDataError} action={<Button size="small" loading={loading} onClick={() => { setLoading(true); void load() }}>{t('retry')}</Button>} />}
     {showFilters && <Card className="table-filter-card instance-filter-card"><div className="instance-filter-toolbar"><Input.Search allowClear value={search} aria-label={t('instancesSearchLabel')} placeholder={t('instancesSearchPlaceholder')} onChange={(event) => { setSearch(event.target.value); resetPage() }} className="instance-filter-search" /><Select aria-label={t('host')} value={hostFilter} onChange={(value) => { setHostFilter(value); resetPage() }} className="instance-filter-host" options={[{ value: '', label: t('allHosts') }, ...hosts.map((host) => ({ value: host.id, label: host.name }))]} /><Select aria-label={t('status')} value={statusFilter} onChange={(value) => { setStatusFilter(value); resetPage() }} className="instance-filter-status" options={[{ value: '', label: t('allStatuses') }, ...['provisioning', 'running', 'stopped', 'degraded', 'failed'].map((value) => ({ value, label: translateCode(t, value) }))]} /><Typography.Text type="secondary" className="instance-filter-count" aria-live="polite">{hasFilters ? t('instanceFilteredResultCount', { filtered: filteredItems.length, total: items.length }) : t('instanceResultCount', { count: items.length })}</Typography.Text>{listActions}</div></Card>}
     {actionResultAlert}
-    {(items.length > 0 || !loadError) && <Card className="instance-table-card" extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 860 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionLabel={emptyActionLabel} description={emptyDescription} /> }} /></Card>}
+    {(items.length > 0 || !loadError) && <Card className="instance-table-card" extra={!showFilters ? listActions : undefined}><Table rowKey="id" loading={loading} dataSource={filteredItems} columns={columns} showHeader={!compactLayout} scroll={compactLayout ? undefined : { x: 860 }} pagination={{ current: page, pageSize, showSizeChanger: !compactLayout, pageSizeOptions: [20, 50], onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize) } }} locale={{ emptyText: <EmptyState compact action={emptyAction} actionIcon={emptyActionIcon} actionLabel={emptyActionLabel} actionType={emptyActionType} description={emptyDescription} /> }} /></Card>}
     <Modal
       className="instance-handoff-modal"
       title={handoffItem ? t('quickConnectionHandoffTitle', { name: handoffItem.name }) : t('quickConnectionHandoff')}
@@ -619,7 +623,7 @@ export function InstancesPage() {
         {actionRequestError && <Alert type="error" showIcon message={t('instanceActionRequestFailed', { action: lifecycleAction ? t(lifecycleAction) : '' })} description={<div className="instance-action-request-error"><Typography.Text>{actionRequestError}</Typography.Text><Typography.Text type="secondary">{t('instanceActionRequestFailedHint')}</Typography.Text></div>} />}
       </div>
     </Modal>
-    <Drawer title={t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateFailure(undefined); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 1 && resourceRequestReady && capacityCandidates.length === 0) || (step === 2 && !!createFailure && !createRetryAllowed)} onClick={step === 2 ? () => void create() : () => void next()}>{step === 2 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
+    <Drawer title={t('createInstance')} open={drawer} onClose={closeCreate} closable={!creating} maskClosable={!creating} width={compactLayout ? '100%' : 720} destroyOnClose footer={<div className="workflow-drawer-footer"><Button disabled={creating} onClick={closeCreate}>{t('cancel')}</Button><Space><Button icon={<LeftOutlined />} disabled={creating || step === 0} onClick={() => { setCreateFailure(undefined); setStep((value) => Math.max(0, value - 1)) }}>{t('previous')}</Button><Button type="primary" icon={step === 2 ? <PlusOutlined /> : <RightOutlined />} loading={creating} disabled={(step === 0 && !!selected && compatibleHosts.length === 0) || (step === 1 && resourceRequestReady && capacityCandidates.length === 0) || (step === 2 && !!createFailure && !createRetryAllowed)} onClick={step === 2 ? () => void create() : () => void next()}>{step === 2 ? t('create') : t('next')}</Button></Space></div>}>{compactLayout ? <div className="wizard-mobile-progress"><div><Typography.Text type="secondary">{t('wizardStepProgress', { current: step + 1, total: createSteps.length })}</Typography.Text><Typography.Text strong>{createSteps[step].title}</Typography.Text></div><Progress percent={(step + 1) * 100 / createSteps.length} showInfo={false} size="small" /></div> : <Steps current={step} size="small" responsive={false} items={createSteps} />}
       <Form form={form} layout="vertical" requiredMark={false} className="wizard-form" onValuesChange={() => setCreateDraftDirty(true)}>
       {step === 0 && <>
         {frequentVersions.length > 0 && <section className="frequent-template-versions" aria-label={t('frequentTemplateVersions')}>

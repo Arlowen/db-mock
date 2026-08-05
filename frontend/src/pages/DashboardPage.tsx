@@ -72,10 +72,10 @@ export function DashboardPage() {
   return <>
     <PageHeader title={t('workbench')} description={t('workbenchDescription')} />
     <div className="workbench-primary-action">
-      {canOperate && <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => navigate('/instances?create=1')}>{t('createInstance')}</Button>}
+      {canOperate && <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/instances?create=1')}>{t('createInstance')}</Button>}
     </div>
     {loadError && <Alert className="workbench-alert" type="error" showIcon message={t('workbenchLoadFailed')} description={loadError} action={<Button size="small" loading={loading} onClick={() => void load()}>{t('retry')}</Button>} />}
-    {onboarding && <Alert className="workbench-onboarding" type="info" showIcon message={onboarding.title} description={onboarding.hint} action={canOperate ? <Button type="primary" onClick={() => navigate(onboarding.path)}>{onboarding.action}</Button> : undefined} />}
+    {onboarding && <Alert className="workbench-onboarding" type="info" showIcon message={onboarding.title} description={onboarding.hint} action={canOperate ? <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate(onboarding.path)}>{onboarding.action}</Button> : undefined} />}
     <Row className="workbench-stats" gutter={[16, 16]}>
       {cards.map((card) => <Col key={card.title} xs={12} lg={6}><Card loading={loading} className="workbench-stat-card" hoverable role="link" tabIndex={0} onClick={() => navigate(card.path)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') navigate(card.path) }}><div className="workbench-stat-icon">{card.icon}</div><Statistic title={card.title} value={card.value} suffix={card.suffix} /></Card></Col>)}
     </Row>

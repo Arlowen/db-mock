@@ -1,4 +1,5 @@
 import { Button, Empty, Space, Tag, Typography } from 'antd'
+import type { ButtonProps } from 'antd'
 import { createContext, useContext, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -28,7 +29,7 @@ export function PageHeader({ title, description }: { title: ReactNode; descripti
   return target ? createPortal(<div className="page-header">{copy}</div>, target) : null
 }
 
-export function EmptyState({ action, actionLabel, description, compact = false }: { action?: () => void; actionLabel?: ReactNode; description?: ReactNode; compact?: boolean }) {
+export function EmptyState({ action, actionIcon, actionLabel, actionType = 'primary', description, compact = false }: { action?: () => void; actionIcon?: ReactNode; actionLabel?: ReactNode; actionType?: ButtonProps['type']; description?: ReactNode; compact?: boolean }) {
   const { t } = useTranslation()
-  return <Empty className={compact ? 'compact-empty' : undefined} image={compact ? Empty.PRESENTED_IMAGE_SIMPLE : undefined} description={description ?? t('noData')}>{action && <Button type="primary" onClick={action}>{actionLabel ?? t('create')}</Button>}</Empty>
+  return <Empty className={compact ? 'compact-empty' : undefined} image={compact ? Empty.PRESENTED_IMAGE_SIMPLE : undefined} description={description ?? t('noData')}>{action && <Button type={actionType} icon={actionIcon} onClick={action}>{actionLabel ?? t('create')}</Button>}</Empty>
 }

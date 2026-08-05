@@ -1,4 +1,4 @@
-import { CheckCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, CloudServerOutlined, CloseCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeInvisibleOutlined, LeftOutlined, LockOutlined, PauseCircleOutlined, PlayCircleOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Card, Col, Descriptions, Modal, Popconfirm, Progress, Row, Select, Space, Switch, Tabs, Tag, Typography } from 'antd'
 import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useState } from 'react'
@@ -319,7 +319,7 @@ export function InstanceDetailPage() {
     navigate('/instances')
   }, [navigate])
 
-  if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionLabel={t('retry')} description={pageError || t('instanceLoadFailed')} /></Card>
+  if (!item) return <Card loading={pageLoading}><EmptyState compact action={() => { setPageLoading(true); void load() }} actionIcon={<ReloadOutlined />} actionLabel={t('retry')} actionType="default" description={pageError || t('instanceLoadFailed')} /></Card>
 
   const { activeTask, failedTask, operationTask } = selectRecoveryTasks(instanceTasks, isRecoverableInstanceStatus(item.status))
   const deploymentHandoff = selectDeploymentHandoff(instanceTasks, item.status)
@@ -532,7 +532,7 @@ export function InstanceDetailPage() {
         </>}
   </Card>
 
-  const logsTab = <Card className="ops-panel" loading={logsLoading && !logs && !logsError} extra={<Space wrap><Select aria-label={t('logLines')} value={logTail} onChange={setLogTail} options={[100, 500, 1000, 5000].map((value) => ({ value, label: t('logLineCount', { count: value }) }))} /><Space size={6}><Switch size="small" checked={logsAutoRefresh} onChange={setLogsAutoRefresh} /><Typography.Text type="secondary">{t('autoRefresh')}</Typography.Text></Space><Button icon={<ReloadOutlined />} loading={logsLoading} onClick={() => void loadLogs()}>{t('refresh')}</Button><Button href={`/api/v1/instances/${id}/logs?tail=${logTail}&download=true`}>{t('download')}</Button></Space>} title={<Space>{t('logs')}{logsUpdatedAt && <Typography.Text type="secondary" className="logs-updated">{t('lastRefreshedAt', { time: formatTime(logsUpdatedAt, i18n.language, timezone) })}</Typography.Text>}</Space>}>{logsError && <Alert className="ops-alert" type="error" showIcon message={t('logsLoadFailed')} description={logsError} action={<Button size="small" onClick={() => void loadLogs()}>{t('retry')}</Button>} />}{logs ? <pre className="log-viewer">{logs}</pre> : !logsError && <EmptyState compact description={t('logsEmptyDescription')} />}</Card>
+  const logsTab = <Card className="ops-panel" loading={logsLoading && !logs && !logsError} extra={<Space wrap><Select aria-label={t('logLines')} value={logTail} onChange={setLogTail} options={[100, 500, 1000, 5000].map((value) => ({ value, label: t('logLineCount', { count: value }) }))} /><Space size={6}><Switch size="small" checked={logsAutoRefresh} onChange={setLogsAutoRefresh} /><Typography.Text type="secondary">{t('autoRefresh')}</Typography.Text></Space><Button icon={<ReloadOutlined />} loading={logsLoading} onClick={() => void loadLogs()}>{t('refresh')}</Button><Button icon={<DownloadOutlined />} href={`/api/v1/instances/${id}/logs?tail=${logTail}&download=true`}>{t('download')}</Button></Space>} title={<Space>{t('logs')}{logsUpdatedAt && <Typography.Text type="secondary" className="logs-updated">{t('lastRefreshedAt', { time: formatTime(logsUpdatedAt, i18n.language, timezone) })}</Typography.Text>}</Space>}>{logsError && <Alert className="ops-alert" type="error" showIcon message={t('logsLoadFailed')} description={logsError} action={<Button size="small" onClick={() => void loadLogs()}>{t('retry')}</Button>} />}{logs ? <pre className="log-viewer">{logs}</pre> : !logsError && <EmptyState compact description={t('logsEmptyDescription')} />}</Card>
 
   const detailActions = canOperate ? <Space wrap className="instance-detail-actions">
     {canStart && <Button type="primary" icon={<PlayCircleOutlined />} disabled={!!actioning} onClick={() => openLifecycleConfirmation('start')}>{t('start')}</Button>}
@@ -542,7 +542,7 @@ export function InstanceDetailPage() {
   </Space> : undefined
 
   return <>
-    <PageHeader title={<Space><Button type="text" aria-label={t('databases')} title={t('databases')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />
+    <PageHeader title={<Space><Button type="text" size="small" aria-label={t('databases')} title={t('databases')} icon={<LeftOutlined />} onClick={() => navigate('/instances')} /><DatabaseIcon slug={item.templateSlug} name={item.templateName} size="small" />{item.name}<StatusTag value={item.status} /></Space>} description={`${item.templateName} ${item.templateVersion} · ${item.hostName}`} />
     {pageError && <Alert className="instance-page-alert" type="warning" showIcon message={t('instanceRefreshFailed')} description={pageError} action={<Button size="small" onClick={() => void load()}>{t('retry')}</Button>} />}
     {lifecycleRequestFailurePanel}
     {taskRetryRequestPanel}

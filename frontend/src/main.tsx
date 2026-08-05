@@ -9,6 +9,7 @@ import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { SystemSettingsProvider } from './contexts/SystemSettingsContext'
 import i18n from './i18n'
+import { appButtonConfig, appTheme } from './theme'
 import './styles/global.css'
 
 function ProductApp() {
@@ -24,14 +25,8 @@ function Root() {
     <ConfigProvider
       locale={active.language === 'en-US' ? enUS : zhCN}
       modal={{ closable: { 'aria-label': t('close') } }}
-      theme={{
-        token: {
-          colorPrimary: '#2563eb',
-          borderRadius: 10,
-          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        },
-        components: { Layout: { headerBg: '#fff', siderBg: '#fff' }, Menu: { itemBorderRadius: 8 } },
-      }}
+      button={appButtonConfig}
+      theme={appTheme}
     >
       <AntApp><RouterProvider router={router} /></AntApp>
     </ConfigProvider>

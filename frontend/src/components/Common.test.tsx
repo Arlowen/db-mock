@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
 import i18n from '../i18n'
-import { PageHeader, PageHeaderTargetProvider, StatusTag } from './Common'
+import { EmptyState, PageHeader, PageHeaderTargetProvider, StatusTag } from './Common'
 
 describe('StatusTag', () => {
   it('renders a localized status', async () => {
@@ -20,5 +20,12 @@ describe('PageHeader', () => {
     expect(within(target).getByRole('heading', { name: 'Instances' })).toHaveAttribute('tabindex', '-1')
     expect(within(target).getByText('Managed databases')).toBeInTheDocument()
     target.remove()
+  })
+})
+
+describe('EmptyState', () => {
+  it('uses the requested semantic button variant', () => {
+    render(<I18nextProvider i18n={i18n}><EmptyState action={() => undefined} actionLabel="Clear filters" actionType="default" /></I18nextProvider>)
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toHaveClass('ant-btn-default')
   })
 })
